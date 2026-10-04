@@ -10,7 +10,7 @@
     {
       "name": "whats-next",
       "source": "./mods/whats-next",
-      "description": "A right-hand sidebar listing the next steps of your dev workflow, filled by /ask-sean; click a step to see its prompt."
+      "description": "A pane in the side panel listing the next steps of your dev workflow, filled by /ask-sean; click a step to see its prompt."
     },
     {
       "name": "quick-reply",
