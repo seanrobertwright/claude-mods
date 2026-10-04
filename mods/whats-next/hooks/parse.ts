@@ -84,15 +84,52 @@ export type Config = {
   skill: string
   maxSteps: number
   refreshOnStart: boolean
-  allowedTools: string
+  /** Permission rules for the headless run, one per entry. */
+  allowedTools: string[]
   model: string
 }
+
+/**
+ * Read-only by subcommand: a bare `Bash(git:*)` would also allow `git push`,
+ * `git -c core.sshCommand=...` and `gh api -X DELETE`.
+ */
+export const READ_ONLY_TOOLS: readonly string[] = [
+  'Bash(git status:*)',
+  'Bash(git log:*)',
+  'Bash(git diff:*)',
+  'Bash(git show:*)',
+  'Bash(git rev-parse:*)',
+  'Bash(git branch --show-current)',
+  'Bash(git branch -vv)',
+  'Bash(git remote -v)',
+  'Bash(gh issue list:*)',
+  'Bash(gh issue view:*)',
+  'Bash(gh pr list:*)',
+  'Bash(gh pr view:*)',
+  'Bash(gh pr checks:*)',
+  'Bash(gh run list:*)',
+  'Read',
+  'Glob',
+  'Grep',
+]
+
+/**
+ * Denied whatever `allowedTools` says (a deny rule wins over an allow): the
+ * commands that write, reach the network or run code through an option.
+ */
+export const DENIED_TOOLS: readonly string[] = [
+  'Bash(git push:*)',
+  'Bash(git config:*)',
+  'Bash(git -c:*)',
+  'Bash(gh api:*)',
+  'Bash(* --output*)',
+]
 
 const DEFAULTS: Config = {
   skill: '/ask-sean',
   maxSteps: 5,
   refreshOnStart: true,
-  allowedTools: 'Bash(git:*),Bash(gh:*),Read,Glob,Grep',
+  allowedTools: [...READ_ONLY_TOOLS],
   model: '',
 }
 
@@ -109,7 +146,7 @@ export function parseConfig(options: Readonly<Record<string, unknown>>): Config 
   const tools = typeof options.allowedTools === 'string'
     ? options.allowedTools.split(',').map(tool => tool.trim()).filter(tool => tool !== '')
     : []
-  const allowedTools = tools.length > 0 ? tools.join(',') : DEFAULTS.allowedTools
+  const allowedTools = tools.length > 0 ? tools : DEFAULTS.allowedTools
   const model = typeof options.model === 'string' && /^[\w.:\-[\]]*$/.test(options.model.trim())
     ? options.model.trim()
     : DEFAULTS.model

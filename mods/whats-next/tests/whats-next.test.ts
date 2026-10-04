@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { buildAsk, parseConfig, parseSteps } from '../hooks/parse'
+import { buildAsk, DENIED_TOOLS, parseConfig, parseSteps, READ_ONLY_TOOLS } from '../hooks/parse'
 
 const FENCE = '```'
 
@@ -53,9 +53,18 @@ test('parseConfig rejects out-of-range options', () => {
   const config = parseConfig({ skill: 'ask-sean; rm', maxSteps: 40, allowedTools: ' , ', model: 'bad model' })
   expect(config.skill).toBe('/ask-sean')
   expect(config.maxSteps).toBe(5)
-  expect(config.allowedTools).toBe('Bash(git:*),Bash(gh:*),Read,Glob,Grep')
+  expect(config.allowedTools).toEqual([...READ_ONLY_TOOLS])
   expect(config.model).toBe('')
   expect(buildAsk('/ask-sean', 3).startsWith('/ask-sean ')).toBe(true)
+  expect(parseConfig({ allowedTools: 'Read, Bash(git log:*)' }).allowedTools).toEqual(['Read', 'Bash(git log:*)'])
+})
+
+test('the default rules allow no blanket git or gh access', () => {
+  for (const rule of READ_ONLY_TOOLS) {
+    expect(rule === 'Bash(git:*)' || rule === 'Bash(gh:*)' || rule.startsWith('Bash(git push')).toBe(false)
+  }
+  expect(DENIED_TOOLS).toContain('Bash(git push:*)')
+  expect(DENIED_TOOLS).toContain('Bash(gh api:*)')
 })
 
 test('refresh lists the steps and a press opens the prompt popup', async ($, on) => {
@@ -118,6 +127,12 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
 
   expect(opened).toContain('whats-next-prompt')
   const claudeRun = runs.find(argv => argv[0] === 'claude')
-  expect(claudeRun).toContain('--allowedTools')
   expect(claudeRun).toContain('dontAsk')
+  expect(claudeRun).toContain('Bash(git log:*)')
+  expect(claudeRun).not.toContain('Bash(git:*)')
+  expect(claudeRun).toContain('Bash(git push:*)')
+  const sources = claudeRun?.indexOf('--setting-sources') ?? -1
+  expect(claudeRun?.[sources + 1]).toBe('user')
+  // Every deny rule follows --disallowedTools, after the allow list.
+  expect(claudeRun?.indexOf('--disallowedTools') ?? -1).toBeGreaterThan(claudeRun?.indexOf('--allowedTools') ?? 0)
 })
