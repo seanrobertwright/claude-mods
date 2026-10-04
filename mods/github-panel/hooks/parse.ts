@@ -1,8 +1,8 @@
-import type { Checks, Issue, PullRequest } from '../types'
+import type { Blocker, Checks, Issue, PullRequest } from '../types'
 
 /** The fields asked of `gh pr list` and `gh issue list`; parsePrs and parseIssues read these. */
 export const PR_FIELDS = 'number,title,author,isDraft,reviewDecision,statusCheckRollup'
-export const ISSUE_FIELDS = 'number,title,author,labels'
+export const ISSUE_FIELDS = 'number,title,author,labels,blockedBy'
 
 export type Config = { limit: number; refreshMs: number }
 
@@ -78,6 +78,14 @@ export function parsePrs(json: string): PullRequest[] {
   })
 }
 
+/** The open issues of a `blockedBy` connection; a closed blocker no longer blocks. */
+function openBlockers(connection: unknown): Blocker[] {
+  const nodes = isRecord(connection) && Array.isArray(connection.nodes) ? connection.nodes : []
+  return nodes.filter(isRecord).flatMap(node =>
+    isNumber(node.number) && text(node.state) === 'OPEN' ? [{ number: node.number, title: text(node.title) }] : [],
+  )
+}
+
 /** Reads `gh issue list --json` output; entries without a number and title are dropped. */
 export function parseIssues(json: string): Issue[] {
   const rows: unknown = JSON.parse(json)
@@ -87,7 +95,13 @@ export function parseIssues(json: string): Issue[] {
     const labels = Array.isArray(row.labels)
       ? row.labels.flatMap(label => (isRecord(label) && text(label.name) !== '' ? [text(label.name)] : []))
       : []
-    return [{ number: row.number, title: text(row.title), author: login(row.author), labels }]
+    return [{
+      number: row.number,
+      title: text(row.title),
+      author: login(row.author),
+      labels,
+      blockedBy: openBlockers(row.blockedBy),
+    }]
   })
 }
 
@@ -112,9 +126,10 @@ export function prDetail(pr: PullRequest): string {
     .join(' · ')
 }
 
-/** The dim line under an issue: labels, author. */
+/** The line under an issue: what blocks it, labels, author. */
 export function issueDetail(issue: Issue): string {
-  return [issue.labels.join(', '), issue.author === '' ? '' : `@${issue.author}`]
+  const blockers = issue.blockedBy.map(blocker => `#${blocker.number}`).join(', ')
+  return [blockers === '' ? '' : `blocked by ${blockers}`, issue.labels.join(', '), issue.author === '' ? '' : `@${issue.author}`]
     .filter(part => part !== '')
     .join(' · ')
 }
@@ -123,6 +138,17 @@ export function issueDetail(issue: Issue): string {
 export function fit(line: string, max: number): string {
   const chars = Array.from(line)
   return chars.length <= max ? line : `${chars.slice(0, Math.max(1, max - 1)).join('')}…`
+}
+
+/**
+ * The hover card's lines for an issue's blockers, each padded to `width` code
+ * points so the card covers the rows it is drawn over.
+ */
+export function blockerLines(blockers: readonly Blocker[], width: number): string[] {
+  return ['Blocked by', ...blockers.map(blocker => `#${blocker.number} ${blocker.title}`)].map(line => {
+    const cut = fit(line, width)
+    return cut + ' '.repeat(Math.max(0, width - Array.from(cut).length))
+  })
 }
 
 export function ago(ms: number): string {

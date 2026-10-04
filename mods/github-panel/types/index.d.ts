@@ -11,11 +11,19 @@ export type PullRequest = {
   checks: Checks
 }
 
+/** An open issue that blocks another, as GitHub's issue dependencies record it. */
+export type Blocker = {
+  number: number
+  title: string
+}
+
 export type Issue = {
   number: number
   title: string
   author: string
   labels: string[]
+  /** The open issues this one is blocked by; empty when nothing open blocks it. */
+  blockedBy: Blocker[]
 }
 
 export type GitHubView = {

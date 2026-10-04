@@ -9,7 +9,7 @@ Each mod is a Claude Code plugin of function hooks under `mods/`.
 - **whats-next**: a pane in the side panel listing the next steps of your workflow, filled by the `/ask-sean` skill. Click a step to see its prompt, then paste or copy it.
 - **quick-reply**: one-click replies above the prompt, including the options Claude just offered.
 - **auto-resume**: after a rate limit or an overloaded API, counts down to the reset and sends "continue".
-- **github-panel**: a GitHub pane beside What's Next listing the repo's open pull requests and issues. Click one to open it in the browser.
+- **github-panel**: a GitHub pane beside What's Next listing the repo's open pull requests and issues. Click one to open it in the browser. An issue blocked by an open issue has a red line under it; hover it to see what blocks it.
 
 The side panel's tabs come from Claude Code itself: when more than one mod has a pane open, it shows them as tabs.
 
