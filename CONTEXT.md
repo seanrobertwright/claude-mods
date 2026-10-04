@@ -46,7 +46,7 @@ A session started without a surface becomes interactive when one is attached.
 
 **Headless session**:
 A session shown on no surface: a `claude -p` process, or an SDK session nobody has opened.
-A mod stays quiet in a headless session: it draws nothing, polls nothing and starts nothing new, so no prompt and no headless run of its own.
+_Target_: a mod stays quiet in a headless session: it draws nothing, polls nothing and starts nothing new, so no prompt and no headless run of its own.
 Work set going while the session was shown, such as a resume after a rate limit, still finishes.
 _Avoid_: Background session, child session
 
