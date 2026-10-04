@@ -592,3 +592,30 @@ test('with steps kept from before, a missing skill still lets the pane open for 
   expect(await pane.find({ type: 'Text', text: /\/ask-sean.*not installed/ })).toBeDefined()
   await pane.unmount()
 })
+
+test('with no surface an answered turn is not judged; once one is back, the next is', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const verdicts = ['DONE']
+  const toasts: string[] = []
+  const stored = new Map<string, unknown>()
+  const surfaces = ['terminal']
+  fakeEngine(on, verdicts, toasts, stored, surfaces)
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  await pane.press({ key: 'refresh' })
+  await $.prompt.submit(submit('/triage'))
+  const kept = stored.get('list:/work/repo')
+
+  // The last surface detaches; the session keeps running turns.
+  surfaces.length = 0
+  await $.turn.complete(turn('All three are triaged.'))
+  expect(verdicts).toEqual(['DONE'])
+  expect(toasts).toEqual([])
+  expect(stored.get('list:/work/repo')).toBe(kept)
+
+  surfaces.push('terminal')
+  await $.turn.complete(turn('All three are triaged.'))
+  expect(verdicts).toEqual([])
+  expect(await pane.find({ key: 'open-2' })).toBeUndefined()
+  await pane.unmount()
+})
