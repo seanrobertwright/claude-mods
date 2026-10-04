@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { NextList, NextStep } from '../types'
-import { buildAsk, parseCached, parseConfig, parseSteps } from './parse'
+import { buildAsk, DENIED_TOOLS, parseCached, parseConfig, parseSteps } from './parse'
 import type { Config } from './parse'
 
 const PANE = 'whats-next'
@@ -64,11 +64,16 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
     update($, list, current => (current.runId === runId ? change(current) : current))
 
   try {
+    // dontAsk denies every tool the rules do not allow. Only the person's own
+    // settings load: a repo's .claude/settings.json could otherwise widen them.
+    // The prompt arrives on stdin, so each variadic rule list ends at the next flag.
     const argv = [
       'claude', '-p',
+      '--setting-sources', 'user',
       '--permission-mode', 'dontAsk',
-      '--allowedTools', config.allowedTools,
       ...(config.model === '' ? [] : ['--model', config.model]),
+      '--allowedTools', ...config.allowedTools,
+      '--disallowedTools', ...DENIED_TOOLS,
     ]
     const run = await $.process.run(argv, {
       stdin: buildAsk(config.skill, config.maxSteps),

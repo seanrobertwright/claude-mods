@@ -25,8 +25,8 @@
     "allowedTools": {
       "type": "string",
       "title": "Tools the helper may use",
-      "description": "Comma-separated --allowedTools for the headless run; keep it read-only.",
-      "default": "Bash(git:*),Bash(gh:*),Read,Glob,Grep"
+      "description": "Comma-separated permission rules for the headless run; empty uses a built-in read-only set of git and gh read commands plus Read, Glob and Grep. git push, git config, git -c, gh api and --output are always denied.",
+      "default": ""
     },
     "model": {
       "type": "string",
