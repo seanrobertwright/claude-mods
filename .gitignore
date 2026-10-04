@@ -12,3 +12,6 @@ desktop.ini
 
 # Type declarations the Claude Code engine writes into each mod on load
 .claude-plugin/types/
+
+# Local review reports written by /code-review
+.agents/
