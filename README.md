@@ -22,7 +22,7 @@ claude plugin marketplace add <path to this repo>
 claude plugin install whats-next@claude-mods
 ```
 
-Claude Code reads an installed mod from this folder, so after an edit `/reload-plugins` picks it up. To try a mod for one session only, run `claude --plugin-dir mods/<name>`.
+In the terminal, Claude Code reads an installed mod from this folder, so an edit takes effect at the next session start or after `/reload-plugins`. Claude Desktop runs a copy kept in Claude Code's plugin cache instead: `claude plugin update` leaves that copy alone while the mod's version is unchanged, so only a reinstall or a version bump brings an edit there. To try a mod for one session only, run `claude --plugin-dir mods/<name>`.
 
 ## Checks
 

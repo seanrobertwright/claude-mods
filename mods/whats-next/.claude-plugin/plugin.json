@@ -25,7 +25,7 @@
     "allowedTools": {
       "type": "string",
       "title": "Tools the headless run may use",
-      "description": "Comma-separated permission rules for the headless run; empty uses a built-in read-only set of git and gh read commands plus Read, Glob and Grep. git push, git config, git -c, gh api and --output are always denied.",
+      "description": "Comma-separated permission rules for the headless run; empty uses a built-in read-only set of git and gh read commands plus Read, Glob and Grep. The run gets only the tools these rules name, but your own user settings' allow rules for those tools apply too. git push, git config, git -c, gh api and --output are always denied.",
       "default": ""
     },
     "model": {

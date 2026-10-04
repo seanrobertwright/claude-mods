@@ -150,7 +150,18 @@ const DEFAULTS: Config = {
   model: '',
 }
 
-/** Parses the manifest's userConfig values; a value out of range falls back to its default. */
+/**
+ * A permission rule as the headless run takes it: a tool name, optionally with
+ * a `(...)` specifier. Anything else, a leading `-` above all, would reach the
+ * claude argv as a flag of its own.
+ */
+const RULE = /^[A-Za-z][\w*-]*(\(.*\))?$/
+
+/**
+ * Parses the manifest's userConfig values; a value out of range falls back to
+ * its default. An `allowedTools` list with any malformed rule falls back whole
+ * to the built-in set, rather than running with part of what the person wrote.
+ */
 export function parseConfig(options: Readonly<Record<string, unknown>>): Config {
   const skill = typeof options.skill === 'string' && /^\/[\w:.-]+$/.test(options.skill.trim())
     ? options.skill.trim()
@@ -163,11 +174,25 @@ export function parseConfig(options: Readonly<Record<string, unknown>>): Config 
   const tools = typeof options.allowedTools === 'string'
     ? options.allowedTools.split(',').map(tool => tool.trim()).filter(tool => tool !== '')
     : []
-  const allowedTools = tools.length > 0 ? tools : DEFAULTS.allowedTools
-  const model = typeof options.model === 'string' && /^[\w.:\-[\]]*$/.test(options.model.trim())
+  const allowedTools = tools.length > 0 && tools.every(tool => RULE.test(tool)) ? tools : DEFAULTS.allowedTools
+  const model = typeof options.model === 'string' && /^([\w.:[\]][\w.:\-[\]]*)?$/.test(options.model.trim())
     ? options.model.trim()
     : DEFAULTS.model
   return { skill, maxSteps, refreshOnStart, allowedTools, model }
+}
+
+/**
+ * The flags that bound the headless run to the tools its rules name. Without
+ * them it gets every built-in tool and every MCP server of the person's
+ * settings, and their own allow rules for those reach it too. `Skill` is always
+ * kept, so a skill that calls another still can. MCP servers load only when a
+ * rule names an `mcp__` tool.
+ */
+export function toolFlags(allowedTools: readonly string[]): string[] {
+  const names = allowedTools.map(rule => rule.replace(/\(.*$/, ''))
+  const builtIns = [...new Set([...names.filter(name => !name.startsWith('mcp__')), 'Skill'])]
+  const hasMcp = names.some(name => name.startsWith('mcp__'))
+  return ['--tools', builtIns.join(','), ...(hasMcp ? [] : ['--strict-mcp-config'])]
 }
 
 function squash(text: string): string {
