@@ -2,7 +2,6 @@
 
 One developer's personal toolbox of Claude Code mods, shared as a marketplace so anyone can install them.
 The mods are built for the author's own workflow first; another user is a welcome guest, not the design target.
-A sentence marked _Target_ is a rule every mod is meant to follow; not every mod follows it yet.
 An _Avoid_ word is wrong only where it names that entry's concept; Claude Code's own identifiers and the same word for an unrelated idea are fine.
 
 ## Language
@@ -46,7 +45,7 @@ A session started without a surface becomes interactive when one is attached.
 
 **Headless session**:
 A session shown on no surface: a `claude -p` process, or an SDK session nobody has opened.
-_Target_: a mod stays quiet in a headless session: it draws nothing, polls nothing and starts nothing new, so no prompt and no headless run of its own.
+A mod stays quiet in a headless session: it draws nothing, polls nothing and starts nothing new, so no prompt and no headless run of its own.
 Work set going while the session was shown, such as a resume after a rate limit, still finishes.
 _Avoid_: Background session, child session
 

@@ -302,9 +302,10 @@ export const register: Register = (on, options) => {
   })
 
   // After each answered turn of the main loop, ask whether it finished the active step.
+  // A headless session asks nothing: the step stays active until a surface shows it again.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    if (e.agentId !== undefined || e.reason !== 'answer') return done
+    if (e.agentId !== undefined || e.reason !== 'answer' || !(await isShown($))) return done
     const step = await read($, active)
     if (step !== null) void judge($, step, e.answer).catch(report($))
     return done
