@@ -16,6 +16,9 @@ const hasStartedUp = atom({ plugin: 'github-panel', key: 'hasStartedUp' } as con
 
 // Dies with the module on a reload; session.start or the next attach starts it again.
 let every: Timer | undefined
+// Counts attaches, so a surfaces check answered before an attach cannot stop
+// the polling that attach kept going.
+let attaches = 0
 
 /**
  * Whether any surface shows the session right now. Asked before each action
@@ -35,12 +38,14 @@ function stopPolling(): void {
 function startPolling($: EngineInterface, config: Config): void {
   stopPolling()
   if (config.refreshMs <= 0) return
-  every = $.clock.every(config.refreshMs, () => {
+  const own = $.clock.every(config.refreshMs, () => {
     void (async () => {
+      const seen = attaches
       if (await isShown($)) await load($, config)
-      else stopPolling()
+      else if (every === own && attaches === seen) stopPolling()
     })().catch(report($))
   })
+  every = own
 }
 
 function report($: EngineInterface): (error: unknown) => void {
@@ -140,6 +145,7 @@ export const register: Register = (on, options) => {
   })
 
   on('session.attach', async ($, e, next) => {
+    attaches += 1
     const done = await next(e)
     if (every === undefined) startPolling($, config)
     let isFirst = false
@@ -155,8 +161,9 @@ export const register: Register = (on, options) => {
   })
 
   on('session.detach', async ($, e, next) => {
+    const seen = attaches
     const done = await next(e)
-    if (!(await isShown($))) stopPolling()
+    if (!(await isShown($)) && attaches === seen) stopPolling()
     return done
   })
 
