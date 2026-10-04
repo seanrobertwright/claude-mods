@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { findOptions, optionReply, parseReplies, readAnswer } from '../hooks/detect'
@@ -101,4 +101,28 @@ test('after a plain answer the band offers the idle replies, and none while work
   })
   expect(await busy.find({ key: 'reply-Continue' })).toBeUndefined()
   await busy.unmount()
+})
+
+test('in a headless session a question submits no prompt and starts no process', async ($, on) => {
+  engineBeneath(on)
+  const clock = mock.clock(on, { now: 1_000 })
+  const sent: string[] = []
+  const runs: (readonly string[])[] = []
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: [] }))
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('prompt.submit', (_$, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
+  on('process.run', (_$, e) => {
+    runs.push(e.argv)
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  await $.session.start({ cwd: '/work/repo', surface: null, isInteractive: false })
+  await $.turn.complete({ answer: CHOICE, durationMs: 10, isAborted: false, turnId: 't3', reason: 'answer' })
+  await clock.advance(600_000)
+  expect(sent).toEqual([])
+  expect(runs).toEqual([])
 })
