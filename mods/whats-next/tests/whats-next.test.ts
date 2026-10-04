@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
 
 import { buildAsk, DENIED_TOOLS, parseConfig, parseSteps, READ_ONLY_TOOLS } from '../hooks/parse'
 
@@ -135,4 +136,111 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
   expect(claudeRun?.[sources + 1]).toBe('user')
   // Every deny rule follows --disallowedTools, after the allow list.
   expect(claudeRun?.indexOf('--disallowedTools') ?? -1).toBeGreaterThan(claudeRun?.indexOf('--allowedTools') ?? 0)
+})
+
+const DESKTOP = { surface: 'desktop', clientId: 'desktop:default', viewport: { columns: 200, rows: 50, isFullscreen: true } } as const
+const PHONE = { surface: 'mobile', clientId: 'mobile:default', viewport: { columns: 40, rows: 60, isFullscreen: false } } as const
+
+/**
+ * The engine beneath the plugin for a session's life: the surfaces showing it
+ * (the test edits the list), every pane opened and every process run, with
+ * git answering whether the folder is a repo and claude answering REPLY.
+ */
+type World = { surfaces: string[]; opened: string[]; runs: (readonly string[])[]; isGitRepo: boolean }
+
+function fakeSession(on: On, world: World): void {
+  mock.store(on)
+  mock.env(on, {})
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
+  on('session.cwd', () => ({ value: '/work/repo' }))
+  on('session.surfaces', () => ({ value: [...world.surfaces] as never }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('ui.open', (_$, e) => {
+    world.opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('process.run', (_$, e) => {
+    world.runs.push(e.argv)
+    const isGit = e.argv[0] === 'git'
+    const exitCode = isGit && !world.isGitRepo ? 128 : 0
+    return { value: { exitCode, stdout: isGit ? 'true\n' : REPLY, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+}
+
+const isHeadlessRun = (argv: readonly string[]) => argv[0] === 'claude'
+const HEADLESS_START = { cwd: '/work/repo', surface: null, isInteractive: false } as const
+
+test('a headless session opens no pane and starts no headless run', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world: World = { surfaces: [], opened: [], runs: [], isGitRepo: true }
+  fakeSession(on, world)
+
+  await $.session.start(HEADLESS_START)
+  await clock.settle()
+  expect(world.runs.filter(isHeadlessRun)).toEqual([])
+  expect(world.opened).toEqual([])
+})
+
+test('the first attach refreshes once and opens the pane where it docks', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world: World = { surfaces: [], opened: [], runs: [], isGitRepo: true }
+  fakeSession(on, world)
+
+  await $.session.start(HEADLESS_START)
+  await clock.settle()
+  expect(world.runs).toEqual([])
+  world.surfaces.push('desktop')
+  await $.session.attach(DESKTOP)
+  await clock.settle()
+  expect(world.runs.filter(isHeadlessRun).length).toBe(1)
+  expect(world.opened).toEqual(['whats-next'])
+
+  world.surfaces.push('mobile')
+  await $.session.attach(PHONE)
+  await clock.settle()
+  expect(world.runs.filter(isHeadlessRun).length).toBe(1)
+  expect(world.opened).toEqual(['whats-next'])
+})
+
+test('a phone attaching first refreshes but waits for /whats-next to open the pane', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world: World = { surfaces: [], opened: [], runs: [], isGitRepo: true }
+  fakeSession(on, world)
+
+  await $.session.start(HEADLESS_START)
+  world.surfaces.push('mobile')
+  await $.session.attach(PHONE)
+  await clock.settle()
+  expect(world.runs.filter(isHeadlessRun).length).toBe(1)
+  expect(world.opened).toEqual([])
+
+  await $.command.run({ command: 'whats-next', args: '', origin: { kind: 'bridge' }, presentation: { isFullscreen: false, columns: 40 } })
+  expect(world.opened).toEqual(['whats-next'])
+})
+
+test('attaching outside a git repo starts no headless run', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world: World = { surfaces: [], opened: [], runs: [], isGitRepo: false }
+  fakeSession(on, world)
+
+  await $.session.start(HEADLESS_START)
+  world.surfaces.push('desktop')
+  await $.session.attach(DESKTOP)
+  await clock.settle()
+  expect(world.runs.filter(isHeadlessRun)).toEqual([])
+  expect(world.opened).toEqual(['whats-next'])
+})
+
+test('attaching with refresh on start turned off starts no headless run', { options: { refreshOnStart: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world: World = { surfaces: [], opened: [], runs: [], isGitRepo: true }
+  fakeSession(on, world)
+
+  await $.session.start(HEADLESS_START)
+  world.surfaces.push('desktop')
+  await $.session.attach(DESKTOP)
+  await clock.settle()
+  expect(world.runs.filter(isHeadlessRun)).toEqual([])
+  expect(world.opened).toEqual(['whats-next'])
 })

@@ -12,6 +12,11 @@ export type NextList = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'whats-next': { list: NextList; selected: NextStep | null }
+    'whats-next': {
+      list: NextList
+      selected: NextStep | null
+      /** True once this session's start-up work has run: at start, or at the first attach. */
+      hasStartedUp: boolean
+    }
   }
 }
