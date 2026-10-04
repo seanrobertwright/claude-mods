@@ -6,10 +6,10 @@ claude-mods is one developer's personal toolbox of Claude Code mods, shared as a
 
 Each mod is a Claude Code plugin of function hooks under `mods/`.
 
-- **whats-next**: a pane in the side panel listing the next steps of your workflow, filled by the `/ask-sean` skill. Click a step to see its prompt, then paste or copy it.
+- **whats-next**: a pane in the side panel listing the next steps of your workflow, filled by the `/ask-sean` skill. Click a step to see its prompt, then paste or copy it. Once you submit a step's prompt, the step shows a glowing "working on it" line. After each answered turn, Haiku is asked whether the step is finished, and a finished step leaves the list. Press `d` to drop it yourself.
 - **quick-reply**: one-click replies above the prompt, including the options Claude just offered.
 - **auto-resume**: after a rate limit or an overloaded API, counts down to the reset and sends "continue".
-- **github-panel**: a GitHub pane beside What's Next listing the repo's open pull requests and issues. Click one to open it in the browser.
+- **github-panel**: a GitHub pane beside What's Next listing the repo's open pull requests and issues. Click one to open it in the browser. An issue blocked by an open issue has a red line under it; hover it to see what blocks it.
 
 The side panel's tabs come from Claude Code itself: when more than one mod has a pane open, it shows them as tabs.
 

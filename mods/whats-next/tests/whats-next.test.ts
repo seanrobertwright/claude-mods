@@ -1,7 +1,17 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { buildAsk, DENIED_TOOLS, parseConfig, parseSteps, READ_ONLY_TOOLS } from '../hooks/parse'
+import {
+  buildAsk,
+  buildJudge,
+  DENIED_TOOLS,
+  isDone,
+  matchStep,
+  parseConfig,
+  parseSteps,
+  READ_ONLY_TOOLS,
+  shimmer,
+} from '../hooks/parse'
 
 const FENCE = '```'
 
@@ -243,4 +253,118 @@ test('attaching with refresh on start turned off starts no headless run', { opti
   await clock.settle()
   expect(world.runs.filter(isHeadlessRun)).toEqual([])
   expect(world.opened).toEqual(['whats-next'])
+})
+
+test('matchStep finds the step a submitted prompt starts, words added after it allowed', () => {
+  const steps = parseSteps(REPLY, 5)
+  expect(matchStep(steps, '/implement GitHub issue #52\n  Branch from main.')?.title).toBe('Push the auth branch and open its PR')
+  expect(matchStep(steps, '/triage and start with the oldest')?.title).toBe('Triage incoming bugs')
+  expect(matchStep(steps, 'please /triage')).toBeUndefined()
+  expect(matchStep(steps, '')).toBeUndefined()
+})
+
+test('isDone reads DONE alone as done, and the judge sees the step and the answer', () => {
+  expect(isDone('DONE')).toBe(true)
+  expect(isDone(' done.')).toBe(true)
+  expect(isDone('NOT_DONE')).toBe(false)
+  expect(isDone('')).toBe(false)
+  const ask = buildJudge({ title: 'Triage', why: '', prompt: '/triage' }, 'Triaged all three.')
+  expect(ask).toContain('Step: Triage')
+  expect(ask).toContain('<message>\nTriaged all three.\n</message>')
+})
+
+test('shimmer sweeps a lit band across the line and starts over', () => {
+  expect(shimmer('abcdef', 0)).toEqual(['', '', 'abcdef'])
+  expect(shimmer('abcdef', 2)).toEqual(['', 'ab', 'cdef'])
+  expect(shimmer('abcdef', 5)).toEqual(['ab', 'cde', 'f'])
+  expect(shimmer('abcdef', 8)).toEqual(['abcde', 'f', ''])
+  expect(shimmer('abcdef', 9)).toEqual(shimmer('abcdef', 0))
+})
+
+/** The engine beneath the plugin: the skill's reply, one surface showing, what the judge answers, a store it records. */
+function fakeEngine(on: On, verdicts: string[], toasts: string[], stored: Map<string, unknown>, surfaces = ['terminal']): void {
+  on('store.get', (_$, e) => ({ value: stored.get(e.key) }))
+  on('store.set', (_$, e) => {
+    stored.set(e.key, e.value)
+    return { value: undefined }
+  })
+  mock.env(on, {})
+  on('session.cwd', () => ({ value: '/work/repo' }))
+  on('session.surfaces', () => ({ value: [...surfaces] as never }))
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('prompt.submit', (_$, e) => ({ text: e.text }))
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('model.complete', () => ({ value: { isAnswered: true, text: verdicts.shift() ?? 'NOT_DONE', usage: {} as never } }))
+  on('process.run', (_$, e) => ({
+    value: { exitCode: 0, stdout: e.argv[0] === 'git' ? 'true\n' : REPLY, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+}
+
+const submit = (text: string) => ({ text, wait: false, origin: { kind: 'composer' } }) as const
+const turn = (answer: string) => ({ answer, durationMs: 10, isAborted: false, turnId: 't', reason: 'answer' }) as const
+
+test('a submitted step glows until the judge calls it done, then leaves the list', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const verdicts = ['NOT_DONE', 'DONE']
+  const toasts: string[] = []
+  const stored = new Map<string, unknown>()
+  fakeEngine(on, verdicts, toasts, stored)
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ type: 'Text', text: 'working on it' })).toBeUndefined()
+
+  await $.prompt.submit(submit('/triage'))
+  expect(await pane.find({ type: 'Text', text: 'working on it' })).toBeDefined()
+  expect(await pane.find({ key: 'done' })).toBeDefined()
+  const lit = async () => JSON.stringify((await pane.find({ type: 'Text', text: 'working on it' }))?.children)
+  const first = await lit()
+  await clock.advance(360)
+  expect(await lit()).not.toBe(first)
+
+  await $.turn.complete(turn('Labelled two of the three.'))
+  expect((await pane.find({ key: 'open-2' }))?.text).toContain('Triage incoming bugs')
+
+  await $.turn.complete(turn('All three are triaged.'))
+  expect(await pane.find({ key: 'open-2' })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: 'working on it' })).toBeUndefined()
+  expect(toasts).toContain(`What's next: done with "Triage incoming bugs".`)
+  const kept = stored.get('list:/work/repo') as { steps: { title: string }[] }
+  expect(kept.steps.map(step => step.title)).toEqual(['Push the auth branch and open its PR'])
+  await pane.unmount()
+})
+
+test('the done button drops the active step', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const verdicts: string[] = []
+  const toasts: string[] = []
+  fakeEngine(on, verdicts, toasts, new Map())
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const pane = await $.ui.mount({ plugin: 'whats-next', surface, component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+    await pane.press({ key: 'refresh' })
+    await $.prompt.submit(submit('/implement GitHub issue #52\nBranch from main.'))
+    await pane.press({ key: 'done' })
+    expect(await pane.find({ key: 'open-2' })).toBeUndefined()
+    expect((await pane.find({ key: 'open-1' }))?.text).toContain('Triage incoming bugs')
+    await pane.unmount()
+  }
+})
+
+test('a headless session never starts a step, so no judge runs there', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const verdicts = ['DONE']
+  fakeEngine(on, verdicts, [], new Map(), [])
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  await pane.press({ key: 'refresh' })
+  await $.prompt.submit(submit('/triage'))
+  expect(await pane.find({ type: 'Text', text: 'working on it' })).toBeUndefined()
+  await $.turn.complete(turn('All three are triaged.'))
+  expect(verdicts).toEqual(['DONE'])
+  expect((await pane.find({ key: 'open-2' }))?.text).toContain('Triage incoming bugs')
+  await pane.unmount()
 })

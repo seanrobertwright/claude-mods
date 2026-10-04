@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { fit, foldChecks, issueDetail, missingRequirement, parseConfig, parseIssues, parsePrs, prDetail } from '../hooks/parse'
+import { blockerLines, fit, foldChecks, issueDetail, missingRequirement, parseConfig, parseIssues, parsePrs, prDetail } from '../hooks/parse'
 
 const PRS = JSON.stringify([
   {
@@ -20,6 +20,19 @@ const PRS = JSON.stringify([
 
 const ISSUES = JSON.stringify([
   { number: 7, title: 'Sidebar flickers', author: { login: 'octocat' }, labels: [{ name: 'bug' }, { name: 'needs-triage' }] },
+  {
+    number: 9,
+    title: 'Ship the pane',
+    author: { login: 'hubot' },
+    labels: [],
+    blockedBy: {
+      nodes: [
+        { number: 7, state: 'OPEN', title: 'Sidebar flickers' },
+        { number: 3, state: 'CLOSED', title: 'Done already' },
+      ],
+      totalCount: 2,
+    },
+  },
   { title: 'no number, dropped' },
 ])
 
@@ -66,8 +79,12 @@ test('parsePrs and parseIssues read gh JSON and drop malformed rows', () => {
   expect(prDetail(prs[0]!)).toBe('✓ checks · review required · @octocat')
   expect(prDetail(prs[1]!)).toBe('draft · @hubot')
   const issues = parseIssues(ISSUES)
-  expect(issues).toEqual([{ number: 7, title: 'Sidebar flickers', author: 'octocat', labels: ['bug', 'needs-triage'] }])
+  expect(issues).toEqual([
+    { number: 7, title: 'Sidebar flickers', author: 'octocat', labels: ['bug', 'needs-triage'], blockedBy: [] },
+    { number: 9, title: 'Ship the pane', author: 'hubot', labels: [], blockedBy: [{ number: 7, title: 'Sidebar flickers' }] },
+  ])
   expect(issueDetail(issues[0]!)).toBe('bug, needs-triage · @octocat')
+  expect(issueDetail(issues[1]!)).toBe('blocked by #7 · @hubot')
   expect(() => parsePrs('{}')).toThrow()
 })
 
@@ -76,6 +93,7 @@ test('parseConfig and fit hold their bounds', () => {
   expect(parseConfig({ limit: 100, refreshMinutes: 0 })).toEqual({ limit: 100, refreshMs: 0 })
   expect(fit('#1 a long title', 8)).toBe('#1 a lo…')
   expect(fit('short', 8)).toBe('short')
+  expect(blockerLines([{ number: 7, title: 'Sidebar flickers' }], 12)).toEqual(['Blocked by  ', '#7 Sidebar …'])
 })
 
 test('the pane lists open PRs and issues and opens a click on GitHub', async ($, on) => {
@@ -90,6 +108,9 @@ test('the pane lists open PRs and issues and opens a click on GitHub', async ($,
     expect(await pane.find({ type: 'Text', text: 'octo/widgets' })).toBeDefined()
     expect((await pane.find({ key: 'pr-12' }))?.text).toContain('Add the GitHub tab')
     expect((await pane.find({ key: 'issue-7' }))?.text).toContain('Sidebar flickers')
+    expect((await pane.find({ type: 'Text', text: /bug, needs-triage/ }))?.props.color).toBeUndefined()
+    expect((await pane.find({ type: 'Text', text: /blocked by #7/ }))?.props.color).toBe('red')
+    expect(await pane.find({ type: 'Text', text: /#7 Sidebar flickers/ })).toBeDefined()
 
     await pane.press({ key: 'pr-12' })
     expect(runs[runs.length - 1]).toEqual(['gh', 'pr', 'view', '12', '--web'])
