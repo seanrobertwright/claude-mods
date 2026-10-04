@@ -76,7 +76,7 @@ async function load($: EngineInterface, config: Config): Promise<void> {
   }
 }
 
-/** Loads the lists, then opens the tab unless this is no GitHub repo. */
+/** Loads the lists, then opens the pane unless this is no GitHub repo. */
 async function startUp($: EngineInterface, config: Config): Promise<void> {
   await load($, config)
   if ((await read($, view)).status !== 'unavailable') await $.ui.open({ id: PANE, title: TITLE })
@@ -92,7 +92,7 @@ export const register: Register = (on, options) => {
   const config = parseConfig(options)
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'github', description: 'Open the GitHub tab of the side panel: open PRs and issues' })
+    await $.command.register({ name: 'github', description: 'Open the GitHub pane in the side panel: open PRs and issues' })
     // A reload killed any load in flight: drop its loading state and its result.
     await update($, view, (current): GitHubView => ({
       ...current,
@@ -118,7 +118,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'github' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
     void load($, config).catch(report($))
-    return { text: 'GitHub tab opened.' }
+    return { text: 'GitHub pane opened.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

@@ -1,7 +1,7 @@
 {
   "name": "github-panel",
   "version": "0.1.0",
-  "description": "A GitHub tab in the side panel: the repo's open pull requests and issues; click one to open it in the browser.",
+  "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser.",
   "types": "./types/index.d.ts",
   "userConfig": {
     "limit": {

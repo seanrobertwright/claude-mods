@@ -78,7 +78,7 @@ test('parseConfig and fit hold their bounds', () => {
   expect(fit('short', 8)).toBe('short')
 })
 
-test('the tab lists open PRs and issues and opens a click on GitHub', async ($, on) => {
+test('the pane lists open PRs and issues and opens a click on GitHub', async ($, on) => {
   mock.clock(on, { now: 1_000 })
   on('ui.toast', () => ({ value: undefined }))
   const runs: (readonly string[])[] = []
@@ -101,7 +101,7 @@ test('the tab lists open PRs and issues and opens a click on GitHub', async ($, 
   }
 })
 
-test('outside a GitHub repo the tab says why and lists nothing', async ($, on) => {
+test('outside a GitHub repo the pane says why and lists nothing', async ($, on) => {
   mock.clock(on, { now: 1_000 })
   const runs: (readonly string[])[] = []
   fakeGh(on, runs, false)
