@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { GitHubView } from '../types'
-import { ago, fit, ISSUE_FIELDS, issueDetail, parseConfig, parseIssues, parsePrs, PR_FIELDS, prDetail } from './parse'
+import { ago, blockerLines, fit, ISSUE_FIELDS, issueDetail, parseConfig, parseIssues, parsePrs, PR_FIELDS, prDetail } from './parse'
 import type { Config } from './parse'
 
 const PANE = 'github'
@@ -225,17 +225,36 @@ export const register: Register = (on, options) => {
           <Button key="all-issues" plain dimColor label="all" onPress={() => void openOnGitHub($, ['issue', 'list']).catch(report($))} />
         </Box>
         {current.issues.length === 0 && current.updatedAt > 0 && <Text dimColor>No open issues.</Text>}
-        {current.issues.map(issue => (
-          <Box key={`issue-row-${issue.number}`} flexDirection="column">
-            <Button
-              key={`issue-${issue.number}`}
-              plain
-              label={fit(`#${issue.number} ${issue.title}`, room)}
-              onPress={() => void openOnGitHub($, ['issue', 'view', String(issue.number)]).catch(report($))}
-            />
-            {issueDetail(issue) !== '' && <Text dimColor wrap="truncate-end">  {issueDetail(issue)}</Text>}
-          </Box>
-        ))}
+        {current.issues.map(issue => {
+          const isBlocked = issue.blockedBy.length > 0
+          const label = fit(`#${issue.number} ${issue.title}`, room)
+          const open = () => void openOnGitHub($, ['issue', 'view', String(issue.number)]).catch(report($))
+          // A Button's label takes no color at rest, so a blocked issue's detail line is the red one.
+          return (
+            <Box key={`issue-row-${issue.number}`} flexDirection="column">
+              {isBlocked
+                ? <Button key={`issue-${issue.number}`} plain label={label} hover={{ color: 'red' }} onPress={open} />
+                : <Button key={`issue-${issue.number}`} plain label={label} onPress={open} />}
+              {issueDetail(issue) !== '' && (isBlocked
+                ? <Text color="red" wrap="truncate-end">  {issueDetail(issue)}</Text>
+                : <Text dimColor wrap="truncate-end">  {issueDetail(issue)}</Text>)}
+              {isBlocked && (
+                <Box
+                  position="absolute"
+                  top={2}
+                  left={2}
+                  width={width - 2}
+                  display="none"
+                  hover={{ display: 'flex' }}
+                  borderStyle="round"
+                  borderColor="red"
+                >
+                  <Text>{blockerLines(issue.blockedBy, width - 4).join('\n')}</Text>
+                </Box>
+              )}
+            </Box>
+          )
+        })}
       </Box>
     )
   })
