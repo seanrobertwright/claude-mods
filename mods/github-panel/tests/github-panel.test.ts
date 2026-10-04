@@ -113,3 +113,106 @@ test('outside a GitHub repo the pane says why and lists nothing', async ($, on) 
   expect(runs.some(argv => argv.includes('list'))).toBe(false)
   await pane.unmount()
 })
+
+const DESKTOP = { surface: 'desktop', clientId: 'desktop:default', viewport: { columns: 200, rows: 50, isFullscreen: true } } as const
+const PHONE = { surface: 'mobile', clientId: 'mobile:default', viewport: { columns: 40, rows: 60, isFullscreen: false } } as const
+const FIVE_MINUTES = 300_000
+
+/** The engine beneath the plugin: the surfaces showing the session (the test edits the list) and every pane opened. */
+function fakeSession(on: On, surfaces: string[], opened: string[]): void {
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
+  on('session.detach', (_$, e) => ({ clientId: e.clientId }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('session.surfaces', () => ({ value: [...surfaces] as never }))
+  on('ui.open', (_$, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+}
+
+const isLoad = (argv: readonly string[]) => argv[1] === 'repo' && argv[2] === 'view'
+
+test('a headless session runs no gh, starts no polling and opens no pane', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const runs: (readonly string[])[] = []
+  const opened: string[] = []
+  fakeGh(on, runs)
+  fakeSession(on, [], opened)
+
+  await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+  await clock.advance(3 * FIVE_MINUTES)
+  expect(runs).toEqual([])
+  expect(opened).toEqual([])
+})
+
+test('the first attach to a headless session loads once and opens the pane where it docks', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const runs: (readonly string[])[] = []
+  const opened: string[] = []
+  const surfaces: string[] = []
+  fakeGh(on, runs)
+  fakeSession(on, surfaces, opened)
+
+  await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+  await clock.settle()
+  expect(runs).toEqual([])
+  expect(opened).toEqual([])
+  surfaces.push('desktop')
+  await $.session.attach(DESKTOP)
+  await clock.settle()
+  expect(runs.filter(isLoad).length).toBe(1)
+  expect(opened).toEqual(['github'])
+
+  surfaces.push('mobile')
+  await $.session.attach(PHONE)
+  await clock.settle()
+  expect(runs.filter(isLoad).length).toBe(1)
+  expect(opened).toEqual(['github'])
+})
+
+test('a phone attaching first loads the lists but waits for /github to open the pane', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const runs: (readonly string[])[] = []
+  const opened: string[] = []
+  const surfaces: string[] = []
+  fakeGh(on, runs)
+  fakeSession(on, surfaces, opened)
+
+  await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+  surfaces.push('mobile')
+  await $.session.attach(PHONE)
+  await clock.settle()
+  expect(runs.filter(isLoad).length).toBe(1)
+  expect(opened).toEqual([])
+
+  await $.command.run({ command: 'github', args: '', origin: { kind: 'bridge' }, presentation: { isFullscreen: false, columns: 40 } })
+  expect(opened).toEqual(['github'])
+})
+
+test('polling stops when the last surface detaches and picks up on the next attach', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const runs: (readonly string[])[] = []
+  const opened: string[] = []
+  const surfaces: string[] = ['terminal']
+  fakeGh(on, runs)
+  fakeSession(on, surfaces, opened)
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  await clock.advance(FIVE_MINUTES)
+  expect(runs.filter(isLoad).length).toBe(2)
+
+  surfaces.length = 0
+  await $.session.detach({ ...PHONE, reason: 'detach' })
+  const before = runs.length
+  await clock.advance(3 * FIVE_MINUTES)
+  expect(runs.length).toBe(before)
+
+  surfaces.push('mobile')
+  await $.session.attach(PHONE)
+  await clock.settle()
+  expect(runs.length).toBe(before)
+  await clock.advance(FIVE_MINUTES)
+  expect(runs.filter(isLoad).length).toBe(3)
+})

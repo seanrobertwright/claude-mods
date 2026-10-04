@@ -12,9 +12,36 @@ const AFTER_TURN_MS = 60_000
 
 const EMPTY: GitHubView = { status: 'idle', repo: '', prs: [], issues: [], error: '', updatedAt: 0, runId: 0 }
 const view = atom({ plugin: 'github-panel', key: 'view' } as const, EMPTY)
+const hasStartedUp = atom({ plugin: 'github-panel', key: 'hasStartedUp' } as const, false)
 
-// Dies with the module on a reload; session.start starts it again.
+// Dies with the module on a reload; session.start or the next attach starts it again.
 let every: Timer | undefined
+
+/**
+ * Whether any surface shows the session right now. Asked before each action
+ * the mod starts on its own and never kept: a reload or a missed attach would
+ * leave a kept flag wrong. Each mod carries its own copy (ADR-0001).
+ */
+async function isShown($: EngineInterface): Promise<boolean> {
+  return (await $.session.surfaces()).length > 0
+}
+
+function stopPolling(): void {
+  every?.cancel()
+  every = undefined
+}
+
+/** Refreshes on the configured interval; a tick that finds no surface stops it until the next attach. */
+function startPolling($: EngineInterface, config: Config): void {
+  stopPolling()
+  if (config.refreshMs <= 0) return
+  every = $.clock.every(config.refreshMs, () => {
+    void (async () => {
+      if (await isShown($)) await load($, config)
+      else stopPolling()
+    })().catch(report($))
+  })
+}
 
 function report($: EngineInterface): (error: unknown) => void {
   return error => $.ui.toast(`GitHub: ${error instanceof Error ? error.message : String(error)}`)
@@ -76,10 +103,13 @@ async function load($: EngineInterface, config: Config): Promise<void> {
   }
 }
 
-/** Loads the lists, then opens the pane unless this is no GitHub repo. */
-async function startUp($: EngineInterface, config: Config): Promise<void> {
+/**
+ * The start-up work: loads the lists, then opens the pane unasked when
+ * `isPaneWanted`, unless this is no GitHub repo.
+ */
+async function startUp($: EngineInterface, config: Config, isPaneWanted: boolean): Promise<void> {
   await load($, config)
-  if ((await read($, view)).status !== 'unavailable') await $.ui.open({ id: PANE, title: TITLE })
+  if (isPaneWanted && (await read($, view)).status !== 'unavailable') await $.ui.open({ id: PANE, title: TITLE })
 }
 
 /** Opens a PR, an issue, or a whole list in the browser through gh. */
@@ -99,15 +129,40 @@ export const register: Register = (on, options) => {
       status: current.status === 'loading' ? 'idle' : current.status,
       runId: current.runId + 1,
     }))
-    every?.cancel()
-    every = config.refreshMs > 0 ? $.clock.every(config.refreshMs, () => void load($, config).catch(report($))) : undefined
-    void startUp($, config).catch(report($))
+    stopPolling()
+    // A headless session does nothing until a surface attaches (session.attach).
+    if (await isShown($)) {
+      startPolling($, config)
+      await update($, hasStartedUp, () => true)
+      void startUp($, config, true).catch(report($))
+    }
     return next(e)
+  })
+
+  on('session.attach', async ($, e, next) => {
+    const done = await next(e)
+    if (every === undefined) startPolling($, config)
+    let isFirst = false
+    await update($, hasStartedUp, was => {
+      isFirst = !was
+      return true
+    })
+    // A session that started headless catches up once. The pane opens unasked
+    // only on a surface that docks it beside the conversation; elsewhere, such as
+    // on a phone, it waits for /github.
+    if (isFirst) void startUp($, config, e.viewport?.isFullscreen === true).catch(report($))
+    return done
+  })
+
+  on('session.detach', async ($, e, next) => {
+    const done = await next(e)
+    if (!(await isShown($))) stopPolling()
+    return done
   })
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    if (e.agentId !== undefined) return done
+    if (e.agentId !== undefined || !(await isShown($))) return done
     const current = await read($, view)
     if (current.status !== 'unavailable' && (await $.clock.now()) - current.updatedAt > AFTER_TURN_MS) {
       void load($, config).catch(report($))
