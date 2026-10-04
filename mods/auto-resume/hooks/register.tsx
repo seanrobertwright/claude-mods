@@ -14,16 +14,48 @@ const now = atom({ plugin: 'auto-resume', key: 'now' } as const, 0)
 // Timers die with the module on a reload; session.start re-arms from $.state.
 let fire: Timer | undefined
 let tick: Timer | undefined
+// Counts attaches, so a surfaces check answered before an attach cannot stop
+// the countdown that attach kept going.
+let attaches = 0
 
 function report($: EngineInterface): (error: unknown) => void {
   return error => $.ui.toast(`auto-resume: ${error instanceof Error ? error.message : String(error)}`)
 }
 
+/**
+ * Whether any surface shows the session right now. Asked before arming a
+ * resume and before each countdown tick, and never kept: a reload or a missed
+ * attach would leave a kept flag wrong. The resume itself is not gated on it:
+ * it was set going while the session was shown. Each mod carries its own copy
+ * (ADR-0001).
+ */
+async function isShown($: EngineInterface): Promise<boolean> {
+  return (await $.session.surfaces()).length > 0
+}
+
+function stopTick(): void {
+  tick?.cancel()
+  tick = undefined
+}
+
 function stopTimers(): void {
   fire?.cancel()
-  tick?.cancel()
   fire = undefined
-  tick = undefined
+  stopTick()
+}
+
+/** Ticks the countdown; a tick that finds no surface stops it until the next attach. */
+async function startTick($: EngineInterface, config: Config): Promise<void> {
+  stopTick()
+  const own = $.clock.every(TICK, () => {
+    void (async () => {
+      const seen = attaches
+      if (await isShown($)) await showStatus($, config)
+      else if (tick === own && attaches === seen) stopTick()
+    })().catch(report($))
+  })
+  tick = own
+  await showStatus($, config)
 }
 
 async function showStatus($: EngineInterface, config: Config): Promise<void> {
@@ -46,34 +78,54 @@ async function resume($: EngineInterface, config: Config): Promise<void> {
   await $.prompt.submit({ text: config.text, asUser: true })
 }
 
+/**
+ * Sets the resume going at `plan.resumeAt`. It is sent then whether or not a
+ * surface still shows the session; the countdown ticks only while one does.
+ */
 async function arm($: EngineInterface, config: Config, plan: Pending): Promise<void> {
   stopTimers()
   await update($, pending, () => plan)
   const wait = Math.max(0, plan.resumeAt - (await $.clock.now()))
   fire = $.clock.after(wait, () => void resume($, config).catch(report($)))
-  tick = $.clock.every(TICK, () => void showStatus($, config).catch(report($)))
-  await showStatus($, config)
+  if (await isShown($)) await startTick($, config)
 }
 
 export const register: Register = (on, options) => {
   const config = parseConfig(options)
-  // A `claude -p` run (an SDK origin) has nobody waiting on it: never resume there.
-  let isHeadless = false
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'auto-resume',
       description: "Rate-limit auto-resume: '/auto-resume' for status, 'now', 'cancel', or 'in <minutes>'",
     })
+    // A resume armed before a reload was set going while the session was shown:
+    // it is still sent, with or without a surface now.
     const waiting = await read($, pending)
     if (waiting !== null) await arm($, config, waiting)
     return next(e)
   })
 
+  // A surface joining brings the countdown up to date, and restarts it if it had stopped.
+  on('session.attach', async ($, e, next) => {
+    attaches += 1
+    const done = await next(e)
+    if ((await read($, pending)) === null) return done
+    if (tick === undefined) await startTick($, config)
+    else await showStatus($, config)
+    return done
+  })
+
+  on('session.detach', async ($, e, next) => {
+    const seen = attaches
+    const done = await next(e)
+    if (!(await isShown($)) && attaches === seen) stopTick()
+    return done
+  })
+
   on('prompt.submit', async ($, e, next) => {
-    if (e.origin.kind === 'sdk') isHeadless = true
-    // The person typed something themselves: they have taken over.
-    if ((e.origin.kind === 'composer' || e.origin.kind === 'bridge') && (await read($, pending)) !== null) {
+    // The person, or the SDK host driving the session, sent a prompt of its own: it has taken over.
+    const isTakeOver = e.origin.kind === 'composer' || e.origin.kind === 'bridge' || e.origin.kind === 'sdk'
+    if (isTakeOver && (await read($, pending)) !== null) {
       await disarm($)
       $.ui.toast('Auto-resume cancelled: you took over.')
     }
@@ -88,7 +140,8 @@ export const register: Register = (on, options) => {
 
   on('classic.StopFailure', async ($, e, next) => {
     const done = await next(e)
-    if (isHeadless) return done
+    // Nobody is waiting on a headless session: arm nothing, say nothing.
+    if (!(await isShown($))) return done
     const at = await $.clock.now()
     const { rateLimits } = await $.session.usage()
     const plan = planResume({ error: e.error, rateLimits, now: at, attempts: await read($, attempts), config })
