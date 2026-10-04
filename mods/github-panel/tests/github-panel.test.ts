@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { fit, foldChecks, issueDetail, parseConfig, parseIssues, parsePrs, prDetail } from '../hooks/parse'
+import { fit, foldChecks, issueDetail, missingRequirement, parseConfig, parseIssues, parsePrs, prDetail } from '../hooks/parse'
 
 const PRS = JSON.stringify([
   {
@@ -108,7 +108,7 @@ test('outside a GitHub repo the pane says why and lists nothing', async ($, on) 
 
   const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
   await pane.press({ key: 'refresh' })
-  expect(await pane.find({ type: 'Text', text: 'no git remotes found' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^This folder is not a GitHub repository\./ })).toBeDefined()
   expect(await pane.find({ key: 'pr-12' })).toBeUndefined()
   expect(runs.some(argv => argv.includes('list'))).toBe(false)
   await pane.unmount()
@@ -259,4 +259,123 @@ test('an attach while a detach is still checking the surfaces keeps polling goin
   const before = runs.filter(isLoad).length
   await clock.advance(FIVE_MINUTES)
   expect(runs.filter(isLoad).length).toBe(before + 1)
+})
+
+test('missingRequirement names a logged-out gh and a folder with no GitHub remote', () => {
+  expect(missingRequirement(4, 'To get started with GitHub CLI, please run:  gh auth login')).toMatch(/gh auth login/)
+  expect(missingRequirement(1, 'HTTP 401: Bad credentials (https://api.github.com/graphql)')).toMatch(/gh auth login/)
+  expect(missingRequirement(1, 'none of the git remotes configured for this repository point to a known GitHub host'))
+    .toMatch(/gh auth login/)
+  expect(missingRequirement(1, 'failed to run git: fatal: not a git repository (or any of the parent directories): .git'))
+    .toMatch(/^This folder is not a GitHub repository\..*press r/)
+  expect(missingRequirement(1, 'no git remotes found')).toMatch(/^This folder is not a GitHub repository\./)
+  expect(missingRequirement(1, 'HTTP 502: Bad Gateway')).toBeUndefined()
+})
+
+type GhState = 'missing' | 'logged-out' | 'no-repo' | 'ok'
+
+/** gh beneath the plugin in a given state, which the test can change; records every argv that ran. */
+function fakeGhIn(on: On, state: { gh: GhState }, runs: (readonly string[])[]): void {
+  on('process.run', (_$, e) => {
+    runs.push(e.argv)
+    if (state.gh === 'missing') throw new Error('spawn gh ENOENT')
+    const fail = (exitCode: number, stderr: string) =>
+      ({ value: { exitCode, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } })
+    const [, noun, verb] = e.argv
+    if (noun === '--version') return ok('gh version 2.80.0\n')
+    if (state.gh === 'logged-out') return fail(4, 'To get started with GitHub CLI, please run:  gh auth login')
+    if (noun === 'repo') {
+      return state.gh === 'no-repo'
+        ? fail(1, 'failed to run git: fatal: not a git repository (or any of the parent directories): .git')
+        : ok('octo/widgets\n')
+    }
+    if (verb === 'list') return ok(noun === 'pr' ? PRS : ISSUES)
+    return ok('')
+  })
+}
+
+const REQUIREMENTS = [
+  { gh: 'missing', says: /needs the GitHub CLI.*press r/ },
+  { gh: 'logged-out', says: /gh auth login.*press r/ },
+  { gh: 'no-repo', says: /^This folder is not a GitHub repository\..*press r/ },
+] as const
+
+for (const { gh, says } of REQUIREMENTS) {
+  test(`a ${gh} requirement is named in the pane, which does not open unasked`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000 })
+    const toasts: string[] = []
+    on('ui.toast', (_$, e) => {
+      toasts.push(e.text)
+      return { value: undefined }
+    })
+    const opened: string[] = []
+    const runs: (readonly string[])[] = []
+    fakeGhIn(on, { gh }, runs)
+    fakeSession(on, ['terminal'], opened)
+
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await clock.settle()
+    const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+    expect(await pane.find({ type: 'Text', text: says })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /fatal|ENOENT|To get started/ })).toBeUndefined()
+    expect(opened).toEqual([])
+    expect(toasts).toEqual([])
+    expect(runs.some(argv => argv.includes('list'))).toBe(false)
+    expect(await pane.find({ key: 'all-prs' })).toBeUndefined()
+
+    await $.command.run({ command: 'github', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+    expect(opened).toEqual(['github'])
+    await pane.unmount()
+  })
+}
+
+for (const { gh, says } of REQUIREMENTS) {
+  test(`once a ${gh} requirement is met, pressing r loads the lists`, async ($, on) => {
+    mock.clock(on, { now: 1_000 })
+    on('ui.toast', () => ({ value: undefined }))
+    const state: { gh: GhState } = { gh }
+    const runs: (readonly string[])[] = []
+    fakeGhIn(on, state, runs)
+
+    const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+    await pane.press({ key: 'refresh' })
+    expect(await pane.find({ type: 'Text', text: says })).toBeDefined()
+
+    state.gh = 'ok'
+    await pane.press({ key: 'refresh' })
+    expect(await pane.find({ type: 'Text', text: says })).toBeUndefined()
+    expect((await pane.find({ key: 'pr-12' }))?.text).toContain('Add the GitHub tab')
+    await pane.unmount()
+  })
+}
+
+test('a gh failure that is not a missing requirement shows as an error and the pane opens at start', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const opened: string[] = []
+  on('process.run', () => ({
+    value: { exitCode: 1, stdout: '', stderr: 'error connecting to api.github.com', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+  fakeSession(on, ['terminal'], opened)
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  expect(opened).toEqual(['github'])
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  expect(await pane.find({ type: 'Text', text: 'error connecting to api.github.com' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('polling runs no gh while a requirement is missing', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const runs: (readonly string[])[] = []
+  fakeGhIn(on, { gh: 'logged-out' }, runs)
+  fakeSession(on, ['terminal'], [])
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const before = runs.length
+  await clock.advance(3 * FIVE_MINUTES)
+  expect(runs.length).toBe(before)
 })

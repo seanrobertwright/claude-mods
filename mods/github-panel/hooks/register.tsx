@@ -2,7 +2,19 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { GitHubView } from '../types'
-import { ago, fit, ISSUE_FIELDS, issueDetail, parseConfig, parseIssues, parsePrs, PR_FIELDS, prDetail } from './parse'
+import {
+  ago,
+  fit,
+  ISSUE_FIELDS,
+  issueDetail,
+  missingRequirement,
+  NEEDS_GH,
+  parseConfig,
+  parseIssues,
+  parsePrs,
+  PR_FIELDS,
+  prDetail,
+} from './parse'
 import type { Config } from './parse'
 
 const PANE = 'github'
@@ -40,9 +52,11 @@ function startPolling($: EngineInterface, config: Config): void {
   if (config.refreshMs <= 0) return
   const own = $.clock.every(config.refreshMs, () => {
     void (async () => {
+      // A missing requirement waits for r or /github, as after a turn.
       const seen = attaches
-      if (await isShown($)) await load($, config)
-      else if (every === own && attaches === seen) stopPolling()
+      if (!(await isShown($))) {
+        if (every === own && attaches === seen) stopPolling()
+      } else if ((await read($, view)).status !== 'unavailable') await load($, config)
     })().catch(report($))
   })
   every = own
@@ -66,9 +80,21 @@ async function gh($: EngineInterface, args: readonly string[]) {
   }
 }
 
+/** Whether gh starts at all: a fast call with no network, to tell a missing gh from a slow one. */
+async function canStartGh($: EngineInterface): Promise<boolean> {
+  try {
+    await gh($, ['--version'])
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Loads the open PRs and issues of the session's repo. One load at a time;
  * a load superseded by a reload of the module is dropped by its runId.
+ * A missing requirement (gh, its login, a GitHub remote) leaves the view
+ * `unavailable` with a message naming it and the fix.
  */
 async function load($: EngineInterface, config: Config): Promise<void> {
   let runId = 0
@@ -85,11 +111,21 @@ async function load($: EngineInterface, config: Config): Promise<void> {
   const finish = (change: (current: GitHubView) => GitHubView) =>
     update($, view, current => (current.runId === runId ? change(current) : current))
 
+  const unavailable = (reason: string) =>
+    finish(current => ({ ...current, status: 'unavailable', error: reason, repo: '', prs: [], issues: [], updatedAt: 0 }))
+
   try {
-    const repo = await gh($, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
+    let repo
+    try {
+      repo = await gh($, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
+    } catch (error) {
+      if (!(await canStartGh($))) return void (await unavailable(NEEDS_GH))
+      throw error
+    }
     if (repo.exitCode !== 0) {
-      const reason = lastLine(repo.stderr) || 'not a GitHub repository'
-      await finish(current => ({ ...current, status: 'unavailable', error: reason, prs: [], issues: [] }))
+      const missing = missingRequirement(repo.exitCode, repo.stderr)
+      if (missing === undefined) throw new Error(lastLine(repo.stderr) || `gh exited with ${repo.exitCode}`)
+      await unavailable(missing)
       return
     }
     const limit = String(config.limit)
@@ -110,11 +146,14 @@ async function load($: EngineInterface, config: Config): Promise<void> {
 
 /**
  * The start-up work: loads the lists, then opens the pane unasked when
- * `isPaneWanted`, unless this is no GitHub repo.
+ * `isPaneWanted` and the load came back: not while a requirement is missing
+ * (`unavailable`), nor while another load is still running (`loading`).
+ * Otherwise the pane waits for /github.
  */
 async function startUp($: EngineInterface, config: Config, isPaneWanted: boolean): Promise<void> {
   await load($, config)
-  if (isPaneWanted && (await read($, view)).status !== 'unavailable') await $.ui.open({ id: PANE, title: TITLE })
+  const { status } = await read($, view)
+  if (isPaneWanted && status !== 'unavailable' && status !== 'loading') await $.ui.open({ id: PANE, title: TITLE })
 }
 
 /** Opens a PR, an issue, or a whole list in the browser through gh. */
@@ -205,7 +244,9 @@ export const register: Register = (on, options) => {
 
         <Box flexDirection="row" justifyContent="space-between" marginTop={1}>
           <Text bold>Pull requests {current.prs.length}{isFull(current.prs.length) ? '+' : ''}</Text>
-          <Button key="all-prs" plain dimColor label="all" onPress={() => void openOnGitHub($, ['pr', 'list']).catch(report($))} />
+          {current.repo !== '' && (
+            <Button key="all-prs" plain dimColor label="all" onPress={() => void openOnGitHub($, ['pr', 'list']).catch(report($))} />
+          )}
         </Box>
         {current.prs.length === 0 && current.updatedAt > 0 && <Text dimColor>No open pull requests.</Text>}
         {current.prs.map(pr => (
@@ -222,7 +263,9 @@ export const register: Register = (on, options) => {
 
         <Box flexDirection="row" justifyContent="space-between" marginTop={1}>
           <Text bold>Issues {current.issues.length}{isFull(current.issues.length) ? '+' : ''}</Text>
-          <Button key="all-issues" plain dimColor label="all" onPress={() => void openOnGitHub($, ['issue', 'list']).catch(report($))} />
+          {current.repo !== '' && (
+            <Button key="all-issues" plain dimColor label="all" onPress={() => void openOnGitHub($, ['issue', 'list']).catch(report($))} />
+          )}
         </Box>
         {current.issues.length === 0 && current.updatedAt > 0 && <Text dimColor>No open issues.</Text>}
         {current.issues.map(issue => (
