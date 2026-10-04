@@ -1,6 +1,6 @@
 # claude-mods
 
-claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them. A mod is a plugin of function hooks: TypeScript that runs inside Claude Code and changes what it shows (a pane in the side panel, a band of buttons above the prompt, the status line) or what it does between turns, without going through the model. That is what sets a mod apart from a skill, which is instructions the model reads, and from a plain plugin of commands, agents or shell hooks.
+claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them. A mod is a plugin of function hooks: TypeScript that runs inside Claude Code and changes what it shows (a pane in the side panel, a band of buttons above the prompt, the status line) or what it does between turns. The mod's own code decides when to act, even when what it does is send the model a prompt. That is what sets a mod apart from a skill, which is instructions the model reads, and from a plain plugin of commands, agents or shell hooks.
 
 ## Mods
 
