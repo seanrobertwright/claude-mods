@@ -6,9 +6,15 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\"",
-    "check:secrets": "sh .githooks/check-personal-data.sh"
+    "check:secrets": "sh .githooks/check-personal-data.sh",
+    "check": "node scripts/check-mods.mjs",
+    "test:scripts": "node --test \"scripts/*.test.mjs\""
   },
   "devDependencies": {
-    "markdownlint-cli2": "^0.18.1"
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "markdownlint-cli2": "0.18.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0"
   }
 }

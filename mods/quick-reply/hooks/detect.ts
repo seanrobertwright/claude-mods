@@ -27,7 +27,7 @@ function cut(text: string, max: number): string {
 }
 
 function cleanLabel(raw: string): string {
-  const plain = raw.replace(/\*\*|__|`/g, '').replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  const plain = raw.replace(/\*\*|__|`/g, '').replace(/\p{Cc}/gu, '').trim()
   // "Postgres — durable, but heavier" reads as "Postgres" on a button.
   const head = plain.split(/\s+[-–—]\s+|:\s+/)[0]?.trim() ?? ''
   return cut(head.length >= 3 ? head : plain, LABEL_CHARS)
@@ -84,7 +84,7 @@ export function parseReplies(value: unknown): string[] {
   if (typeof value !== 'string') return []
   const replies = value
     .split('|')
-    .map(reply => reply.replace(/[\u0000-\u001f\u007f]/g, '').trim())
+    .map(reply => reply.replace(/\p{Cc}/gu, '').trim())
     .filter(reply => reply !== '')
     .map(reply => cut(reply, 120))
   return [...new Set(replies)].slice(0, 6)

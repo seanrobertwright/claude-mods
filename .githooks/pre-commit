@@ -1,11 +1,17 @@
 #!/bin/sh
-# Pre-commit gates: personal data and U+FFFD in tracked files, then markdownlint on staged Markdown.
+# Pre-commit gates: personal data and U+FFFD in tracked files, markdownlint on
+# staged Markdown, then tsc, ESLint, plugin validate and plugin test on every mod
+# with staged changes.
 set -eu
 
-sh "$(git rev-parse --show-toplevel)/.githooks/check-personal-data.sh"
+root="$(git rev-parse --show-toplevel)"
+
+sh "$root/.githooks/check-personal-data.sh"
 
 staged_md="$(git diff --cached --name-only --diff-filter=ACMR -- '*.md')"
 if [ -n "$staged_md" ]; then
   # shellcheck disable=SC2086 # one path per word is intended
   npx --no-install markdownlint-cli2 $staged_md
 fi
+
+node "$root/scripts/check-mods.mjs" --staged
