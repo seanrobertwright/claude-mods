@@ -2,13 +2,15 @@
 
 One developer's personal toolbox of Claude Code mods, shared as a marketplace so anyone can install them.
 The mods are built for the author's own workflow first; another user is a welcome guest, not the design target.
+A sentence marked _Target_ is a rule every mod is meant to follow; not every mod follows it yet.
 
 ## Language
 
 ### Mods and what they are not
 
 **Mod**:
-A plugin of function hooks that changes Claude Code's surfaces or its behaviour between turns by running code, not by prompting the model.
+A plugin of function hooks that changes Claude Code's surfaces or its behaviour between turns.
+The mod's own code decides when it acts, even when what it does is send the model a prompt.
 The marketplace lists mods and nothing else.
 _Avoid_: Extension, addon, plugin (when a mod is meant)
 
@@ -22,7 +24,7 @@ _Avoid_: Command, prompt (when a skill is meant)
 
 **Requirement**:
 Something outside the mod that it needs to work, such as a skill, a CLI tool or a logged-in account.
-A mod detects a missing requirement and names it instead of failing obscurely.
+_Target_: a mod detects a missing requirement and names it instead of failing obscurely.
 _Avoid_: Dependency, prerequisite
 
 **Marketplace**:
@@ -36,12 +38,12 @@ A Claude Code session with a person at the screen, where a mod's surfaces are se
 
 **Headless session**:
 Any session with nobody at the screen: every `claude -p` process and every SDK session.
-A mod stays quiet in a headless session: it draws nothing, polls nothing, submits no prompt and starts no headless run.
+_Target_: a mod stays quiet in a headless session: it draws nothing, polls nothing, submits no prompt and starts no headless run.
 _Avoid_: Background session, child session
 
 **Headless run**:
 A headless session a mod starts beside the interactive session to do work for it, and whose output the mod reads.
-Each headless run is itself a headless session, so the person's mods load into it and must stay quiet there.
+Each headless run is itself a headless session, so the person's mods load into it.
 _Avoid_: Helper, child, subprocess, background run
 
 ### What's next
