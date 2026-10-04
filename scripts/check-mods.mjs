@@ -46,8 +46,8 @@ function step(mod, name, command, args) {
 /**
  * The mod's tsconfig extends .claude-plugin/types/tsconfig.json, which only a
  * load of the mod writes (validate and test do not). A headless run of a local
- * command loads it without a model call. WHATS_NEXT_CHILD=1 keeps whats-next
- * from starting its own headless /ask-sean run from that load's session.start.
+ * command loads it without a model call. No surface shows that session, so
+ * every mod stays quiet in it: whats-next starts no headless /ask-sean run.
  */
 function ensureTypes(mod) {
   const generated = join(MODS_DIR, mod, '.claude-plugin', 'types', 'tsconfig.json')
@@ -61,7 +61,6 @@ function ensureTypes(mod) {
       input: '/cost',
       encoding: 'utf8',
       timeout: TYPES_TIMEOUT_MS,
-      env: { ...process.env, WHATS_NEXT_CHILD: '1' },
     },
   )
   if (run.error !== undefined) fail(mod, 'generating types', run.error.message)

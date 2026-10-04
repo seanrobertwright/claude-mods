@@ -19,7 +19,7 @@
     "refreshOnStart": {
       "type": "boolean",
       "title": "Refresh on start",
-      "description": "Ask for a fresh list when a session starts in a git repository.",
+      "description": "Ask for a fresh list when a session starts in a git repository, or when a session that started headless is first opened.",
       "default": true
     },
     "allowedTools": {

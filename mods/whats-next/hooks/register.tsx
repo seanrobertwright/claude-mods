@@ -13,6 +13,7 @@ const TEN_MINUTES = 600_000
 const EMPTY: NextList = { status: 'idle', steps: [], updatedAt: 0, error: '', runId: 0 }
 const list = atom({ plugin: 'whats-next', key: 'list' } as const, EMPTY)
 const selected = atom({ plugin: 'whats-next', key: 'selected' } as const, null)
+const hasStartedUp = atom({ plugin: 'whats-next', key: 'hasStartedUp' } as const, false)
 
 const storeKey = (cwd: string) => `list:${cwd}`
 
@@ -32,6 +33,15 @@ function lastLine(text: string): string {
 /** The catch for work started and not awaited: say what failed instead of dropping it. */
 const report = ($: EngineInterface) => (error: unknown) => {
   $.ui.toast(`What's next: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+/**
+ * Whether any surface shows the session right now. Asked before each action
+ * the mod starts on its own and never kept: a reload or a missed attach would
+ * leave a kept flag wrong. Each mod carries its own copy (ADR-0001).
+ */
+async function isShown($: EngineInterface): Promise<boolean> {
+  return (await $.session.surfaces()).length > 0
 }
 
 async function isGitRepo($: EngineInterface): Promise<boolean> {
@@ -78,7 +88,6 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
     const run = await $.process.run(argv, {
       stdin: buildAsk(config.skill, config.maxSteps),
       timeoutMs: TEN_MINUTES,
-      env: { WHATS_NEXT_CHILD: '1' },
     })
     if (run.exitCode !== 0) {
       const reason = lastLine(run.stderr) || lastLine(run.stdout) || `exit code ${run.exitCode}`
@@ -99,6 +108,15 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
   }
 }
 
+/**
+ * The start-up work: opens the pane unasked when `isPaneWanted`, and refreshes
+ * when the settings ask for it at start and the folder is a git repo.
+ */
+async function startUp($: EngineInterface, config: Config, isPaneWanted: boolean): Promise<void> {
+  if (isPaneWanted) void $.ui.open({ id: PANE, title: TITLE }).catch(report($))
+  if (config.refreshOnStart && (await isGitRepo($))) void refresh($, config).catch(report($))
+}
+
 async function openPopup($: EngineInterface, step: NextStep): Promise<void> {
   await update($, selected, () => step)
   await $.ui.open({ id: POPUP, title: step.title, focus: true, closeOnEscape: true, holdToasts: true })
@@ -108,9 +126,6 @@ export const register: Register = (on, options) => {
   const config = parseConfig(options)
 
   on('session.start', async ($, e, next) => {
-    // The headless run this mod starts loads the person's plugins too: never recurse.
-    if ((await $.env.get('WHATS_NEXT_CHILD')) === '1') return next(e)
-
     await $.command.register({
       name: 'whats-next',
       description: "Open the What's next pane; '/whats-next refresh' asks the skill again",
@@ -125,10 +140,28 @@ export const register: Register = (on, options) => {
       runId: current.runId + 1,
     }))
 
-    void $.ui.open({ id: PANE, title: TITLE }).catch(report($))
-    if (config.refreshOnStart && (await isGitRepo($))) void refresh($, config).catch(report($))
+    // A headless session, this mod's own headless runs included, does nothing
+    // until a surface attaches (session.attach).
+    if (await isShown($)) {
+      await update($, hasStartedUp, () => true)
+      void startUp($, config, true).catch(report($))
+    }
 
     return next(e)
+  })
+
+  on('session.attach', async ($, e, next) => {
+    const done = await next(e)
+    let isFirst = false
+    await update($, hasStartedUp, was => {
+      isFirst = !was
+      return true
+    })
+    // A session that started headless catches up once. The pane opens unasked
+    // only on a surface that docks it beside the conversation; elsewhere, such as
+    // on a phone, it waits for /whats-next.
+    if (isFirst) void startUp($, config, e.viewport?.isFullscreen === true).catch(report($))
+    return done
   })
 
   on('command.run', { command: 'whats-next' }, async ($, e) => {
