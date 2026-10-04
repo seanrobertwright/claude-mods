@@ -1,19 +1,38 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { NextList, NextStep } from '../types'
-import { buildAsk, DENIED_TOOLS, parseCached, parseConfig, parseSteps } from './parse'
+import {
+  buildAsk,
+  buildJudge,
+  DENIED_TOOLS,
+  isDone,
+  JUDGE_SYSTEM,
+  matchStep,
+  parseCached,
+  parseConfig,
+  parseSteps,
+  shimmer,
+} from './parse'
 import type { Config } from './parse'
 
 const PANE = 'whats-next'
 const POPUP = 'whats-next-prompt'
 const TITLE = "What's next"
 const TEN_MINUTES = 600_000
+/** How often the active step's shimmer moves. */
+const GLOW_MS = 120
+const WORKING = 'working on it'
 
 const EMPTY: NextList = { status: 'idle', steps: [], updatedAt: 0, error: '', runId: 0 }
 const list = atom({ plugin: 'whats-next', key: 'list' } as const, EMPTY)
 const selected = atom({ plugin: 'whats-next', key: 'selected' } as const, null)
 const hasStartedUp = atom({ plugin: 'whats-next', key: 'hasStartedUp' } as const, false)
+const active = atom({ plugin: 'whats-next', key: 'active' } as const, null)
+const tick = atom({ plugin: 'whats-next', key: 'tick' } as const, 0)
+
+// Dies with the module on a reload; session.start starts it again.
+let glow: Timer | undefined
 
 const storeKey = (cwd: string) => `list:${cwd}`
 
@@ -42,6 +61,50 @@ const report = ($: EngineInterface) => (error: unknown) => {
  */
 async function isShown($: EngineInterface): Promise<boolean> {
   return (await $.session.surfaces()).length > 0
+}
+
+function stopGlow(): void {
+  glow?.cancel()
+  glow = undefined
+}
+
+/** Moves the active step's shimmer while there is one and a surface shows the session. */
+function startGlow($: EngineInterface): void {
+  if (glow !== undefined) return
+  glow = $.clock.every(GLOW_MS, () => {
+    void (async () => {
+      if ((await read($, active)) === null || !(await isShown($))) stopGlow()
+      else await update($, tick, beat => beat + 1)
+    })().catch(report($))
+  })
+}
+
+/** Drops a finished step from the list, the kept copy included, and stops its glow. */
+async function finishStep($: EngineInterface, step: NextStep): Promise<void> {
+  await update($, active, current => (current?.prompt === step.prompt ? null : current))
+  if ((await read($, active)) === null) stopGlow()
+  let isListed = false
+  await update($, list, (current): NextList => {
+    isListed = current.steps.some(listed => listed.prompt === step.prompt)
+    return isListed ? { ...current, steps: current.steps.filter(listed => listed.prompt !== step.prompt) } : current
+  })
+  if (!isListed) return
+  const { steps, updatedAt } = await read($, list)
+  await $.store.set(storeKey(await $.session.cwd()), { steps, updatedAt })
+  $.ui.toast(`What's next: done with "${step.title}".`)
+}
+
+/** Asks a small model whether the turn that just ended finished the active step. */
+async function judge($: EngineInterface, step: NextStep, answer: string): Promise<void> {
+  const reply = await $.model.complete({
+    model: 'haiku',
+    system: JUDGE_SYSTEM,
+    prompt: buildJudge(step, answer),
+    maxTokens: 16,
+    effort: 'low',
+    timeoutMs: 60_000,
+  })
+  if (reply.isAnswered && isDone(reply.text)) await finishStep($, step)
 }
 
 async function isGitRepo($: EngineInterface): Promise<boolean> {
@@ -101,6 +164,8 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
     }
     const updatedAt = await $.clock.now()
     await finish(current => ({ ...current, status: 'idle', steps, updatedAt, error: '' }))
+    // A step the new list no longer has is no longer the one being worked on.
+    await update($, active, current => (current !== null && !steps.some(step => step.prompt === current.prompt) ? null : current))
     await $.store.set(storeKey(await $.session.cwd()), { steps, updatedAt })
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
@@ -142,8 +207,10 @@ export const register: Register = (on, options) => {
 
     // A headless session, this mod's own headless runs included, does nothing
     // until a surface attaches (session.attach).
+    stopGlow()
     if (await isShown($)) {
       await update($, hasStartedUp, () => true)
+      if ((await read($, active)) !== null) startGlow($)
       void startUp($, config, true).catch(report($))
     }
 
@@ -161,6 +228,27 @@ export const register: Register = (on, options) => {
     // only on a surface that docks it beside the conversation; elsewhere, such as
     // on a phone, it waits for /whats-next.
     if (isFirst) void startUp($, config, e.viewport?.isFullscreen === true).catch(report($))
+    if ((await read($, active)) !== null) startGlow($)
+    return done
+  })
+
+  // Submitting a listed step's prompt makes it the one being worked on; a
+  // headless session, this mod's own runs included, never starts one.
+  on('prompt.submit', async ($, e, next) => {
+    const step = matchStep((await read($, list)).steps, e.text)
+    if (step !== undefined && (await isShown($))) {
+      await update($, active, () => step)
+      startGlow($)
+    }
+    return next(e)
+  })
+
+  // After each answered turn of the main loop, ask whether it finished the active step.
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    if (e.agentId !== undefined || e.reason !== 'answer') return done
+    const step = await read($, active)
+    if (step !== null) void judge($, step, e.answer).catch(report($))
     return done
   })
 
@@ -176,8 +264,12 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const current = await read($, list)
+    const working = await read($, active)
+    const beat = await read($, tick)
     const now = await $.clock.now()
     const width = Math.max(16, e.props.bodyColumns)
+    const activeIndex = current.steps.findIndex(step => step.prompt === working?.prompt)
+    const [before, lit, after] = shimmer(WORKING, beat)
 
     return (
       <Box flexDirection="column" width={width}>
@@ -208,10 +300,27 @@ export const register: Register = (on, options) => {
               key={`open-${index + 1}`}
               plain
               hotkey={String(index + 1)}
-              variant={index === 0 ? 'primary' : 'secondary'}
+              variant={index === (activeIndex === -1 ? 0 : activeIndex) ? 'primary' : 'secondary'}
               label={step.title}
               onPress={() => void openPopup($, step).catch(report($))}
             />
+            {index === activeIndex && (
+              <Box flexDirection="row" columnGap={2}>
+                <Text color="cyan">
+                  <Text dimColor>{before}</Text>
+                  <Text bold>{lit}</Text>
+                  <Text dimColor>{after}</Text>
+                </Text>
+                <Button
+                  key="done"
+                  plain
+                  dimColor
+                  hotkey="d"
+                  label="done"
+                  onPress={() => void finishStep($, step).catch(report($))}
+                />
+              </Box>
+            )}
             {step.why !== '' && <Text dimColor wrap="wrap">{step.why}</Text>}
           </Box>
         ))}
