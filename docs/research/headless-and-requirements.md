@@ -1,6 +1,6 @@
 # Detecting a headless session and missing requirements
 
-Research for the glossary's **Headless session** and **Requirement** targets (`CONTEXT.md`) and the shared headless-session check that `docs/adr/0001-self-contained-mods.md` expects every mod to copy.
+Research for the glossary's **Headless session** and **Requirement** rules (`CONTEXT.md`) and the shared headless-session check that `docs/adr/0001-self-contained-mods.md` expects every mod to copy.
 Answered from primary sources only, as of Claude Code 2.1.289.
 
 How sources are cited:
@@ -173,7 +173,7 @@ Dropping it also removes one name from what `claude plugin validate` lists [type
 
 ## 5. Requirements
 
-The target: a mod detects a missing requirement, names it and says how to meet it.
+The rule: a mod detects a missing requirement, names it and says how to meet it.
 It reports this where the person looks, such as the mod's pane, and never opens anything just to report it [code: `CONTEXT.md`].
 Run these checks only in a shown session, and show the result in the pane's empty or error state.
 
