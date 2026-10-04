@@ -329,6 +329,9 @@ test('shimmer sweeps a lit band across the line and starts over', () => {
   expect(shimmer('abcdef', 9)).toEqual(shimmer('abcdef', 0))
 })
 
+/** Holds fakeEngine's surfaces answers until released, to put an attach between a question and its answer. */
+const gate: { hold?: Promise<void>; reached?: () => void } = {}
+
 /** The engine beneath the mod: the skill's reply, one surface showing, what the judge answers, a store it records. */
 function fakeEngine(
   on: On,
@@ -345,7 +348,12 @@ function fakeEngine(
   })
   mock.env(on, {})
   on('session.cwd', () => ({ value: '/work/repo' }))
-  on('session.surfaces', () => ({ value: [...surfaces] as never }))
+  on('session.surfaces', async () => {
+    const answer = [...surfaces]
+    gate.reached?.()
+    if (gate.hold !== undefined) await gate.hold
+    return { value: answer as never }
+  })
   on('command.list', () => ({ value: [ASK_SEAN] }))
   on('ui.toast', (_$, e) => {
     toasts.push(e.text)
@@ -704,5 +712,39 @@ test('a refresh superseded before it saves leaves the kept list to the newer run
   await clock.advance(1_000)
   expect((stored.get('list:/work/repo') as { steps: { title: string }[] }).steps.map(step => step.title), 'the old run saves nothing over it').toEqual(['Write the changelog'])
   expect((await stepButton(pane, 1))?.text).toContain('Write the changelog')
+  await pane.unmount()
+})
+
+test('an attach while a glow beat is still checking the surfaces keeps the glow going', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const surfaces = ['terminal']
+  fakeEngine(on, [], [], new Map(), surfaces)
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  await pane.press({ key: 'refresh' })
+  await $.prompt.submit(submit('/triage'))
+
+  // The last surface leaves; a glow beat asks the surfaces and is told none, but the answer is held.
+  surfaces.length = 0
+  let release: () => void = () => {}
+  gate.hold = new Promise(resolve => (release = resolve))
+  const asked = new Promise<void>(resolve => (gate.reached = resolve))
+  const beating = clock.advance(120)
+  await asked
+  gate.reached = undefined
+  gate.hold = undefined
+
+  // A phone attaches before that answer lands; then the stale answer arrives.
+  surfaces.push('mobile')
+  await $.session.attach(PHONE)
+  release()
+  await beating
+
+  const shine = async () => JSON.stringify((await pane.find({ type: 'Text', text: 'working on it' }))?.children)
+  const before = await shine()
+  await clock.advance(240)
+  expect(await shine()).not.toBe(before)
   await pane.unmount()
 })
