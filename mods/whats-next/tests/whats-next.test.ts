@@ -656,3 +656,53 @@ test('with no surface an answered turn is not judged; once one is back, the next
   expect(await stepButton(pane, 2)).toBeUndefined()
   await pane.unmount()
 })
+
+const LATER_REPLY = ['### Write the changelog', 'Two fixes landed since the last release.', 'Prompt =', FENCE, '/changelog', FENCE].join('\n')
+
+test('a refresh superseded before it saves leaves the kept list to the newer run', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const stored = new Map<string, unknown>()
+  let runs = 0
+  // The old run waits on its working directory, after it listed its steps and before it saves them.
+  let holdNextCwd = false
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('command.list', () => ({ value: [ASK_SEAN] }))
+  on('session.surfaces', () => ({ value: ['terminal'] as never }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('store.get', (_$, e) => ({ value: stored.get(e.key) }))
+  on('store.set', (_$, e) => {
+    stored.set(e.key, e.value)
+    return { value: undefined }
+  })
+  mock.env(on, {})
+  on('session.cwd', async () => {
+    if (holdNextCwd) {
+      holdNextCwd = false
+      await clock.sleep(1_000)
+    }
+    return { value: '/work/repo' }
+  })
+  on('process.run', (_$, e) => {
+    const stdout = e.argv[0] === 'git' ? 'true\n' : isHeadlessRun(e.argv) && ++runs === 2 ? LATER_REPLY : REPLY
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  holdNextCwd = true
+  await pane.press({ key: 'refresh' })
+
+  // A reload while the old run waits: session.start supersedes it, and its refresh lists and keeps the newer steps.
+  await clock.advance(500)
+  await $.session.start(TERMINAL_START)
+  await clock.settle()
+  expect(runs).toBe(2)
+  expect((stored.get('list:/work/repo') as { steps: { title: string }[] }).steps.map(step => step.title), 'the newer run keeps its list').toEqual(['Write the changelog'])
+
+  // The old run wakes and must not save its list over the newer one.
+  await clock.advance(1_000)
+  expect((stored.get('list:/work/repo') as { steps: { title: string }[] }).steps.map(step => step.title), 'the old run saves nothing over it').toEqual(['Write the changelog'])
+  expect((await stepButton(pane, 1))?.text).toContain('Write the changelog')
+  await pane.unmount()
+})

@@ -13,6 +13,12 @@ export type NextList = {
   error: string
   /** Bumped by each refresh; a run whose id is no longer current is dropped. */
   runId: number
+  /**
+   * The id of the step this session is working on (its prompt was submitted
+   * here), or null. It lives in the list so one guarded write moves it with the
+   * steps it names: a superseded refresh can change neither.
+   */
+  activeId: string | null
 }
 
 declare module 'claude-code' {
@@ -22,8 +28,6 @@ declare module 'claude-code' {
       selected: NextStep | null
       /** True once this session's start-up work has run: at start, or at the first attach. */
       hasStartedUp: boolean
-      /** The step this session is working on: its prompt was submitted here. */
-      active: NextStep | null
       /** Counts the glow timer's beats; a write redraws the active step's shimmer. */
       tick: number
     }

@@ -33,17 +33,34 @@ const PROBE_MS = 60_000
 const GLOW_MS = 120
 const WORKING = 'working on it'
 
-const EMPTY: NextList = { status: 'idle', steps: [], updatedAt: 0, error: '', runId: 0 }
+const EMPTY: NextList = { status: 'idle', steps: [], updatedAt: 0, error: '', runId: 0, activeId: null }
 const list = atom({ plugin: 'whats-next', key: 'list' } as const, EMPTY)
 const selected = atom({ plugin: 'whats-next', key: 'selected' } as const, null)
 const hasStartedUp = atom({ plugin: 'whats-next', key: 'hasStartedUp' } as const, false)
-const active = atom({ plugin: 'whats-next', key: 'active' } as const, null)
 const tick = atom({ plugin: 'whats-next', key: 'tick' } as const, 0)
 
 // Dies with the module on a reload; session.start starts it again.
 let glow: Timer | undefined
 
 const storeKey = (cwd: string) => `list:${cwd}`
+
+/** The step this session is working on: the listed step `activeId` names, if any. */
+function activeStep(current: NextList): NextStep | null {
+  return current.steps.find(step => step.id === current.activeId) ?? null
+}
+
+/**
+ * Keeps `kept` as this folder's list unless the kept list is newer, so a run or
+ * a finish that was overtaken never saves over what came after it. `$.store`
+ * has no conditional write, so a write between this read and the set can
+ * still be lost.
+ */
+async function keep($: EngineInterface, kept: Pick<NextList, 'steps' | 'updatedAt'>): Promise<void> {
+  const key = storeKey(await $.session.cwd())
+  const before = parseCached(await $.store.get(key))
+  if (before !== undefined && before.updatedAt > kept.updatedAt) return
+  await $.store.set(key, kept)
+}
 
 function ago(ms: number): string {
   const minutes = Math.floor(ms / 60_000)
@@ -82,7 +99,7 @@ function startGlow($: EngineInterface): void {
   if (glow !== undefined) return
   glow = $.clock.every(GLOW_MS, () => {
     void (async () => {
-      if ((await read($, active)) === null || !(await isShown($))) stopGlow()
+      if (activeStep(await read($, list)) === null || !(await isShown($))) stopGlow()
       else await update($, tick, beat => beat + 1)
     })().catch(report($))
   })
@@ -93,16 +110,17 @@ function startGlow($: EngineInterface): void {
  * glow. Only that step goes: another with the same prompt stays listed.
  */
 async function finishStep($: EngineInterface, step: NextStep): Promise<void> {
-  await update($, active, current => (current?.id === step.id ? null : current))
-  if ((await read($, active)) === null) stopGlow()
-  let isListed = false
+  let kept: Pick<NextList, 'steps' | 'updatedAt'> | undefined
   await update($, list, (current): NextList => {
-    isListed = current.steps.some(listed => listed.id === step.id)
-    return isListed ? { ...current, steps: current.steps.filter(listed => listed.id !== step.id) } : current
+    kept = undefined
+    if (!current.steps.some(listed => listed.id === step.id)) return current
+    const steps = current.steps.filter(listed => listed.id !== step.id)
+    kept = { steps, updatedAt: current.updatedAt }
+    return { ...current, steps, activeId: current.activeId === step.id ? null : current.activeId }
   })
-  if (!isListed) return
-  const { steps, updatedAt } = await read($, list)
-  await $.store.set(storeKey(await $.session.cwd()), { steps, updatedAt })
+  if (activeStep(await read($, list)) === null) stopGlow()
+  if (kept === undefined) return
+  await keep($, kept)
   $.ui.toast(`What's next: done with "${step.title}".`)
 }
 
@@ -167,8 +185,15 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
   })
   if (runId === 0) return
 
-  const finish = (change: (current: NextList) => NextList) =>
-    update($, list, current => (current.runId === runId ? change(current) : current))
+  /** Applies `change` while this run is still current; says whether it did. */
+  const finish = async (change: (current: NextList) => NextList): Promise<boolean> => {
+    let isCurrent = false
+    await update($, list, current => {
+      isCurrent = current.runId === runId
+      return isCurrent ? change(current) : current
+    })
+    return isCurrent
+  }
   const unavailable = (reason: string) => finish(current => ({ ...current, status: 'unavailable', error: reason }))
 
   try {
@@ -212,12 +237,16 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
     }
     const updatedAt = await $.clock.now()
     const listed = withIds(steps, updatedAt)
-    await finish(current => ({ ...current, status: 'idle', steps: listed, updatedAt, error: '' }))
-    // A superseded run leaves the active step and the kept list alone too.
-    if ((await read($, list)).runId !== runId) return
-    // The step being worked on carries over to its namesake in the new list, if the list still has one.
-    await update($, active, current => (current === null ? null : listed.find(step => step.prompt === current.prompt) ?? null))
-    await $.store.set(storeKey(await $.session.cwd()), { steps: listed, updatedAt })
+    // One guarded write replaces the steps and carries the step being worked on
+    // over to its namesake in the new list, if it has one. A run superseded
+    // before this write changes neither and keeps nothing; one superseded after
+    // it keeps its list only while no newer one is kept (see keep).
+    const isCurrent = await finish(current => {
+      const working = activeStep(current)
+      const carried = working === null ? null : (listed.find(step => step.prompt === working.prompt)?.id ?? null)
+      return { ...current, status: 'idle', steps: listed, updatedAt, error: '', activeId: carried }
+    })
+    if (isCurrent) await keep($, { steps: listed, updatedAt })
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     await finish(current => ({ ...current, status: 'error', error: reason }))
@@ -275,7 +304,7 @@ export const register: Register = (on, options) => {
     stopGlow()
     if (await isShown($)) {
       await update($, hasStartedUp, () => true)
-      if ((await read($, active)) !== null) startGlow($)
+      if (activeStep(await read($, list)) !== null) startGlow($)
       void startUp($, config, true).catch(report($))
     }
 
@@ -293,7 +322,7 @@ export const register: Register = (on, options) => {
     // only on a surface that docks it beside the conversation; elsewhere, such as
     // on a phone, it waits for /whats-next.
     if (isFirst) void startUp($, config, e.viewport?.isFullscreen === true).catch(report($))
-    if ((await read($, active)) !== null) startGlow($)
+    if (activeStep(await read($, list)) !== null) startGlow($)
     return done
   })
 
@@ -302,8 +331,12 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const step = matchStep((await read($, list)).steps, e.text)
     if (step !== undefined && (await isShown($))) {
-      await update($, active, () => step)
-      startGlow($)
+      let isListed = false
+      await update($, list, current => {
+        isListed = current.steps.some(listed => listed.id === step.id)
+        return isListed ? { ...current, activeId: step.id } : current
+      })
+      if (isListed) startGlow($)
     }
     return next(e)
   })
@@ -313,7 +346,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId !== undefined || e.reason !== 'answer' || !(await isShown($))) return done
-    const step = await read($, active)
+    const step = activeStep(await read($, list))
     if (step !== null) void judge($, step, e.answer).catch(report($))
     return done
   })
@@ -332,7 +365,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const current = await read($, list)
-    const working = await read($, active)
+    const working = activeStep(current)
     const beat = await read($, tick)
     const now = await $.clock.now()
     const width = Math.max(16, e.props.bodyColumns)
