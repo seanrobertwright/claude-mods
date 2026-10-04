@@ -1,0 +1,14 @@
+{
+  "name": "claude-mods",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A collection of Claude Code mods.",
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\"",
+    "check:secrets": "sh .githooks/check-personal-data.sh"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.18.1"
+  }
+}
