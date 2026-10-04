@@ -216,3 +216,47 @@ test('polling stops when the last surface detaches and picks up on the next atta
   await clock.advance(FIVE_MINUTES)
   expect(runs.filter(isLoad).length).toBe(3)
 })
+
+test('an attach while a detach is still checking the surfaces keeps polling going', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const runs: (readonly string[])[] = []
+  fakeGh(on, runs)
+  const surfaces: string[] = ['terminal']
+  // The surfaces answer can be held, to put an attach between a detach's question and its answer.
+  let hold: Promise<void> | undefined
+  let reached: (() => void) | undefined
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
+  on('session.detach', (_$, e) => ({ clientId: e.clientId }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.surfaces', async () => {
+    const answer = [...surfaces]
+    reached?.()
+    if (hold !== undefined) await hold
+    return { value: answer as never }
+  })
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+
+  // The last surface leaves; the detach asks the surfaces and is told none, but the answer is held.
+  surfaces.length = 0
+  let release: () => void = () => {}
+  hold = new Promise(resolve => (release = resolve))
+  const asked = new Promise<void>(resolve => (reached = resolve))
+  const detaching = $.session.detach({ ...PHONE, reason: 'detach' })
+  await asked
+  reached = undefined
+  hold = undefined
+
+  // A phone attaches before that answer lands; then the stale answer arrives.
+  surfaces.push('mobile')
+  await $.session.attach(PHONE)
+  release()
+  await detaching
+
+  const before = runs.filter(isLoad).length
+  await clock.advance(FIVE_MINUTES)
+  expect(runs.filter(isLoad).length).toBe(before + 1)
+})
