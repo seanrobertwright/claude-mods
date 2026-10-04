@@ -41,6 +41,9 @@ const tick = atom({ plugin: 'whats-next', key: 'tick' } as const, 0)
 
 // Dies with the module on a reload; session.start starts it again.
 let glow: Timer | undefined
+// Counts attaches, so a surfaces check answered before an attach cannot stop
+// the glow that attach kept going.
+let attaches = 0
 
 const storeKey = (cwd: string) => `list:${cwd}`
 
@@ -94,15 +97,26 @@ function stopGlow(): void {
   glow = undefined
 }
 
-/** Moves the active step's shimmer while there is one and a surface shows the session. */
+/**
+ * Moves the active step's shimmer while there is one and a surface shows the
+ * session. A beat that finds neither stops the glow, unless the glow it belongs
+ * to was already replaced, or a surface attached while it asked.
+ */
 function startGlow($: EngineInterface): void {
   if (glow !== undefined) return
-  glow = $.clock.every(GLOW_MS, () => {
+  const own = $.clock.every(GLOW_MS, () => {
     void (async () => {
-      if (activeStep(await read($, list)) === null || !(await isShown($))) stopGlow()
-      else await update($, tick, beat => beat + 1)
+      const seen = attaches
+      if (activeStep(await read($, list)) === null) {
+        if (glow === own) stopGlow()
+      } else if (!(await isShown($))) {
+        if (glow === own && attaches === seen) stopGlow()
+      } else {
+        await update($, tick, beat => beat + 1)
+      }
     })().catch(report($))
   })
+  glow = own
 }
 
 /**
@@ -312,6 +326,7 @@ export const register: Register = (on, options) => {
   })
 
   on('session.attach', async ($, e, next) => {
+    attaches += 1
     const done = await next(e)
     let isFirst = false
     await update($, hasStartedUp, was => {
