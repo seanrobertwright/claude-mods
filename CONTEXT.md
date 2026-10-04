@@ -74,7 +74,8 @@ A stale list is still shown until a fresh one replaces it.
 
 **Pane**:
 A titled panel a mod opens in Claude Code's side panel; when several are open, Claude Code shows them as tabs.
-_Target_: a mod opens its pane unasked only on a surface that shows panes beside the conversation; elsewhere, such as on a phone, it waits to be asked.
+A mod opens its pane unasked only where Claude Code can seat it without taking over: when a surface that shows panes beside the conversation attaches, or at session start, where Claude Code seats an unasked pane only on a surface that places panes and only on a terminal wide enough for it.
+Elsewhere, such as on a phone, it waits to be asked.
 _Avoid_: Sidebar, tab, panel
 
 **Band**:
