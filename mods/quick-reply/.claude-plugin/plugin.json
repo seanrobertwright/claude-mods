@@ -1,0 +1,20 @@
+{
+  "name": "quick-reply",
+  "version": "0.1.0",
+  "description": "One-click replies above the prompt: the options Claude just offered, Yes, Go with your recommendation, Continue.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "questionReplies": {
+      "type": "string",
+      "title": "Replies to a question",
+      "description": "Shown after Claude asks something, separated by |.",
+      "default": "Yes|Go with your recommendation|No"
+    },
+    "idleReplies": {
+      "type": "string",
+      "title": "Replies otherwise",
+      "description": "Shown after any other answer, separated by |; empty hides the band then.",
+      "default": "Continue|Commit and push"
+    }
+  }
+}
