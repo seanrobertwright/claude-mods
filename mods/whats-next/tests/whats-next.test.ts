@@ -162,7 +162,7 @@ const DESKTOP = { surface: 'desktop', clientId: 'desktop:default', viewport: { c
 const PHONE = { surface: 'mobile', clientId: 'mobile:default', viewport: { columns: 40, rows: 60, isFullscreen: false } } as const
 
 /**
- * The engine beneath the plugin for a session's life: the surfaces showing it
+ * The engine beneath the mod for a session's life: the surfaces showing it
  * (the test edits the list), every pane opened and every process run, with
  * git answering whether the folder is a repo and claude answering REPLY.
  */
@@ -292,7 +292,7 @@ test('shimmer sweeps a lit band across the line and starts over', () => {
   expect(shimmer('abcdef', 9)).toEqual(shimmer('abcdef', 0))
 })
 
-/** The engine beneath the plugin: the skill's reply, one surface showing, what the judge answers, a store it records. */
+/** The engine beneath the mod: the skill's reply, one surface showing, what the judge answers, a store it records. */
 function fakeEngine(
   on: On,
   verdicts: string[],
@@ -431,7 +431,7 @@ test('finishing a step drops only that step, not another with the same prompt', 
 })
 
 /**
- * The engine beneath the plugin for the requirement tests: a terminal shows
+ * The engine beneath the mod for the requirement tests: a terminal shows
  * the session in a git repo; `world.skills` is the command list and
  * `world.hasClaude` whether a claude process can start; `world.reply` is what
  * a headless run answers.
@@ -559,7 +559,7 @@ test('a later start with the requirement met clears the message and opens the pa
   await clock.settle()
   expect(needs.opened).toEqual([])
 
-  // The skill is installed and the plugin reloads: session.start runs again.
+  // The skill is installed and the mod reloads: session.start runs again.
   needs.skills.push(ASK_SEAN)
   await $.session.start(TERMINAL_START)
   await clock.settle()

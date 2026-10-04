@@ -49,7 +49,7 @@ function ok(stdout: string) {
   return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
 }
 
-/** gh beneath the plugin: answers the repo, PR and issue lists, and records every argv. */
+/** gh beneath the mod: answers the repo, PR and issue lists, and records every argv. */
 function fakeGh(on: On, runs: (readonly string[])[], isRepo = true): void {
   on('process.run', (_$, e) => {
     runs.push(e.argv)
@@ -139,7 +139,7 @@ const DESKTOP = { surface: 'desktop', clientId: 'desktop:default', viewport: { c
 const PHONE = { surface: 'mobile', clientId: 'mobile:default', viewport: { columns: 40, rows: 60, isFullscreen: false } } as const
 const FIVE_MINUTES = 300_000
 
-/** The engine beneath the plugin: the surfaces showing the session (the test edits the list) and every pane opened. */
+/** The engine beneath the mod: the surfaces showing the session (the test edits the list) and every pane opened. */
 function fakeSession(on: On, surfaces: string[], opened: string[]): void {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.attach', (_$, e) => ({ clientId: e.clientId }))
@@ -295,7 +295,7 @@ test('missingRequirement names a logged-out gh and a folder with no GitHub remot
 
 type GhState = 'missing' | 'logged-out' | 'no-repo' | 'ok'
 
-/** gh beneath the plugin in a given state, which the test can change; records every argv that ran. */
+/** gh beneath the mod in a given state, which the test can change; records every argv that ran. */
 function fakeGhIn(on: On, state: { gh: GhState }, runs: (readonly string[])[]): void {
   on('process.run', (_$, e) => {
     runs.push(e.argv)
