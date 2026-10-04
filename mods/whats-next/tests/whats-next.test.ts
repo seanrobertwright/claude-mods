@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { ElementQuery, FoundElement, MountPressTarget } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import {
@@ -13,6 +14,7 @@ import {
   parseSteps,
   READ_ONLY_TOOLS,
   shimmer,
+  toolFlags,
   withIds,
 } from '../hooks/parse'
 
@@ -50,6 +52,23 @@ const PANE_PROPS = {
   view: {},
 } as const
 
+/** A mounted pane, as far as the step helpers read it. */
+type Drawn = {
+  findAll: (query: ElementQuery) => Promise<FoundElement[]>
+  press: (target: MountPressTarget) => Promise<unknown>
+}
+
+/** The n-th listed step's button, 1 first. Its key carries the step's id, so it is found by place. */
+async function stepButton(pane: Drawn, n: number): Promise<FoundElement | undefined> {
+  return (await pane.findAll({ type: 'Button' })).filter(button => button.key?.startsWith('open-'))[n - 1]
+}
+
+async function pressStep(pane: Drawn, n: number): Promise<void> {
+  const button = await stepButton(pane, n)
+  if (button?.key === undefined) throw new Error(`no step ${n} is listed`)
+  await pane.press({ key: button.key })
+}
+
 test('parseSteps splits a reply into titled steps with their prompts', () => {
   const steps = parseSteps(REPLY, 5)
   expect(steps).toEqual([
@@ -77,6 +96,19 @@ test('parseConfig rejects out-of-range options', () => {
   expect(config.model).toBe('')
   expect(buildAsk('/ask-sean', 3).startsWith('/ask-sean ')).toBe(true)
   expect(parseConfig({ allowedTools: 'Read, Bash(git log:*)' }).allowedTools).toEqual(['Read', 'Bash(git log:*)'])
+  expect(parseConfig({ allowedTools: 'mcp__github__*' }).allowedTools).toEqual(['mcp__github__*'])
+})
+
+test('parseConfig never lets a setting reach the claude argv as a flag', () => {
+  expect(parseConfig({ allowedTools: 'Read, --dangerously-skip-permissions' }).allowedTools).toEqual([...READ_ONLY_TOOLS])
+  expect(parseConfig({ allowedTools: '-p' }).allowedTools).toEqual([...READ_ONLY_TOOLS])
+  expect(parseConfig({ model: '--permission-mode' }).model).toBe('')
+  expect(parseConfig({ model: 'claude-opus-5-5[1m]' }).model).toBe('claude-opus-5-5[1m]')
+})
+
+test('toolFlags bounds the run to the tools its rules name', () => {
+  expect(toolFlags(READ_ONLY_TOOLS)).toEqual(['--tools', 'Bash,Read,Glob,Grep,Skill', '--strict-mcp-config'])
+  expect(toolFlags(['Read', 'mcp__github__get_issue'])).toEqual(['--tools', 'Read,Skill'])
 })
 
 test('the default rules allow no blanket git or gh access', () => {
@@ -128,10 +160,12 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
       props: PANE_PROPS,
     })
     await pane.press({ key: 'refresh' })
-    expect((await pane.find({ key: 'open-1' }))?.text).toContain('Push the auth branch')
-    expect((await pane.find({ key: 'open-2' }))?.text).toContain('Triage incoming bugs')
+    expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
+    expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
+    // Keyed by the step's id, so a dropped step never hands its key to the next.
+    expect((await stepButton(pane, 2))?.key).toBe('open-1000-2')
 
-    await pane.press({ key: 'open-2' })
+    await pressStep(pane, 2)
     const popup = await $.ui.mount({
       plugin: 'whats-next',
       surface,
@@ -154,6 +188,9 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
   expect(claudeRun).toContain('Bash(git push:*)')
   const sources = claudeRun?.indexOf('--setting-sources') ?? -1
   expect(claudeRun?.[sources + 1]).toBe('user')
+  const tools = claudeRun?.indexOf('--tools') ?? -1
+  expect(claudeRun?.[tools + 1]).toBe('Bash,Read,Glob,Grep,Skill')
+  expect(claudeRun).toContain('--strict-mcp-config')
   // Every deny rule follows --disallowedTools, after the allow list.
   expect(claudeRun?.indexOf('--disallowedTools') ?? -1).toBeGreaterThan(claudeRun?.indexOf('--allowedTools') ?? 0)
 })
@@ -345,10 +382,10 @@ test('a submitted step glows until the judge calls it done, then leaves the list
   expect(await lit()).not.toBe(first)
 
   await $.turn.complete(turn('Labelled two of the three.'))
-  expect((await pane.find({ key: 'open-2' }))?.text).toContain('Triage incoming bugs')
+  expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
 
   await $.turn.complete(turn('All three are triaged.'))
-  expect(await pane.find({ key: 'open-2' })).toBeUndefined()
+  expect(await stepButton(pane, 2)).toBeUndefined()
   expect(await pane.find({ type: 'Text', text: 'working on it' })).toBeUndefined()
   expect(toasts).toContain(`What's next: done with "Triage incoming bugs".`)
   const kept = stored.get('list:/work/repo') as { steps: { title: string }[] }
@@ -367,8 +404,8 @@ test('the done button drops the active step', async ($, on) => {
     await pane.press({ key: 'refresh' })
     await $.prompt.submit(submit('/implement GitHub issue #52\nBranch from main.'))
     await pane.press({ key: 'done' })
-    expect(await pane.find({ key: 'open-2' })).toBeUndefined()
-    expect((await pane.find({ key: 'open-1' }))?.text).toContain('Triage incoming bugs')
+    expect(await stepButton(pane, 2)).toBeUndefined()
+    expect((await stepButton(pane, 1))?.text).toContain('Triage incoming bugs')
     await pane.unmount()
   }
 })
@@ -384,7 +421,7 @@ test('a headless session never starts a step, so no judge runs there', async ($,
   expect(await pane.find({ type: 'Text', text: 'working on it' })).toBeUndefined()
   await $.turn.complete(turn('All three are triaged.'))
   expect(verdicts).toEqual(['DONE'])
-  expect((await pane.find({ key: 'open-2' }))?.text).toContain('Triage incoming bugs')
+  expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
   await pane.unmount()
 })
 
@@ -423,8 +460,8 @@ test('finishing a step drops only that step, not another with the same prompt', 
   await pane.press({ key: 'refresh' })
   await $.prompt.submit(submit('/triage'))
   await $.turn.complete(turn('Fixed the login bug.'))
-  expect(await pane.find({ key: 'open-2' })).toBeUndefined()
-  expect((await pane.find({ key: 'open-1' }))?.text).toContain('Triage the new reports')
+  expect(await stepButton(pane, 2)).toBeUndefined()
+  expect((await stepButton(pane, 1))?.text).toContain('Triage the new reports')
   const kept = stored.get('list:/work/repo') as { steps: { title: string }[] }
   expect(kept.steps.map(step => step.title)).toEqual(['Triage the new reports'])
   await pane.unmount()
@@ -489,7 +526,7 @@ test('a missing skill is named in the pane, no claude process starts and the pan
   // Installed now: r asks the skill.
   needs.skills.push(ASK_SEAN)
   await pane.press({ key: 'refresh' })
-  expect((await pane.find({ key: 'open-1' }))?.text).toContain('Push the auth branch')
+  expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
   await pane.unmount()
 })
 
@@ -523,7 +560,7 @@ test('a claude CLI that cannot start is named in the pane, which does not open u
 
   needs.hasClaude = true
   await pane.press({ key: 'refresh' })
-  expect((await pane.find({ key: 'open-1' }))?.text).toContain('Push the auth branch')
+  expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
   await pane.unmount()
 })
 
@@ -588,7 +625,7 @@ test('with steps kept from before, a missing skill still lets the pane open for 
   expect(needs.opened).toEqual(['whats-next'])
   expect(needs.runs.filter(isHeadlessRun).length).toBe(1)
   const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
-  expect((await pane.find({ key: 'open-1' }))?.text).toContain('Push the auth branch')
+  expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
   expect(await pane.find({ type: 'Text', text: /\/ask-sean.*not installed/ })).toBeDefined()
   await pane.unmount()
 })
@@ -616,6 +653,6 @@ test('with no surface an answered turn is not judged; once one is back, the next
   surfaces.push('terminal')
   await $.turn.complete(turn('All three are triaged.'))
   expect(verdicts).toEqual([])
-  expect(await pane.find({ key: 'open-2' })).toBeUndefined()
+  expect(await stepButton(pane, 2)).toBeUndefined()
   await pane.unmount()
 })

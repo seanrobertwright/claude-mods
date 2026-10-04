@@ -18,6 +18,7 @@ import {
   parseSteps,
   shimmer,
   skillNotForHeadless,
+  toolFlags,
   withIds,
 } from './parse'
 import type { Config } from './parse'
@@ -173,14 +174,18 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
   try {
     const missing = await skillMissing($, config)
     if (missing !== undefined) return void (await unavailable(missing))
-    // dontAsk denies every tool the rules do not allow. Only the person's own
-    // settings load: a repo's .claude/settings.json could otherwise widen them.
-    // The prompt arrives on stdin, so each variadic rule list ends at the next flag.
+    // dontAsk denies every tool the rules do not allow, and --tools removes
+    // every tool they do not name. Only the person's own settings load, since
+    // the skill comes from them: a repo's .claude/settings.json could otherwise
+    // widen the rules. Their own allow rules for the named tools (Bash ones
+    // above all) still apply here. The prompt arrives on stdin, so each
+    // variadic rule list ends at the next flag.
     const argv = [
       'claude', '-p',
       '--setting-sources', 'user',
       '--permission-mode', 'dontAsk',
       ...(config.model === '' ? [] : ['--model', config.model]),
+      ...toolFlags(config.allowedTools),
       '--allowedTools', ...config.allowedTools,
       '--disallowedTools', ...DENIED_TOOLS,
     ]
@@ -208,6 +213,8 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
     const updatedAt = await $.clock.now()
     const listed = withIds(steps, updatedAt)
     await finish(current => ({ ...current, status: 'idle', steps: listed, updatedAt, error: '' }))
+    // A superseded run leaves the active step and the kept list alone too.
+    if ((await read($, list)).runId !== runId) return
     // The step being worked on carries over to its namesake in the new list, if the list still has one.
     await update($, active, current => (current === null ? null : listed.find(step => step.prompt === current.prompt) ?? null))
     await $.store.set(storeKey(await $.session.cwd()), { steps: listed, updatedAt })
@@ -358,9 +365,9 @@ export const register: Register = (on, options) => {
           <Text dimColor wrap="wrap">No steps yet. Press r to ask {config.skill}.</Text>
         )}
         {current.steps.map((step, index) => (
-          <Box key={`step-${index + 1}`} flexDirection="column" marginTop={1}>
+          <Box key={`step-${step.id}`} flexDirection="column" marginTop={1}>
             <Button
-              key={`open-${index + 1}`}
+              key={`open-${step.id}`}
               plain
               hotkey={String(index + 1)}
               variant={index === (activeIndex === -1 ? 0 : activeIndex) ? 'primary' : 'secondary'}
