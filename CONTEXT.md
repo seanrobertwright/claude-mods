@@ -25,7 +25,7 @@ _Avoid_: Command, prompt (when a skill is meant)
 
 **Requirement**:
 Something outside the mod that it needs to work, such as a skill, a CLI tool or a logged-in account.
-_Target_: a mod detects a missing requirement and names it, with how to meet it, instead of failing obscurely.
+A mod detects a missing requirement and names it, with how to meet it, instead of failing obscurely.
 It says so where the person looks for the mod, such as its pane, and never opens anything on its own just to report it.
 _Avoid_: Dependency, prerequisite
 
@@ -46,7 +46,7 @@ A session started without a surface becomes interactive when one is attached.
 
 **Headless session**:
 A session shown on no surface: a `claude -p` process, or an SDK session nobody has opened.
-_Target_: a mod stays quiet in a headless session: it draws nothing, polls nothing and starts nothing new, so no prompt and no headless run of its own.
+A mod stays quiet in a headless session: it draws nothing, polls nothing and starts nothing new, so no prompt and no headless run of its own.
 Work set going while the session was shown, such as a resume after a rate limit, still finishes.
 _Avoid_: Background session, child session
 
