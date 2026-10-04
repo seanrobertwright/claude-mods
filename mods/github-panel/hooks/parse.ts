@@ -156,3 +156,34 @@ export function ago(ms: number): string {
   if (minutes < 1) return 'just now'
   return minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ago`
 }
+
+/** What the pane says when gh cannot be started. */
+export const NEEDS_GH = 'The GitHub pane needs the GitHub CLI (gh). Install it from cli.github.com, then press r.'
+/** What the pane says when gh is not logged in. */
+export const NOT_LOGGED_IN = 'gh is not logged in. Run gh auth login in a terminal, then press r.'
+/** What the pane says when the folder has no GitHub remote. */
+export const NOT_A_GITHUB_REPO = 'This folder is not a GitHub repository. Add a GitHub remote, then press r.'
+
+/** gh's exit code for a command that needs authentication (`gh help exit-codes`). */
+const GH_AUTH_EXIT = 4
+
+/**
+ * gh's words for a login it lacks beyond exit 4: a token GitHub refuses, or
+ * remotes on a GitHub host gh is not logged in to (its own advice there is
+ * `gh auth login`).
+ */
+const NOT_LOGGED_IN_WORDS = /HTTP 401|Bad credentials|none of the git remotes configured for this repository point to a known GitHub host/i
+
+/** gh's and git's words for a folder outside a repository, or a repository with no remote. */
+const NO_GITHUB_REMOTE = /not a git repository|no git remotes found/i
+
+/**
+ * Names the requirement a failed `gh repo view` points at: a logged-out gh
+ * (exit 4, or the words above) or a folder with no GitHub remote. Any other
+ * failure is not a missing requirement: undefined.
+ */
+export function missingRequirement(exitCode: number, stderr: string): string | undefined {
+  if (exitCode === GH_AUTH_EXIT || NOT_LOGGED_IN_WORDS.test(stderr)) return NOT_LOGGED_IN
+  if (NO_GITHUB_REMOTE.test(stderr)) return NOT_A_GITHUB_REPO
+  return undefined
+}
