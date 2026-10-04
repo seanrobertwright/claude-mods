@@ -17,6 +17,10 @@ declare module 'claude-code' {
       selected: NextStep | null
       /** True once this session's start-up work has run: at start, or at the first attach. */
       hasStartedUp: boolean
+      /** The step this session is working on: its prompt was submitted here. */
+      active: NextStep | null
+      /** Counts the glow timer's beats; a write redraws the active step's shimmer. */
+      tick: number
     }
   }
 }
