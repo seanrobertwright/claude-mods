@@ -1,4 +1,8 @@
-export type NextStep = { title: string; why: string; prompt: string }
+/** A step as the skill's reply gives it, before the list it joins names it. */
+export type StepDraft = { title: string; why: string; prompt: string }
+
+/** A listed step; `id` is unique across lists, so two steps with one prompt stay apart. */
+export type NextStep = StepDraft & { id: string }
 
 export type NextList = {
   status: 'idle' | 'loading' | 'error'

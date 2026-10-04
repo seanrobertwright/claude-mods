@@ -7,10 +7,12 @@ import {
   DENIED_TOOLS,
   isDone,
   matchStep,
+  parseCached,
   parseConfig,
   parseSteps,
   READ_ONLY_TOOLS,
   shimmer,
+  withIds,
 } from '../hooks/parse'
 
 const FENCE = '```'
@@ -267,6 +269,7 @@ test('isDone reads DONE alone as done, and the judge sees the step and the answe
   expect(isDone('DONE')).toBe(true)
   expect(isDone(' done.')).toBe(true)
   expect(isDone('NOT_DONE')).toBe(false)
+  expect(isDone('DONE, but the implementation failed')).toBe(false)
   expect(isDone('')).toBe(false)
   const ask = buildJudge({ title: 'Triage', why: '', prompt: '/triage' }, 'Triaged all three.')
   expect(ask).toContain('Step: Triage')
@@ -282,7 +285,14 @@ test('shimmer sweeps a lit band across the line and starts over', () => {
 })
 
 /** The engine beneath the plugin: the skill's reply, one surface showing, what the judge answers, a store it records. */
-function fakeEngine(on: On, verdicts: string[], toasts: string[], stored: Map<string, unknown>, surfaces = ['terminal']): void {
+function fakeEngine(
+  on: On,
+  verdicts: string[],
+  toasts: string[],
+  stored: Map<string, unknown>,
+  surfaces = ['terminal'],
+  reply = REPLY,
+): void {
   on('store.get', (_$, e) => ({ value: stored.get(e.key) }))
   on('store.set', (_$, e) => {
     stored.set(e.key, e.value)
@@ -299,7 +309,7 @@ function fakeEngine(on: On, verdicts: string[], toasts: string[], stored: Map<st
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('model.complete', () => ({ value: { isAnswered: true, text: verdicts.shift() ?? 'NOT_DONE', usage: {} as never } }))
   on('process.run', (_$, e) => ({
-    value: { exitCode: 0, stdout: e.argv[0] === 'git' ? 'true\n' : REPLY, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+    value: { exitCode: 0, stdout: e.argv[0] === 'git' ? 'true\n' : reply, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
   }))
 }
 
@@ -366,5 +376,47 @@ test('a headless session never starts a step, so no judge runs there', async ($,
   await $.turn.complete(turn('All three are triaged.'))
   expect(verdicts).toEqual(['DONE'])
   expect((await pane.find({ key: 'open-2' }))?.text).toContain('Triage incoming bugs')
+  await pane.unmount()
+})
+
+test('withIds names each step apart, and parseCached names an old or clashing list afresh', () => {
+  const drafts = parseSteps(REPLY, 5)
+  expect(withIds(drafts, 7).map(step => step.id)).toEqual(['7-1', '7-2'])
+  expect(parseCached({ steps: drafts, updatedAt: 9 })?.steps.map(step => step.id)).toEqual(['9-1', '9-2'])
+  const clashing = withIds(drafts, 7).map(step => ({ ...step, id: 'same' }))
+  expect(parseCached({ steps: clashing, updatedAt: 9 })?.steps.map(step => step.id)).toEqual(['9-1', '9-2'])
+  expect(parseCached({ steps: withIds(drafts, 7), updatedAt: 9 })?.steps.map(step => step.id)).toEqual(['7-1', '7-2'])
+})
+
+const TWINS = [
+  '### Fix the login bug',
+  'Users are locked out.',
+  'Prompt =',
+  FENCE,
+  '/triage',
+  FENCE,
+  '',
+  '### Triage the new reports',
+  'Two more arrived.',
+  'Prompt =',
+  FENCE,
+  '/triage',
+  FENCE,
+].join('\n')
+
+test('finishing a step drops only that step, not another with the same prompt', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const verdicts = ['DONE']
+  const stored = new Map<string, unknown>()
+  fakeEngine(on, verdicts, [], stored, ['terminal'], TWINS)
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  await pane.press({ key: 'refresh' })
+  await $.prompt.submit(submit('/triage'))
+  await $.turn.complete(turn('Fixed the login bug.'))
+  expect(await pane.find({ key: 'open-2' })).toBeUndefined()
+  expect((await pane.find({ key: 'open-1' }))?.text).toContain('Triage the new reports')
+  const kept = stored.get('list:/work/repo') as { steps: { title: string }[] }
+  expect(kept.steps.map(step => step.title)).toEqual(['Triage the new reports'])
   await pane.unmount()
 })

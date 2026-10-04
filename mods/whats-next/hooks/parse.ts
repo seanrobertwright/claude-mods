@@ -1,4 +1,4 @@
-import type { NextList, NextStep } from '../types'
+import type { NextList, NextStep, StepDraft } from '../types'
 
 const FENCE = /```[^\n]*\n([\s\S]*?)\n[ \t]*```/
 const FENCES = /```[^\n]*\n([\s\S]*?)\n[ \t]*```/g
@@ -39,9 +39,9 @@ function cleanTitle(line: string): string {
  * fenced prompt under it. A reply with no such heading (the skill's usual
  * single recommendation) yields one step per fenced block. At most `max`.
  */
-export function parseSteps(output: string, max: number): NextStep[] {
+export function parseSteps(output: string, max: number): StepDraft[] {
   const text = output.replace(/\r\n?/g, '\n')
-  const steps: NextStep[] = []
+  const steps: StepDraft[] = []
   for (const section of text.split(/^#{2,4}[ \t]+/m).slice(1)) {
     const newline = section.indexOf('\n')
     const title = cleanTitle(newline === -1 ? section : section.slice(0, newline))
@@ -65,19 +65,36 @@ export function parseSteps(output: string, max: number): NextStep[] {
   return steps.slice(0, max)
 }
 
-function isStep(value: unknown): value is NextStep {
+/**
+ * Names each step of a new list `<list>-<n>`, `list` being what sets the list
+ * apart from every other (its refresh time), so an id never repeats.
+ */
+export function withIds(steps: readonly StepDraft[], list: number): NextStep[] {
+  return steps.map((step, index) => ({ title: step.title, why: step.why, prompt: step.prompt, id: `${list}-${index + 1}` }))
+}
+
+function isStep(value: unknown): value is StepDraft {
   if (typeof value !== 'object' || value === null) return false
   const step = value as Record<string, unknown>
   return typeof step.title === 'string' && typeof step.why === 'string' && typeof step.prompt === 'string'
 }
 
-/** Reads a list kept in `$.store` by an earlier session; anything malformed is dropped. */
+/**
+ * Reads a list kept in `$.store` by an earlier session; anything malformed is
+ * dropped. A list kept before steps had ids, or whose ids repeat, is named afresh.
+ */
 export function parseCached(value: unknown): Pick<NextList, 'steps' | 'updatedAt'> | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const cached = value as Record<string, unknown>
   if (!Array.isArray(cached.steps) || !cached.steps.every(isStep)) return undefined
   if (typeof cached.updatedAt !== 'number' || !Number.isFinite(cached.updatedAt)) return undefined
-  return { steps: cached.steps, updatedAt: cached.updatedAt }
+  const ids: unknown[] = cached.steps.map(step => (step as Record<string, unknown>).id)
+  const hasIds = ids.every(id => typeof id === 'string' && id !== '') && new Set(ids).size === ids.length
+  const steps = withIds(cached.steps, cached.updatedAt)
+  return {
+    steps: hasIds ? steps.map((step, index) => ({ ...step, id: String(ids[index]) })) : steps,
+    updatedAt: cached.updatedAt,
+  }
 }
 
 export type Config = {
@@ -162,9 +179,9 @@ function squash(text: string): string {
  * begins with, whitespace aside, so a pasted prompt with words added after it
  * still counts. Of several, the longest prompt wins.
  */
-export function matchStep(steps: readonly NextStep[], submitted: string): NextStep | undefined {
+export function matchStep<S extends StepDraft>(steps: readonly S[], submitted: string): S | undefined {
   const text = squash(submitted)
-  let best: NextStep | undefined
+  let best: S | undefined
   for (const step of steps) {
     const prompt = squash(step.prompt)
     if (prompt !== '' && text.startsWith(prompt) && prompt.length > squash(best?.prompt ?? '').length) best = step
@@ -184,7 +201,7 @@ export const JUDGE_SYSTEM = [
 ].join(' ')
 
 /** The judge's one user message: the step, then the tail of the turn's final answer. */
-export function buildJudge(step: NextStep, answer: string): string {
+export function buildJudge(step: StepDraft, answer: string): string {
   return [
     `Step: ${step.title}`,
     ...(step.why === '' ? [] : [`Why: ${step.why}`]),
@@ -197,9 +214,12 @@ export function buildJudge(step: NextStep, answer: string): string {
   ].join('\n')
 }
 
-/** True when the judge's reply is DONE; NOT_DONE, anything else, or nothing is false. */
+/**
+ * True when the judge's reply is DONE alone, punctuation and whitespace aside;
+ * NOT_DONE, a DONE with words after it ("DONE, but it failed") or nothing is false.
+ */
 export function isDone(reply: string): boolean {
-  return /^\W*DONE\b/i.test(reply)
+  return /^\W*DONE\W*$/i.test(reply)
 }
 
 /** How many characters of the shimmer line are lit at once. */
