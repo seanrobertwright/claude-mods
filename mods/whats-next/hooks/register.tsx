@@ -13,6 +13,7 @@ import {
   parseConfig,
   parseSteps,
   shimmer,
+  withIds,
 } from './parse'
 import type { Config } from './parse'
 
@@ -79,14 +80,17 @@ function startGlow($: EngineInterface): void {
   })
 }
 
-/** Drops a finished step from the list, the kept copy included, and stops its glow. */
+/**
+ * Drops a finished step from the list, the kept copy included, and stops its
+ * glow. Only that step goes: another with the same prompt stays listed.
+ */
 async function finishStep($: EngineInterface, step: NextStep): Promise<void> {
-  await update($, active, current => (current?.prompt === step.prompt ? null : current))
+  await update($, active, current => (current?.id === step.id ? null : current))
   if ((await read($, active)) === null) stopGlow()
   let isListed = false
   await update($, list, (current): NextList => {
-    isListed = current.steps.some(listed => listed.prompt === step.prompt)
-    return isListed ? { ...current, steps: current.steps.filter(listed => listed.prompt !== step.prompt) } : current
+    isListed = current.steps.some(listed => listed.id === step.id)
+    return isListed ? { ...current, steps: current.steps.filter(listed => listed.id !== step.id) } : current
   })
   if (!isListed) return
   const { steps, updatedAt } = await read($, list)
@@ -163,10 +167,11 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
       return
     }
     const updatedAt = await $.clock.now()
-    await finish(current => ({ ...current, status: 'idle', steps, updatedAt, error: '' }))
-    // A step the new list no longer has is no longer the one being worked on.
-    await update($, active, current => (current !== null && !steps.some(step => step.prompt === current.prompt) ? null : current))
-    await $.store.set(storeKey(await $.session.cwd()), { steps, updatedAt })
+    const listed = withIds(steps, updatedAt)
+    await finish(current => ({ ...current, status: 'idle', steps: listed, updatedAt, error: '' }))
+    // The step being worked on carries over to its namesake in the new list, if the list still has one.
+    await update($, active, current => (current === null ? null : listed.find(step => step.prompt === current.prompt) ?? null))
+    await $.store.set(storeKey(await $.session.cwd()), { steps: listed, updatedAt })
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     await finish(current => ({ ...current, status: 'error', error: reason }))
@@ -268,7 +273,7 @@ export const register: Register = (on, options) => {
     const beat = await read($, tick)
     const now = await $.clock.now()
     const width = Math.max(16, e.props.bodyColumns)
-    const activeIndex = current.steps.findIndex(step => step.prompt === working?.prompt)
+    const activeIndex = current.steps.findIndex(step => step.id === working?.id)
     const [before, lit, after] = shimmer(WORKING, beat)
 
     return (
