@@ -6,13 +6,18 @@ import {
   buildAsk,
   buildJudge,
   DENIED_TOOLS,
+  hasSkill,
   isDone,
+  isMissingSkillReply,
   JUDGE_SYSTEM,
   matchStep,
+  missingSkill,
+  NEEDS_CLAUDE,
   parseCached,
   parseConfig,
   parseSteps,
   shimmer,
+  skillNotForHeadless,
   withIds,
 } from './parse'
 import type { Config } from './parse'
@@ -21,6 +26,8 @@ const PANE = 'whats-next'
 const POPUP = 'whats-next-prompt'
 const TITLE = "What's next"
 const TEN_MINUTES = 600_000
+/** Room for a cold start of the `claude` CLI before the probe calls it missing. */
+const PROBE_MS = 60_000
 /** How often the active step's shimmer moves. */
 const GLOW_MS = 120
 const WORKING = 'working on it'
@@ -121,9 +128,31 @@ async function isGitRepo($: EngineInterface): Promise<boolean> {
 }
 
 /**
+ * Whether the `claude` CLI starts at all, to tell a missing CLI from a slow or
+ * failed run. Its exit code does not matter: a process that ran was found.
+ */
+async function canStartClaude($: EngineInterface): Promise<boolean> {
+  try {
+    await $.process.run(['claude', '--version'], { timeoutMs: PROBE_MS })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** The missing skill's message when the session's command list lacks the configured skill, else undefined. */
+async function skillMissing($: EngineInterface, config: Config): Promise<string | undefined> {
+  return hasSkill(await $.command.list(), config.skill) ? undefined : missingSkill(config.skill)
+}
+
+/**
  * Runs the skill in a headless `claude -p` beside this session, so the
  * conversation here is untouched, and replaces the list with its steps.
  * One run at a time; a run superseded by a reset is dropped by its runId.
+ * A missing requirement (the skill, the claude CLI) leaves the list
+ * `unavailable` with a message naming it and the fix. A skill missing from
+ * this session's command list is caught before any run starts; one missing
+ * only for the headless run is recognised from its reply, after the run.
  */
 async function refresh($: EngineInterface, config: Config): Promise<void> {
   let runId = 0
@@ -139,8 +168,11 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
 
   const finish = (change: (current: NextList) => NextList) =>
     update($, list, current => (current.runId === runId ? change(current) : current))
+  const unavailable = (reason: string) => finish(current => ({ ...current, status: 'unavailable', error: reason }))
 
   try {
+    const missing = await skillMissing($, config)
+    if (missing !== undefined) return void (await unavailable(missing))
     // dontAsk denies every tool the rules do not allow. Only the person's own
     // settings load: a repo's .claude/settings.json could otherwise widen them.
     // The prompt arrives on stdin, so each variadic rule list ends at the next flag.
@@ -152,16 +184,23 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
       '--allowedTools', ...config.allowedTools,
       '--disallowedTools', ...DENIED_TOOLS,
     ]
-    const run = await $.process.run(argv, {
-      stdin: buildAsk(config.skill, config.maxSteps),
-      timeoutMs: TEN_MINUTES,
-    })
+    let run
+    try {
+      run = await $.process.run(argv, { stdin: buildAsk(config.skill, config.maxSteps), timeoutMs: TEN_MINUTES })
+    } catch (error) {
+      if (!(await canStartClaude($))) return void (await unavailable(NEEDS_CLAUDE))
+      throw error
+    }
     if (run.exitCode !== 0) {
       const reason = lastLine(run.stderr) || lastLine(run.stdout) || `exit code ${run.exitCode}`
       await finish(current => ({ ...current, status: 'error', error: `claude -p failed: ${reason}` }))
       return
     }
     const steps = parseSteps(run.stdout, config.maxSteps)
+    // The headless run loads only the person's own settings, so it can lack a skill this session has.
+    if (steps.length === 0 && isMissingSkillReply(run.stdout, config.skill)) {
+      return void (await unavailable(skillNotForHeadless(config.skill)))
+    }
     if (steps.length === 0) {
       await finish(current => ({ ...current, status: 'error', error: `${config.skill} answered with no prompt to list.` }))
       return
@@ -179,12 +218,26 @@ async function refresh($: EngineInterface, config: Config): Promise<void> {
 }
 
 /**
- * The start-up work: opens the pane unasked when `isPaneWanted`, and refreshes
- * when the settings ask for it at start and the folder is a git repo.
+ * The start-up work. Checks the skill, and the claude CLI too when the pane
+ * would open with no steps to show. A missing requirement starts no run and
+ * opens the pane only for steps kept from before, never just to report it;
+ * /whats-next shows it. Otherwise it clears a requirement message left from
+ * before, opens the pane unasked when `isPaneWanted`, and refreshes when the
+ * settings ask for it at start and the folder is a git repo.
  */
 async function startUp($: EngineInterface, config: Config, isPaneWanted: boolean): Promise<void> {
-  if (isPaneWanted) void $.ui.open({ id: PANE, title: TITLE }).catch(report($))
-  if (config.refreshOnStart && (await isGitRepo($))) void refresh($, config).catch(report($))
+  const before = await read($, list)
+  const hasSteps = before.steps.length > 0
+  let missing = await skillMissing($, config)
+  if (missing === undefined && isPaneWanted && !hasSteps && !(await canStartClaude($))) missing = NEEDS_CLAUDE
+  // A refresh begun meanwhile bumped runId: its result stands.
+  await update($, list, (current): NextList => {
+    if (current.runId !== before.runId || current.status === 'loading') return current
+    if (missing !== undefined) return { ...current, status: 'unavailable', error: missing }
+    return current.status === 'unavailable' ? { ...current, status: 'idle', error: '' } : current
+  })
+  if (isPaneWanted && (missing === undefined || hasSteps)) void $.ui.open({ id: PANE, title: TITLE }).catch(report($))
+  if (missing === undefined && config.refreshOnStart && (await isGitRepo($))) void refresh($, config).catch(report($))
 }
 
 async function openPopup($: EngineInterface, step: NextStep): Promise<void> {
@@ -261,7 +314,9 @@ export const register: Register = (on, options) => {
     await $.ui.open({ id: PANE, title: TITLE })
     const current = await read($, list)
     const isAsked = e.args.trim() === 'refresh'
-    if (isAsked || (current.steps.length === 0 && current.status !== 'loading')) void refresh($, config).catch(report($))
+    // An empty list, or a missing requirement the person may have met since, asks again.
+    const isStale = current.status !== 'loading' && (current.steps.length === 0 || current.status === 'unavailable')
+    if (isAsked || isStale) void refresh($, config).catch(report($))
 
     return { text: isAsked ? `Asking ${config.skill} what's next.` : "What's next pane opened." }
   })
@@ -292,7 +347,9 @@ export const register: Register = (on, options) => {
         {current.status === 'loading' && (
           <Text dimColor wrap="wrap">Asking {config.skill}… this takes a minute or two.</Text>
         )}
-        {current.status === 'error' && <Text color="red" wrap="wrap">{current.error}</Text>}
+        {(current.status === 'error' || current.status === 'unavailable') && (
+          <Text color="red" wrap="wrap">{current.error}</Text>
+        )}
         {current.status !== 'loading' && current.updatedAt > 0 && (
           <Text dimColor>updated {ago(now - current.updatedAt)}</Text>
         )}

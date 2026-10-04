@@ -5,7 +5,8 @@ export type StepDraft = { title: string; why: string; prompt: string }
 export type NextStep = StepDraft & { id: string }
 
 export type NextList = {
-  status: 'idle' | 'loading' | 'error'
+  /** `unavailable`: a requirement is missing; `error` names it and the fix. */
+  status: 'idle' | 'loading' | 'error' | 'unavailable'
   steps: NextStep[]
   /** Milliseconds since the epoch of the last successful refresh. */
   updatedAt: number

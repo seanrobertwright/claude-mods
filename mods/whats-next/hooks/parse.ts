@@ -237,3 +237,52 @@ export function shimmer(text: string, frame: number): [string, string, string] {
   const start = Math.max(0, end - BAND)
   return [chars.slice(0, start).join(''), chars.slice(start, end).join(''), chars.slice(end).join('')]
 }
+
+/** What the pane says when the configured skill is not in the session's command list. */
+export function missingSkill(skill: string): string {
+  return `The ${skill} skill is not installed, and What's next asks it for the steps. Install it, or name another in this plugin's "Skill command" setting, then press r.`
+}
+
+/**
+ * What the pane says when this session lists the skill but the headless run,
+ * which loads only the person's own settings, said it has no such skill.
+ */
+export function skillNotForHeadless(skill: string): string {
+  return `The ${skill} skill is installed here but not for claude -p, which loads only your user settings (~/.claude). Install it there, then press r.`
+}
+
+/** What the pane says when the `claude` CLI cannot be started. */
+export const NEEDS_CLAUDE = "What's next needs the claude CLI on the PATH to ask for the steps. Add it to the PATH, then press r."
+
+/**
+ * Whether the command list has the configured skill: an exact match on the
+ * name without the slash. A plugin's copy is listed under its prefix
+ * (`lril:ask-sean`) and runs only by that name.
+ */
+export function hasSkill(commands: readonly { name: string }[], skill: string): boolean {
+  const name = skill.replace(/^\//, '')
+  return commands.some(command => command.name === name)
+}
+
+/** A model's ways of saying it has no such skill or command; apostrophes straight or curly. */
+const NO_SUCH_SKILL = new RegExp(
+  [
+    "(do|does)(n['’]t| not) (have|recognize|know)( a| any| the)? (skill|command)",
+    "(do|does)(n['’]t| not) have",
+    "(could|can)(n['’]t|not| not) find",
+    'no (such )?(skill|command)',
+    'unknown (skill|command)',
+    'not (a )?(known|recognized|available) (skill|command)',
+  ].join('|'),
+  'i',
+)
+
+/**
+ * Whether a headless run's reply, which listed no steps, says it has no such
+ * skill: a run with an unknown skill exits 0 and the model answers in words,
+ * so the reply has to name the skill and use one of the phrases above.
+ * Wording outside those phrases falls through to the plain no-prompt error.
+ */
+export function isMissingSkillReply(reply: string, skill: string): boolean {
+  return reply.includes(skill.replace(/^\//, '')) && NO_SUCH_SKILL.test(reply)
+}

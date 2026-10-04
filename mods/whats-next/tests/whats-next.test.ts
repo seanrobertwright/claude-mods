@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import {
+  isMissingSkillReply,
   buildAsk,
   buildJudge,
   DENIED_TOOLS,
@@ -33,6 +34,12 @@ const REPLY = [
   '/triage',
   FENCE,
 ].join('\r\n')
+
+/** The configured skill as the session's command list shows a user skill. */
+const ASK_SEAN = { name: 'ask-sean', description: "What's next?", source: 'user' } as const
+
+/** A headless run of the skill, as opposed to a quick `claude --version` probe. */
+const isHeadlessRun = (argv: readonly string[]) => argv[0] === 'claude' && argv[1] === '-p'
 
 const PANE_PROPS = {
   title: "What's next",
@@ -85,6 +92,7 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
   mock.store(on)
   mock.env(on, {})
   on('session.cwd', () => ({ value: '/work/repo' }))
+  on('command.list', () => ({ value: [ASK_SEAN] }))
   const opened: string[] = []
   on('ui.open', (_$, e) => {
     opened.push(e.id)
@@ -139,7 +147,7 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
   }
 
   expect(opened).toContain('whats-next-prompt')
-  const claudeRun = runs.find(argv => argv[0] === 'claude')
+  const claudeRun = runs.find(isHeadlessRun)
   expect(claudeRun).toContain('dontAsk')
   expect(claudeRun).toContain('Bash(git log:*)')
   expect(claudeRun).not.toContain('Bash(git:*)')
@@ -168,6 +176,7 @@ function fakeSession(on: On, world: World): void {
   on('session.cwd', () => ({ value: '/work/repo' }))
   on('session.surfaces', () => ({ value: [...world.surfaces] as never }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('command.list', () => ({ value: [ASK_SEAN] }))
   on('ui.open', (_$, e) => {
     world.opened.push(e.id)
     return { value: { isPlaced: true } }
@@ -180,7 +189,6 @@ function fakeSession(on: On, world: World): void {
   })
 }
 
-const isHeadlessRun = (argv: readonly string[]) => argv[0] === 'claude'
 const HEADLESS_START = { cwd: '/work/repo', surface: null, isInteractive: false } as const
 
 test('a headless session opens no pane and starts no headless run', async ($, on) => {
@@ -301,6 +309,7 @@ function fakeEngine(
   mock.env(on, {})
   on('session.cwd', () => ({ value: '/work/repo' }))
   on('session.surfaces', () => ({ value: [...surfaces] as never }))
+  on('command.list', () => ({ value: [ASK_SEAN] }))
   on('ui.toast', (_$, e) => {
     toasts.push(e.text)
     return { value: undefined }
@@ -418,5 +427,168 @@ test('finishing a step drops only that step, not another with the same prompt', 
   expect((await pane.find({ key: 'open-1' }))?.text).toContain('Triage the new reports')
   const kept = stored.get('list:/work/repo') as { steps: { title: string }[] }
   expect(kept.steps.map(step => step.title)).toEqual(['Triage the new reports'])
+  await pane.unmount()
+})
+
+/**
+ * The engine beneath the plugin for the requirement tests: a terminal shows
+ * the session in a git repo; `world.skills` is the command list and
+ * `world.hasClaude` whether a claude process can start; `world.reply` is what
+ * a headless run answers.
+ */
+type Needs = {
+  skills: { name: string; description: string; source: 'user' | 'plugin' }[]
+  hasClaude: boolean
+  reply: string
+  opened: string[]
+  runs: (readonly string[])[]
+  toasts: string[]
+}
+
+function fakeNeeds(on: On, needs: Needs): void {
+  mock.store(on)
+  mock.env(on, {})
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/work/repo' }))
+  on('session.surfaces', () => ({ value: ['terminal'] as never }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('command.list', () => ({ value: [...needs.skills] }))
+  on('ui.open', (_$, e) => {
+    needs.opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.toast', (_$, e) => {
+    needs.toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('process.run', (_$, e) => {
+    needs.runs.push(e.argv)
+    if (e.argv[0] === 'claude' && !needs.hasClaude) throw new Error('spawn claude ENOENT')
+    const stdout = e.argv[0] === 'git' ? 'true\n' : e.argv[1] === '--version' ? '2.1.289 (Claude Code)\n' : needs.reply
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+}
+
+const TERMINAL_START = { cwd: '/work/repo', surface: 'terminal', isInteractive: true } as const
+
+test('a missing skill is named in the pane, no claude process starts and the pane does not open unasked', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const needs: Needs = { skills: [], hasClaude: true, reply: REPLY, opened: [], runs: [], toasts: [] }
+  fakeNeeds(on, needs)
+
+  await $.session.start(TERMINAL_START)
+  await clock.settle()
+  expect(needs.opened).toEqual([])
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  expect(await pane.find({ type: 'Text', text: /\/ask-sean.*not installed.*press r/ })).toBeDefined()
+
+  await pane.press({ key: 'refresh' })
+  expect(needs.runs.filter(argv => argv[0] === 'claude')).toEqual([])
+  expect(needs.toasts).toEqual([])
+
+  // Installed now: r asks the skill.
+  needs.skills.push(ASK_SEAN)
+  await pane.press({ key: 'refresh' })
+  expect((await pane.find({ key: 'open-1' }))?.text).toContain('Push the auth branch')
+  await pane.unmount()
+})
+
+test('a plugin copy of the skill under its prefix does not answer to the bare name', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const skills = [{ name: 'lril:ask-sean', description: "What's next?", source: 'plugin' as const }]
+  const needs: Needs = { skills, hasClaude: true, reply: REPLY, opened: [], runs: [], toasts: [] }
+  fakeNeeds(on, needs)
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  await pane.press({ key: 'refresh' })
+  await clock.settle()
+  expect(await pane.find({ type: 'Text', text: /\/ask-sean.*not installed/ })).toBeDefined()
+  expect(needs.runs.filter(isHeadlessRun)).toEqual([])
+  await pane.unmount()
+})
+
+test('a claude CLI that cannot start is named in the pane, which does not open unasked', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const needs: Needs = { skills: [ASK_SEAN], hasClaude: false, reply: REPLY, opened: [], runs: [], toasts: [] }
+  fakeNeeds(on, needs)
+
+  await $.session.start(TERMINAL_START)
+  await clock.settle()
+  expect(needs.opened).toEqual([])
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ type: 'Text', text: /claude CLI.*PATH.*press r/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /ENOENT/ })).toBeUndefined()
+  expect(needs.toasts).toEqual([])
+
+  needs.hasClaude = true
+  await pane.press({ key: 'refresh' })
+  expect((await pane.find({ key: 'open-1' }))?.text).toContain('Push the auth branch')
+  await pane.unmount()
+})
+
+test('a headless run that answers it has no such skill says the skill is missing for claude -p', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const reply = "I don't have a skill or command called `/ask-sean`, and I don't see any prior context."
+  const needs: Needs = { skills: [ASK_SEAN], hasClaude: true, reply, opened: [], runs: [], toasts: [] }
+  fakeNeeds(on, needs)
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  await pane.press({ key: 'refresh' })
+  await clock.settle()
+  expect(await pane.find({ type: 'Text', text: /\/ask-sean.*installed here but not for claude -p.*press r/ })).toBeDefined()
+  await pane.unmount()
+})
+
+test('isMissingSkillReply needs the skill named and a no-such-skill phrase', () => {
+  expect(isMissingSkillReply("I don't have a skill or command called `/ask-sean`.", '/ask-sean')).toBe(true)
+  expect(isMissingSkillReply('I don’t have a /ask-sean skill.', '/ask-sean')).toBe(true)
+  expect(isMissingSkillReply("I couldn't find a command called ask-sean.", '/ask-sean')).toBe(true)
+  expect(isMissingSkillReply('There is no such skill as /ask-sean here.', '/ask-sean')).toBe(true)
+  // A skill that ran but wrote no fence: its words are not a missing skill.
+  expect(isMissingSkillReply('ask-sean: gh was not found, so the state of issue #12 is unknown.', '/ask-sean')).toBe(false)
+  expect(isMissingSkillReply("I don't have a skill called /other.", '/ask-sean')).toBe(false)
+})
+
+test('a later start with the requirement met clears the message and opens the pane', { options: { refreshOnStart: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const needs: Needs = { skills: [], hasClaude: true, reply: REPLY, opened: [], runs: [], toasts: [] }
+  fakeNeeds(on, needs)
+
+  await $.session.start(TERMINAL_START)
+  await clock.settle()
+  expect(needs.opened).toEqual([])
+
+  // The skill is installed and the plugin reloads: session.start runs again.
+  needs.skills.push(ASK_SEAN)
+  await $.session.start(TERMINAL_START)
+  await clock.settle()
+  expect(needs.opened).toEqual(['whats-next'])
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  // No refresh runs at start here, so only start-up itself can have cleared the message.
+  expect(await pane.find({ type: 'Text', text: /not installed/ })).toBeUndefined()
+  expect(needs.runs.filter(isHeadlessRun)).toEqual([])
+  await pane.unmount()
+})
+
+test('with steps kept from before, a missing skill still lets the pane open for them, and starts no run', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const needs: Needs = { skills: [ASK_SEAN], hasClaude: true, reply: REPLY, opened: [], runs: [], toasts: [] }
+  fakeNeeds(on, needs)
+
+  await $.session.start(TERMINAL_START)
+  await clock.settle()
+  expect(needs.runs.filter(isHeadlessRun).length).toBe(1)
+
+  // A later session in the same folder: the kept list loads, but the skill is gone.
+  needs.skills.length = 0
+  needs.opened.length = 0
+  await $.session.start(TERMINAL_START)
+  await clock.settle()
+  expect(needs.opened).toEqual(['whats-next'])
+  expect(needs.runs.filter(isHeadlessRun).length).toBe(1)
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  expect((await pane.find({ key: 'open-1' }))?.text).toContain('Push the auth branch')
+  expect(await pane.find({ type: 'Text', text: /\/ask-sean.*not installed/ })).toBeDefined()
   await pane.unmount()
 })
