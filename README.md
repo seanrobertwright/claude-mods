@@ -26,5 +26,21 @@ Claude Code reads an installed mod from this folder, so after an edit `/reload-p
 
 ## Checks
 
-- `claude plugin validate mods/<name>` and `claude plugin test mods/<name>` check a mod.
-- `npm install` wires the pre-commit hook, which runs markdownlint and a check for personal data in tracked files.
+`npm run check` checks every directory under `mods/`, one mod at a time, in this order:
+
+1. `tsc --noEmit --strict` against the mod's `tsconfig.json`
+2. ESLint with `eslint.config.mjs`, where unused imports, unused variables and unreachable code are errors and any warning also fails
+3. `claude plugin validate`
+4. `claude plugin test`
+
+It stops at the first failure and names the mod and the step.
+
+A mod's `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes when it loads the mod and which git ignores. When that file is missing, as on a fresh clone, the script loads the mod once with a headless `claude -p` run of a local command, which makes no model call. The script needs the `claude` CLI on the PATH.
+
+`npm install` wires the pre-commit hook. On each commit it runs:
+
+- the personal-data check over tracked files (`npm run check:secrets` runs it by hand)
+- markdownlint on staged Markdown (`npm run lint:md` lints every Markdown file)
+- the same four mod checks, only for the mods with staged changes (`node scripts/check-mods.mjs --staged`). They read the files on disk, so unstaged edits in a staged mod are checked too.
+
+`npm run test:scripts` runs the tests for the check script itself.

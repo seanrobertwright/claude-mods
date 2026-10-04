@@ -28,7 +28,7 @@ function cleanTitle(line: string): string {
   const plain = line
     .replace(/^\s*\d+[.)]\s*/, '')
     .replace(/\*\*|__|`/g, '')
-    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\p{Cc}/gu, '')
     .trim()
   // Cut by code point so an emoji is never split into a lone surrogate.
   return Array.from(plain).slice(0, 80).join('')

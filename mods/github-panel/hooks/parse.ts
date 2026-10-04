@@ -24,7 +24,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function text(value: unknown): string {
-  return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ') : ''
+  return typeof value === 'string' ? value.replace(/\p{Cc}/gu, ' ') : ''
 }
 
 function isNumber(value: unknown): value is number {

@@ -30,7 +30,7 @@ async function gh($: EngineInterface, args: readonly string[]) {
   try {
     return await $.process.run(['gh', ...args])
   } catch (error) {
-    throw new Error(`could not run gh (${error instanceof Error ? error.message : String(error)})`)
+    throw new Error(`could not run gh (${error instanceof Error ? error.message : String(error)})`, { cause: error })
   }
 }
 

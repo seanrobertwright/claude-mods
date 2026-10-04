@@ -16,7 +16,7 @@ export type Config = {
 
 /** Parses the manifest's userConfig values; a value out of range falls back to its default. */
 export function parseConfig(options: Readonly<Record<string, unknown>>): Config {
-  const text = typeof options.text === 'string' ? options.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim() : ''
+  const text = typeof options.text === 'string' ? options.text.replace(/\p{Cc}/gu, ' ').trim() : ''
   const grace = options.graceSeconds
   const retries = options.maxRetries
   return {
