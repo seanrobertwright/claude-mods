@@ -3,13 +3,14 @@
 One developer's personal toolbox of Claude Code mods, shared as a marketplace so anyone can install them.
 The mods are built for the author's own workflow first; another user is a welcome guest, not the design target.
 A sentence marked _Target_ is a rule every mod is meant to follow; not every mod follows it yet.
+An _Avoid_ word is wrong only where it names that entry's concept; Claude Code's own identifiers and the same word for an unrelated idea are fine.
 
 ## Language
 
 ### Mods and what they are not
 
 **Mod**:
-A plugin of function hooks that changes Claude Code's surfaces or its behaviour between turns.
+A plugin of function hooks that changes what Claude Code shows or does between turns.
 The mod's own code decides when it acts, even when what it does is send the model a prompt.
 The marketplace lists mods and nothing else.
 _Avoid_: Extension, addon, plugin (when a mod is meant)
@@ -24,7 +25,8 @@ _Avoid_: Command, prompt (when a skill is meant)
 
 **Requirement**:
 Something outside the mod that it needs to work, such as a skill, a CLI tool or a logged-in account.
-_Target_: a mod detects a missing requirement and names it instead of failing obscurely.
+_Target_: a mod detects a missing requirement and names it, with how to meet it, instead of failing obscurely.
+It says so where the person looks for the mod, such as its pane, and never opens anything on its own just to report it.
 _Avoid_: Dependency, prerequisite
 
 **Marketplace**:
@@ -33,12 +35,19 @@ _Avoid_: Registry, store, package
 
 ### Sessions
 
+**Surface**:
+A place a session is shown: the terminal, the desktop app, a phone or the editor.
+A session can be shown on several surfaces at once.
+_Avoid_: Screen, client
+
 **Interactive session**:
-A Claude Code session with a person at the screen, where a mod's surfaces are seen and used.
+A Claude Code session shown on at least one surface: the terminal from the start, or the desktop app, a phone or the editor from the moment someone opens it there.
+A session started without a surface becomes interactive when one is attached.
 
 **Headless session**:
-Any session with nobody at the screen: every `claude -p` process and every SDK session.
-_Target_: a mod stays quiet in a headless session: it draws nothing, polls nothing, submits no prompt and starts no headless run.
+A session shown on no surface: a `claude -p` process, or an SDK session nobody has opened.
+_Target_: a mod stays quiet in a headless session: it draws nothing, polls nothing and starts nothing new, so no prompt and no headless run of its own.
+Work set going while the session was shown, such as a resume after a rate limit, still finishes.
 _Avoid_: Background session, child session
 
 **Headless run**:
@@ -61,10 +70,11 @@ _Avoid_: Task, item, action
 Said of a next-steps list when the repo has moved since it was made: a new commit or a different branch.
 A stale list is still shown until a fresh one replaces it.
 
-### Surfaces
+### What a mod shows
 
 **Pane**:
 A titled panel a mod opens in Claude Code's side panel; when several are open, Claude Code shows them as tabs.
+_Target_: a mod opens its pane unasked only on a surface that shows panes beside the conversation; elsewhere, such as on a phone, it waits to be asked.
 _Avoid_: Sidebar, tab, panel
 
 **Band**:
