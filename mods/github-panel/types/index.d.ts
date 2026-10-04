@@ -34,6 +34,10 @@ export type GitHubView = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'github-panel': { view: GitHubView }
+    'github-panel': {
+      view: GitHubView
+      /** True once this session's start-up load has run: at start, or at the first attach. */
+      hasStartedUp: boolean
+    }
   }
 }
