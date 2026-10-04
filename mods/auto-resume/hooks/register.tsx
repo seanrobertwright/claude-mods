@@ -71,8 +71,14 @@ async function disarm($: EngineInterface): Promise<void> {
   $.ui.status(undefined)
 }
 
+/** Sends the resume once: the timer and a press racing it both get here, and only the one that takes `pending` sends. */
 async function resume($: EngineInterface, config: Config): Promise<void> {
-  if ((await read($, pending)) === null) return
+  let isTaken = false
+  await update($, pending, current => {
+    isTaken = current !== null
+    return null
+  })
+  if (!isTaken) return
   await disarm($)
   await update($, attempts, count => count + 1)
   await $.prompt.submit({ text: config.text, asUser: true })

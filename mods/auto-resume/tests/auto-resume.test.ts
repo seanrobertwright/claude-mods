@@ -122,6 +122,20 @@ test('a rate-limited turn arms a countdown that sends "continue" at the reset', 
   await band.unmount()
 })
 
+test('a resume pressed twice at once sends "continue" once', async ($, on) => {
+  engineBeneath(on)
+  const clock = mock.clock(on, { now: NOW })
+  rateLimited(on)
+  const sent = submitted(on)
+
+  await $.classic.StopFailure({ error: 'rate_limit' })
+  const band = await $.ui.mount({ plugin: 'auto-resume', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await Promise.all([band.press({ key: 'now' }), band.press({ key: 'now' })])
+  await clock.advance(11 * MINUTE)
+  expect(sent).toEqual(['continue'])
+  await band.unmount()
+})
+
 test('Cancel disarms the countdown', async ($, on) => {
   engineBeneath(on)
   const clock = mock.clock(on, { now: NOW })
