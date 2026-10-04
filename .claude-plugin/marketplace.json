@@ -25,7 +25,7 @@
     {
       "name": "github-panel",
       "source": "./mods/github-panel",
-      "description": "A GitHub tab in the side panel: the repo's open pull requests and issues; click one to open it in the browser."
+      "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser."
     }
   ]
 }
