@@ -22,7 +22,7 @@ claude plugin marketplace add <path to this repo>
 claude plugin install whats-next@claude-mods
 ```
 
-Claude Code reads an installed mod from this folder, so after an edit `/reload-plugins` picks it up. To try a mod for one session only, run `claude --plugin-dir mods/<name>`.
+Installing copies a mod into Claude Code's plugin cache as the repo stands at that commit, so an edit here does not reach an installed mod by itself. To try a mod, or an edit to it, for one session only, run `claude --plugin-dir mods/<name>`.
 
 ## Checks
 
