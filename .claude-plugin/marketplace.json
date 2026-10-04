@@ -1,0 +1,22 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "claude-mods" },
+  "metadata": { "description": "Claude Code mods built as function-hook plugins." },
+  "plugins": [
+    {
+      "name": "whats-next",
+      "source": "./mods/whats-next",
+      "description": "A right-hand sidebar listing the next steps of your dev workflow, filled by /ask-sean; click a step to see its prompt."
+    },
+    {
+      "name": "quick-reply",
+      "source": "./mods/quick-reply",
+      "description": "One-click replies above the prompt: the options Claude just offered, Yes, Go with your recommendation, Continue."
+    },
+    {
+      "name": "auto-resume",
+      "source": "./mods/auto-resume",
+      "description": "When a turn dies on a rate limit (or an overloaded API), counts down to the reset and sends \"continue\" for you."
+    }
+  ]
+}

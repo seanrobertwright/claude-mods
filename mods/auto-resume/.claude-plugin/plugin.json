@@ -1,0 +1,32 @@
+{
+  "name": "auto-resume",
+  "version": "0.1.0",
+  "description": "When a turn dies on a rate limit (or an overloaded API), counts down to the reset and sends \"continue\" for you.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "text": {
+      "type": "string",
+      "title": "Resume prompt",
+      "description": "What is sent when the wait is over.",
+      "default": "continue"
+    },
+    "graceSeconds": {
+      "type": "number",
+      "title": "Grace after reset (s)",
+      "description": "Extra seconds to wait past the limit's reset time (0-900).",
+      "default": 60
+    },
+    "retryOverloaded": {
+      "type": "boolean",
+      "title": "Retry overloaded/server errors",
+      "description": "Also resume after an overloaded or server error, backing off from one minute.",
+      "default": true
+    },
+    "maxRetries": {
+      "type": "number",
+      "title": "Most retries in a row",
+      "description": "Give up after this many resumes without a successful answer (1-20).",
+      "default": 5
+    }
+  }
+}

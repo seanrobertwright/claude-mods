@@ -1,0 +1,38 @@
+{
+  "name": "whats-next",
+  "version": "0.1.0",
+  "description": "A right-hand sidebar listing the next steps of your dev workflow, filled by /ask-sean; click a step to see its prompt.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "skill": {
+      "type": "string",
+      "title": "Skill command",
+      "description": "The slash command that answers \"what's next\".",
+      "default": "/ask-sean"
+    },
+    "maxSteps": {
+      "type": "number",
+      "title": "Most steps",
+      "description": "How many steps to ask for (1-9).",
+      "default": 5
+    },
+    "refreshOnStart": {
+      "type": "boolean",
+      "title": "Refresh on start",
+      "description": "Ask for a fresh list when a session starts in a git repository.",
+      "default": true
+    },
+    "allowedTools": {
+      "type": "string",
+      "title": "Tools the helper may use",
+      "description": "Comma-separated --allowedTools for the headless run; keep it read-only.",
+      "default": "Bash(git:*),Bash(gh:*),Read,Glob,Grep"
+    },
+    "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "Model for the headless run (alias or id); empty uses your default.",
+      "default": ""
+    }
+  }
+}
