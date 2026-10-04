@@ -367,7 +367,9 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'whats-next' }, async ($, e) => {
-    await $.ui.open({ id: PANE, title: TITLE })
+    // Focus brings the pane in front of another mod's tab; an open pane would only be retitled
+    // without it. The open at start never asks it, so the mod takes the keyboard only when asked.
+    await $.ui.open({ id: PANE, title: TITLE, focus: true })
     const current = await read($, list)
     const isAsked = e.args.trim() === 'refresh'
     // An empty list, or a missing requirement the person may have met since, asks again.

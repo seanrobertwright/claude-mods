@@ -200,8 +200,9 @@ const PHONE = { surface: 'mobile', clientId: 'mobile:default', viewport: { colum
 
 /**
  * The engine beneath the mod for a session's life: the surfaces showing it
- * (the test edits the list), every pane opened and every process run, with
- * git answering whether the folder is a repo and claude answering REPLY.
+ * (the test edits the list), every pane opened (by id, with `+focus` when the
+ * open asked for the keyboard) and every process run, with git answering
+ * whether the folder is a repo and claude answering REPLY.
  */
 type World = { surfaces: string[]; opened: string[]; runs: (readonly string[])[]; isGitRepo: boolean }
 
@@ -215,7 +216,7 @@ function fakeSession(on: On, world: World): void {
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('command.list', () => ({ value: [ASK_SEAN] }))
   on('ui.open', (_$, e) => {
-    world.opened.push(e.id)
+    world.opened.push(e.focus === true ? `${e.id}+focus` : e.id)
     return { value: { isPlaced: true } }
   })
   on('process.run', (_$, e) => {
@@ -273,7 +274,21 @@ test('a phone attaching first refreshes but waits for /whats-next to open the pa
   expect(world.opened).toEqual([])
 
   await $.command.run({ command: 'whats-next', args: '', origin: { kind: 'bridge' }, presentation: { isFullscreen: false, columns: 40 } })
+  expect(world.opened).toEqual(['whats-next+focus'])
+})
+
+test("/whats-next asks focus, to bring What's next in front of another pane, while the open at start asks none", async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world: World = { surfaces: ['terminal'], opened: [], runs: [], isGitRepo: true }
+  fakeSession(on, world)
+
+  await $.session.start({ cwd: '/work/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
   expect(world.opened).toEqual(['whats-next'])
+
+  // Another mod's pane opened after this one is in front; the command brings What's next back.
+  await $.command.run({ command: 'whats-next', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(world.opened).toEqual(['whats-next', 'whats-next+focus'])
 })
 
 test('attaching outside a git repo starts no headless run', async ($, on) => {
@@ -477,9 +492,10 @@ test('finishing a step drops only that step, not another with the same prompt', 
 
 /**
  * The engine beneath the mod for the requirement tests: a terminal shows
- * the session in a git repo; `world.skills` is the command list and
- * `world.hasClaude` whether a claude process can start; `world.reply` is what
- * a headless run answers.
+ * the session in a git repo; `needs.skills` is the command list and
+ * `needs.hasClaude` whether a claude process can start; `needs.reply` is what
+ * a headless run answers; `needs.opened` records each pane opened, as
+ * fakeSession does.
  */
 type Needs = {
   skills: { name: string; description: string; source: 'user' | 'plugin' }[]
@@ -499,7 +515,7 @@ function fakeNeeds(on: On, needs: Needs): void {
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('command.list', () => ({ value: [...needs.skills] }))
   on('ui.open', (_$, e) => {
-    needs.opened.push(e.id)
+    needs.opened.push(e.focus === true ? `${e.id}+focus` : e.id)
     return { value: { isPlaced: true } }
   })
   on('ui.toast', (_$, e) => {

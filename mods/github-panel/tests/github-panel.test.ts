@@ -139,7 +139,11 @@ const DESKTOP = { surface: 'desktop', clientId: 'desktop:default', viewport: { c
 const PHONE = { surface: 'mobile', clientId: 'mobile:default', viewport: { columns: 40, rows: 60, isFullscreen: false } } as const
 const FIVE_MINUTES = 300_000
 
-/** The engine beneath the mod: the surfaces showing the session (the test edits the list) and every pane opened. */
+/**
+ * The engine beneath the mod: the surfaces showing the session (the test edits
+ * the list) and every pane opened, by id, with `+focus` when the open asked
+ * for the keyboard (and so to be brought to the front).
+ */
 function fakeSession(on: On, surfaces: string[], opened: string[]): void {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.attach', (_$, e) => ({ clientId: e.clientId }))
@@ -147,7 +151,7 @@ function fakeSession(on: On, surfaces: string[], opened: string[]): void {
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('session.surfaces', () => ({ value: [...surfaces] as never }))
   on('ui.open', (_$, e) => {
-    opened.push(e.id)
+    opened.push(e.focus === true ? `${e.id}+focus` : e.id)
     return { value: { isPlaced: true } }
   })
 }
@@ -208,7 +212,23 @@ test('a phone attaching first loads the lists but waits for /github to open the 
   expect(opened).toEqual([])
 
   await $.command.run({ command: 'github', args: '', origin: { kind: 'bridge' }, presentation: { isFullscreen: false, columns: 40 } })
+  expect(opened).toEqual(['github+focus'])
+})
+
+test('/github asks focus, to bring GitHub in front of another pane, while the open at start asks none', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const runs: (readonly string[])[] = []
+  const opened: string[] = []
+  fakeGh(on, runs)
+  fakeSession(on, ['terminal'], opened)
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
   expect(opened).toEqual(['github'])
+
+  // Another mod's pane opened after GitHub's is in front; the command brings GitHub back.
+  await $.command.run({ command: 'github', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(opened).toEqual(['github', 'github+focus'])
 })
 
 test('polling stops when the last surface detaches and picks up on the next attach', async ($, on) => {
@@ -345,7 +365,7 @@ for (const { gh, says } of REQUIREMENTS) {
     expect(await pane.find({ key: 'all-prs' })).toBeUndefined()
 
     await $.command.run({ command: 'github', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
-    expect(opened).toEqual(['github'])
+    expect(opened).toEqual(['github+focus'])
     await pane.unmount()
   })
 }
