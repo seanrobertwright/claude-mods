@@ -240,7 +240,7 @@ export function shimmer(text: string, frame: number): [string, string, string] {
 
 /** What the pane says when the configured skill is not in the session's command list. */
 export function missingSkill(skill: string): string {
-  return `The ${skill} skill is not installed, and What's next asks it for the steps. Install it, or name another in this plugin's "Skill command" setting, then press r.`
+  return `The ${skill} skill is not installed, and What's next asks it for the steps. Install it, or name another in What's next's "Skill" setting, then press r.`
 }
 
 /**

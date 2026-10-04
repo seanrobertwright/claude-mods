@@ -6,8 +6,8 @@
   "userConfig": {
     "skill": {
       "type": "string",
-      "title": "Skill command",
-      "description": "The slash command that answers \"what's next\".",
+      "title": "Skill",
+      "description": "The skill that answers \"what's next\", named as you would run it (/ask-sean).",
       "default": "/ask-sean"
     },
     "maxSteps": {
@@ -24,7 +24,7 @@
     },
     "allowedTools": {
       "type": "string",
-      "title": "Tools the helper may use",
+      "title": "Tools the headless run may use",
       "description": "Comma-separated permission rules for the headless run; empty uses a built-in read-only set of git and gh read commands plus Read, Glob and Grep. git push, git config, git -c, gh api and --output are always denied.",
       "default": ""
     },
