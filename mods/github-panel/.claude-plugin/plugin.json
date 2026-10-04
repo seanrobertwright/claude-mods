@@ -1,0 +1,20 @@
+{
+  "name": "github-panel",
+  "version": "0.1.0",
+  "description": "A GitHub tab in the side panel: the repo's open pull requests and issues; click one to open it in the browser.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "limit": {
+      "type": "number",
+      "title": "Most items per list",
+      "description": "How many open PRs and issues to list each (1-100); the rest are a click away on GitHub.",
+      "default": 30
+    },
+    "refreshMinutes": {
+      "type": "number",
+      "title": "Refresh every (minutes)",
+      "description": "How often to refresh while the session runs (1-120); 0 refreshes only on open, after turns and on r.",
+      "default": 5
+    }
+  }
+}

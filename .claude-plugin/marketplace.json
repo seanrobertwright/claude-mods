@@ -1,7 +1,11 @@
 {
   "name": "claude-mods",
-  "owner": { "name": "claude-mods" },
-  "metadata": { "description": "Claude Code mods built as function-hook plugins." },
+  "owner": {
+    "name": "claude-mods"
+  },
+  "metadata": {
+    "description": "Claude Code mods built as function-hook plugins."
+  },
   "plugins": [
     {
       "name": "whats-next",
@@ -17,6 +21,11 @@
       "name": "auto-resume",
       "source": "./mods/auto-resume",
       "description": "When a turn dies on a rate limit (or an overloaded API), counts down to the reset and sends \"continue\" for you."
+    },
+    {
+      "name": "github-panel",
+      "source": "./mods/github-panel",
+      "description": "A GitHub tab in the side panel: the repo's open pull requests and issues; click one to open it in the browser."
     }
   ]
 }
