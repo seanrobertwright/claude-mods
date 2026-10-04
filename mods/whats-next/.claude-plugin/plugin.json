@@ -1,7 +1,7 @@
 {
   "name": "whats-next",
   "version": "0.1.0",
-  "description": "A right-hand sidebar listing the next steps of your dev workflow, filled by /ask-sean; click a step to see its prompt.",
+  "description": "A pane in the side panel listing the next steps of your dev workflow, filled by /ask-sean; click a step to see its prompt.",
   "types": "./types/index.d.ts",
   "userConfig": {
     "skill": {

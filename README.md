@@ -1,12 +1,12 @@
 # claude-mods
 
-claude-mods is a collection of Claude Code mods. The description is still to be written.
+claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them. A mod is a plugin of function hooks: TypeScript that runs inside Claude Code and changes what it shows (a pane in the side panel, a band of buttons above the prompt, the status line) or what it does between turns, without going through the model. That is what sets a mod apart from a skill, which is instructions the model reads, and from a plain plugin of commands, agents or shell hooks.
 
 ## Mods
 
 Each mod is a Claude Code plugin of function hooks under `mods/`.
 
-- **whats-next**: a sidebar listing the next steps of your workflow, filled by the `/ask-sean` skill. Click a step to see its prompt, then paste or copy it.
+- **whats-next**: a pane in the side panel listing the next steps of your workflow, filled by the `/ask-sean` skill. Click a step to see its prompt, then paste or copy it.
 - **quick-reply**: one-click replies above the prompt, including the options Claude just offered.
 - **auto-resume**: after a rate limit or an overloaded API, counts down to the reset and sends "continue".
 - **github-panel**: a GitHub tab beside What's Next listing the repo's open pull requests and issues. Click one to open it in the browser.

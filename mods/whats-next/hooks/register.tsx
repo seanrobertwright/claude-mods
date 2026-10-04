@@ -113,7 +113,7 @@ export const register: Register = (on, options) => {
 
     await $.command.register({
       name: 'whats-next',
-      description: "Open the What's next sidebar; '/whats-next refresh' asks the skill again",
+      description: "Open the What's next pane; '/whats-next refresh' asks the skill again",
     })
 
     // A reload killed any run in flight: drop its loading state and its result.
@@ -137,7 +137,7 @@ export const register: Register = (on, options) => {
     const isAsked = e.args.trim() === 'refresh'
     if (isAsked || (current.steps.length === 0 && current.status !== 'loading')) void refresh($, config).catch(report($))
 
-    return { text: isAsked ? `Asking ${config.skill} what's next.` : "What's next sidebar opened." }
+    return { text: isAsked ? `Asking ${config.skill} what's next.` : "What's next pane opened." }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
