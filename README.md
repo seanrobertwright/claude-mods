@@ -1,31 +1,311 @@
-# claude-mods
+# 🧩 claude-mods
 
-claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them. A mod is a plugin of function hooks: TypeScript that runs inside Claude Code and changes what it shows (a pane in the side panel, a band of buttons above the prompt, the status line) or what it does between turns. The mod's own code decides when to act, even when what it does is send the model a prompt. That is what sets a mod apart from a skill, which is instructions the model reads, and from a plain plugin of commands, agents or shell hooks.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, and a guard for the Office file you left open.
 
-## Mods
+![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
+![7 mods](https://img.shields.io/badge/mods-7-6b5bd2)
+![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
+![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
-Each mod is a Claude Code plugin of function hooks under `mods/`.
+claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all seven, or read the source and write your own.
 
-- **whats-next**: a pane in the side panel listing the next steps of your workflow, filled by the `/ask-sean` skill. Click a step to see its prompt, then paste or copy it. Once you submit a step's prompt, the step shows a glowing "working on it" line. After each answered turn, Haiku is asked whether the step is finished, and a finished step leaves the list. Press `d` to drop it yourself.
-- **quick-reply**: one-click replies above the prompt, including the options Claude just offered.
-- **auto-resume**: after a rate limit or an overloaded API, counts down to the reset and sends "continue".
-- **github-panel**: a GitHub pane beside What's Next listing the repo's open pull requests and issues. Click one to open it in the browser. An issue blocked by an open issue has a red line under it; hover it to see what blocks it.
-- **shelf**: a band of named folders and files above the prompt. Click one to drop its path at the cursor; nothing is sent. `/shelf add <name> [path]` puts a path on the shelf (the project folder when no path is given), `/shelf remove <name>` takes one off and `/shelf` lists them. The shelf is the same in every project folder.
-- **turn-chime**: plays a short sound and shows a toast when a turn that ran three minutes or more ends, when Claude finishes three minutes or more after your last prompt (work it left running in the background reports in a short turn of its own), and once when Claude stops to ask you something that far in. The length is the mod's one option. A turn you stopped yourself stays silent. The sound plays on macOS and Windows; a Linux terminal has no player, so only the toast shows there.
-- **open-file-guard**: when Claude is about to use a Word, Excel or PowerPoint file that you have open, asks you to close it before the call runs. Answer "I closed it" and the call goes on; "Go ahead anyway" lets it through, for a command that only reads the file. It sees a file named in a Write or Edit call or in the text of a shell command, not one a script works out as it runs, and not one on a network location.
+## What is a mod?
 
-The side panel's tabs come from Claude Code itself: when more than one mod has a pane open, it shows them as tabs.
+A mod is a plugin of function hooks: TypeScript that runs inside Claude Code and changes what it shows (a pane in the side panel, a band of buttons above the prompt, the status line) or what it does between turns.
+The mod's own code decides when to act, even when what it does is send the model a prompt.
 
-## Using them
+| | Runs as | Who decides when it acts |
+| --- | --- | --- |
+| **Mod** | TypeScript function hooks inside Claude Code | The mod's own code |
+| **Skill** | Instructions the model reads | The model |
+| **Plain plugin** | Commands, agents or shell hooks | You, or a shell script |
 
-This repo is a plugin marketplace (`.claude-plugin/marketplace.json`). Add it once, then install the mods you want:
+## The mods
 
-```sh
-claude plugin marketplace add <path to this repo>
-claude plugin install whats-next@claude-mods
+| Mod | Where it shows | What it does |
+| --- | --- | --- |
+| 🧭 [whats-next](#-whats-next) | Pane in the side panel | Lists the next steps of your workflow, each with a prompt ready to paste |
+| ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered |
+| ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
+| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser |
+| 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
+| 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
+| 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
+
+When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
+
+### 🧭 whats-next
+
+A pane listing the next steps of your workflow for the project folder, kept between sessions.
+A skill of your choosing answers "what's next" in a headless run beside your session, and the mod turns the answer into steps.
+
+```text
+What's next                        refresh
+updated 3 min ago
+
+Fix the failing parse test
+working on it  done
+The check is red, so nothing else can merge.
+
+Open a pull request for the fix
+Review comes before the next feature starts.
+
+Triage the two new issues
+They arrived while you were heads-down.
 ```
 
-In the terminal, Claude Code reads an installed mod from this folder, so an edit takes effect at the next session start or after `/reload-plugins`. Claude Desktop runs a copy kept in Claude Code's plugin cache instead: `claude plugin update` leaves that copy alone while the mod's version is unchanged, so only a reinstall or a version bump brings an edit there. To try a mod for one session only, run `claude --plugin-dir mods/<name>`.
+```mermaid
+flowchart LR
+    A[Skill answers<br/>what's next] --> B[Steps in the pane]
+    B --> C[You read a step's prompt<br/>and send it yourself]
+    C --> D[Step glows:<br/>working on it]
+    D --> E{Haiku: is the<br/>step finished?}
+    E -- not yet --> D
+    E -- yes --> F[Step leaves the list]
+```
+
+- **You stay in charge.** A step's prompt reaches the model only when you read it and send it yourself. Click a step to see its prompt, then paste it, paste it into a fresh session, or copy it.
+- **It notices when you are done.** After each answered turn, Haiku is asked whether the step is finished, and a finished step leaves the list. Press `d` to drop it yourself.
+- **The run that asks is read-only.** By default it gets only read commands of git and gh plus Read, Glob and Grep. `git push`, `git config`, `git -c`, `gh api` and `--output` are always denied.
+
+| Command or key | What it does |
+| --- | --- |
+| `/whats-next` | Bring the pane to the front |
+| `/whats-next refresh` | Ask the skill again |
+| `r` | Refresh |
+| `1` to `9` | Open that step's prompt |
+| `d` | Mark the active step done |
+| `p`, `n`, `c` | In a step's prompt: paste, `/clear` + paste, copy |
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Skill | `/ask-sean` | The skill that answers "what's next" |
+| Most steps | `5` | How many steps to ask for (1-9) |
+| Refresh on start | on | Ask for a fresh list when a session starts in a git repository |
+| Tools the headless run may use | read-only set | Comma-separated permission rules for the headless run |
+| Model | your default | Model for the headless run |
+
+**Needs:** the `claude` CLI on the PATH, and the skill named in the Skill setting.
+`/ask-sean` is the author's own skill, so point the setting at a skill of yours that answers "what should I do next?".
+
+### ⚡ quick-reply
+
+One row of buttons above the prompt after each answer.
+When Claude ends on a question, the band offers the choices Claude just listed plus your stock replies. Otherwise it offers the replies you send most.
+
+```text
+Reply:  [A: Keep the copies]  [B: Add a sync script]  [Yes]  [Go with your recommendation]  [No]
+```
+
+- A choice's button sends its marker with its label, so the model cannot misread it.
+- When the answer recommends something, the "recommend" reply is the highlighted one.
+- The band stays out of the way while Claude is working, and after a subagent's turn.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Replies to a question | `Yes\|Go with your recommendation\|No` | Shown after Claude asks something, separated by `\|` |
+| Replies otherwise | `Continue\|Commit and push` | Shown after any other answer; empty hides the band then |
+
+### ⏳ auto-resume
+
+When a turn dies on a rate limit or an overloaded API, auto-resume counts down to the reset and sends "continue" for you.
+Go to lunch, and come back to finished work.
+
+```text
+⏳ rate limited:  sending "continue" in 1 h 12 min  [Resume now]  [Cancel]
+```
+
+- The countdown shows above the prompt and in the status line.
+- Send a prompt of your own and it steps aside: you took over.
+- It gives up after too many resumes in a row without a successful answer.
+
+| Command | What it does |
+| --- | --- |
+| `/auto-resume` | Say what is waiting, if anything |
+| `/auto-resume now` | Send the resume now |
+| `/auto-resume cancel` | Cancel the wait |
+| `/auto-resume in <minutes>` | Schedule a resume yourself (1 to 1440) |
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Resume prompt | `continue` | What is sent when the wait is over |
+| Grace after reset (s) | `60` | Extra seconds to wait past the limit's reset time (0-900) |
+| Retry overloaded/server errors | on | Also resume after an overloaded or server error, backing off from one minute |
+| Most retries in a row | `5` | Give up after this many resumes without a successful answer (1-20) |
+
+### 🐙 github-panel
+
+A GitHub pane beside What's next listing the repo's open pull requests and issues.
+Click one to open it in the browser.
+
+```text
+octocat/hello-world                refresh
+updated just now
+
+Pull requests 2                        all
+#41 Add a drift check for copied guards
+  draft · @octocat
+#40 Bring the asked pane to the front
+  @hubot
+
+Issues 2                               all
+#39 Share the headless-session check
+  blocked by #12 · ready-for-agent · @octocat
+#12 Decide how shared code is copied
+  needs-triage · @hubot
+```
+
+- An issue blocked by an open issue has a red line under it. Hover it to see what blocks it.
+- The lists refresh on a timer, after a turn once they are a minute old, and on `r`.
+
+| Command or key | What it does |
+| --- | --- |
+| `/github` | Bring the pane to the front and refresh it |
+| `r` | Refresh |
+| `all` | Open the whole list on GitHub |
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Most items per list | `30` | How many open pull requests and issues to list each (1-100) |
+| Refresh every (minutes) | `5` | `0` refreshes only on open, after turns and on `r` |
+
+**Needs:** the [GitHub CLI](https://cli.github.com), logged in, and a folder with a GitHub remote.
+
+### 📚 shelf
+
+A row of named folders and files above the prompt, for the paths you type again and again.
+Click a name and its path lands at the cursor in what you are typing. Nothing is sent.
+
+```text
+Shelf:  [brand]  [records]  [kb]
+```
+
+- A path with a space arrives in double quotes, ready to use.
+- The shelf is the same in every project folder and every session.
+- When the names do not fit one row, the band shows those that do and counts the rest; `/shelf` always lists them all.
+
+| Command | What it does |
+| --- | --- |
+| `/shelf` | List the shelf with each path |
+| `/shelf add <name> [path]` | Put a path on the shelf; with no path, the project folder |
+| `/shelf remove <name>` | Take one off |
+
+### 🔔 turn-chime
+
+A short sound and a toast when Claude has finished something you have been waiting on.
+Start a long job, look away, and hear when it is done.
+
+```text
+Turn finished after 4m 12s.
+```
+
+- It chimes when a turn that ran three minutes or more ends.
+- It chimes when Claude finishes three minutes or more after your last prompt, since work left running in the background reports in a short turn of its own.
+- It chimes once when Claude stops to ask you something that far in.
+- A turn you stopped yourself stays silent, and so does a subagent's turn.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Long turn (minutes) | `3` | How long counts as long |
+
+The sound plays on macOS and Windows. A Linux terminal has no player, so only the toast shows there.
+
+### 🔒 open-file-guard
+
+When Claude is about to use a Word, Excel or PowerPoint file that you have open, the mod asks you to close it before the call runs, instead of letting the write fail.
+
+```text
+"Audit Summary.pptx" is open in PowerPoint, and Claude is about to use it.
+Close it so a write to it can go through?
+
+  I closed it
+  Go ahead anyway
+```
+
+- **I closed it**: the mod checks again and the call goes on. Still open, it asks again, three times at most.
+- **Go ahead anyway**: the call goes on, and that file is not asked about again in the turn. This is for a command that only reads the file.
+- **Dismissed**: the call is refused, and Claude is told which file to ask you to close.
+
+It sees a file named in a Write or Edit call or in the text of a shell command.
+It does not see one a script works out as it runs, nor one on a network location.
+
+## Quick start
+
+This repo is a plugin marketplace (`.claude-plugin/marketplace.json`). Clone it, add it once, then install the mods you want:
+
+```sh
+git clone <this repo's URL> claude-mods
+claude plugin marketplace add ./claude-mods
+
+claude plugin install whats-next@claude-mods
+claude plugin install quick-reply@claude-mods
+claude plugin install auto-resume@claude-mods
+claude plugin install github-panel@claude-mods
+claude plugin install shelf@claude-mods
+claude plugin install turn-chime@claude-mods
+claude plugin install open-file-guard@claude-mods
+```
+
+To try a mod for one session only, with nothing installed:
+
+```sh
+claude --plugin-dir mods/quick-reply
+```
+
+In the terminal, Claude Code reads an installed mod from this folder, so an edit takes effect at the next session start or after `/reload-plugins`.
+Claude Desktop runs a copy kept in Claude Code's plugin cache instead: `claude plugin update` leaves that copy alone while the mod's version is unchanged, so only a reinstall or a version bump brings an edit there.
+
+## Good manners, built in
+
+Every mod here follows the same house rules, written down in [`CONTEXT.md`](CONTEXT.md):
+
+- **Quiet when nobody is watching.** In a headless session (`claude -p`, or an SDK session nobody has opened) a mod draws nothing, polls nothing and starts nothing new. Work already set going, such as a resume after a rate limit, still finishes.
+- **Says what it needs.** A mod that lacks a requirement, such as a skill, a CLI tool or a logged-in account, names it in its own pane and says how to meet it, instead of failing obscurely.
+- **Never grabs the keyboard.** A pane that opens unasked never takes the keyboard. Ask for it with its command and it comes to the front, and Esc hands the keyboard back.
+- **Self-contained.** Each mod imports only from its own folder and from `claude-code`, so installing one mod never depends on another ([ADR-0001](docs/adr/0001-self-contained-mods.md)).
+
+## Under the hood
+
+```text
+claude-mods/
+├── .claude-plugin/marketplace.json   the catalogue Claude Code reads
+├── mods/
+│   └── <mod>/
+│       ├── .claude-plugin/plugin.json   name, version, settings
+│       ├── hooks/
+│       │   ├── hooks.json               names the module to load
+│       │   ├── register.tsx             the hooks and what they draw
+│       │   └── parse.ts                 pure logic, kept apart for tests
+│       ├── tests/                       run by `claude plugin test`
+│       └── types/
+├── scripts/check-mods.mjs            the four checks, one mod at a time
+└── docs/                             decisions and research
+```
+
+A mod is a `register` function that hooks Claude Code's events and draws with its components. This is the heart of quick-reply, trimmed:
+
+```tsx
+export const register: Register = (on, options) => {
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    await update($, reading, () => (e.reason === 'answer' ? readAnswer(e.answer) : null))
+    return done
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    // ...a row of buttons, each sending its reply as you
+  })
+}
+```
+
+Further reading:
+
+- [`CONTEXT.md`](CONTEXT.md): the project's vocabulary, from mod and pane to headless run.
+- [ADR-0001](docs/adr/0001-self-contained-mods.md): why shared code is duplicated instead of imported.
+- [ADR-0002](docs/adr/0002-shared-modules-cannot-own-hooks.md): why a shared module cannot own a mod's timer or hooks.
+- [Detecting a headless session](docs/research/headless-and-requirements.md): the research behind the quiet-when-headless rule.
 
 ## Checks
 
@@ -38,7 +318,9 @@ In the terminal, Claude Code reads an installed mod from this folder, so an edit
 
 It stops at the first failure and names the mod and the step.
 
-A mod's `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes when it loads the mod and which git ignores. When that file is missing, as on a fresh clone, the script loads the mod once with a headless `claude -p` run of a local command, which makes no model call. The script needs the `claude` CLI on the PATH.
+A mod's `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes when it loads the mod and which git ignores.
+When that file is missing, as on a fresh clone, the script loads the mod once with a headless `claude -p` run of a local command, which makes no model call.
+The script needs the `claude` CLI on the PATH.
 
 `npm install` wires the pre-commit hook. On each commit it runs:
 
@@ -47,3 +329,8 @@ A mod's `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Clau
 - the same four mod checks, only for the mods with staged changes (`node scripts/check-mods.mjs --staged`). They read the files on disk, so unstaged edits in a staged mod are checked too.
 
 `npm run test:scripts` runs the tests for the check script itself.
+
+## Make your own
+
+The fastest way in is to copy the smallest mod, [`mods/quick-reply`](mods/quick-reply), rename it, add it to `.claude-plugin/marketplace.json` and run it with `claude --plugin-dir mods/<name>`.
+Claude Code's bundled `plugin-authoring` skill documents the hooks, the components and the load-time checks, and `npm run check` tells you when the mod is ready.
