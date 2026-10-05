@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { SourcesView } from '../types'
-import { fullPath, grouped, isAllowed, normal, parseRequest, refusal, shown, USAGE, withSource } from './paths'
+import { fullPath, grouped, isAllowed, named, normal, parseRequest, reached, refusal, shown, USAGE, withSource } from './paths'
+import type { Reach } from './paths'
 
 const PANE = 'sources'
 const TITLE = 'Sources'
@@ -21,11 +22,25 @@ function report($: EngineInterface): (error: unknown) => void {
   return error => $.ui.toast(`Sources: ${error instanceof Error ? error.message : String(error)}`)
 }
 
-/** What a read tool's call names: a file for Read, the folder searched for Grep and Glob (the project folder when none is given). */
-function named(e: object): string {
-  const input = e as { file_path?: unknown; path?: unknown }
-  if (typeof input.file_path === 'string') return input.file_path
-  return typeof input.path === 'string' ? input.path : '.'
+/** Where a full path lands, symlinks and junctions followed, when it exists and can be looked at; else the path as folded. */
+async function landed($: EngineInterface, path: string): Promise<string> {
+  const stat = await $.fs.stat(path, { resolve: true }).catch(() => undefined)
+  return normal(stat?.realPath ?? path)
+}
+
+/**
+ * The first place the call reaches outside the project folder and the allowed folders, or undefined when
+ * all are inside. Each place is compared where it lands; each folder both as folded and where it lands,
+ * so a place not there yet still counts as inside a folder that is itself a link.
+ */
+async function outside($: EngineInterface, reach: Reach, folders: readonly string[]): Promise<string | undefined> {
+  if (reach.kind === 'unplaced') return reach.spelling
+  const bounds = (await Promise.all(folders.map(async folder => [normal(folder), await landed($, normal(folder))]))).flat()
+  for (const place of reach.places) {
+    const real = await landed($, place)
+    if (!isAllowed(real, bounds)) return real
+  }
+  return undefined
 }
 
 export const register: Register = on => {
@@ -42,7 +57,10 @@ export const register: Register = on => {
     const cwd = await $.session.cwd()
     const path = fullPath(named(e), cwd)
     const current = await read($, view)
-    if (current.isLocked && !isAllowed(path, cwd, current.allowed)) return { deny: refusal(path) }
+    if (current.isLocked) {
+      const refused = await outside($, reached(e.tool, e, cwd), [cwd, ...current.allowed])
+      if (refused !== undefined) return { deny: refusal(refused) }
+    }
     const called = await next(e)
     if (called.deny === undefined) {
       const at = await $.clock.now()

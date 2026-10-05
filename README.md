@@ -276,6 +276,7 @@ N:/RECORDS/Permits  2
 ```
 
 - With the lock on, a Read, Grep or Glob outside the project folder is refused, and Claude is told why and how you can allow the folder.
+- The lock judges a path by where it leads: `..` is followed, and so is a link to another folder. A Glob pattern or a Grep `glob` is judged by the folder it starts from, and refused when a `..` comes after a wildcard. A path from the home folder (`~/notes.md`) is refused, and so is one like `D:notes.md` that leans on another drive's current folder.
 - The lock and the allowed folders last for the session. A new session starts unlocked.
 - The lock covers the three read tools only. A shell command can still read anywhere.
 
