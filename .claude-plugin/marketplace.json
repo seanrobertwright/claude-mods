@@ -41,6 +41,16 @@
       "name": "open-file-guard",
       "source": "./mods/open-file-guard",
       "description": "Before Claude uses a Word, Excel or PowerPoint file you have open, asks you to close it instead of letting the write fail."
+    },
+    {
+      "name": "outputs",
+      "source": "./mods/outputs",
+      "description": "A pane listing the files this session has made or changed, newest first; click one to open it."
+    },
+    {
+      "name": "sources",
+      "source": "./mods/sources",
+      "description": "A pane listing the files Claude has read this session, grouped by where they came from, with a lock that keeps reads inside the project folder."
     }
   ]
 }
