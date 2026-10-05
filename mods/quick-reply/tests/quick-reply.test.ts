@@ -103,6 +103,18 @@ test('after a plain answer the band offers the idle replies, and none while work
   await busy.unmount()
 })
 
+test('the band keeps what is beneath it on a row under the replies', async ($, on) => {
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: ['band beneath'] }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  await $.turn.complete({ answer: DONE, durationMs: 10, isAborted: false, turnId: 't4', reason: 'answer' })
+
+  const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ key: 'reply-Continue' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'band beneath' })).toBeDefined()
+  await band.unmount()
+})
+
 test('in a headless session a question submits no prompt and starts no process', async ($, on) => {
   engineBeneath(on)
   const clock = mock.clock(on, { now: 1_000 })

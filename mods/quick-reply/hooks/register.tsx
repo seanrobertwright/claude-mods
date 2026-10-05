@@ -32,33 +32,38 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // Whatever is beneath (another mod's band, the engine's own) keeps its row under the replies.
+    const beneath = await next(e)
     const current = await read($, reading)
     if (current === null || e.props.hasSurvey || e.props.isWorking || e.props.view.agentId !== undefined) {
-      return next(e)
+      return beneath
     }
     const replies = current.isQuestion ? questionReplies : idleReplies
-    if (current.options.length === 0 && replies.length === 0) return next(e)
+    if (current.options.length === 0 && replies.length === 0) return beneath
 
     const { Box, Text, Button } = $.ui.resolve(e)
 
     return (
-      <Box flexDirection="row" flexWrap="wrap" columnGap={1} width={e.props.bodyColumns}>
-        <Text dimColor>Reply:</Text>
-        {current.options.map(option => (
-          <Button
-            key={`option-${option.marker}`}
-            label={`${option.marker}: ${option.label}`}
-            onPress={() => void send($, optionReply(option)).catch(report($))}
-          />
-        ))}
-        {replies.map(reply => (
-          <Button
-            key={`reply-${reply}`}
-            label={reply}
-            variant={current.hasRecommendation && /recommend/i.test(reply) ? 'primary' : 'secondary'}
-            onPress={() => void send($, reply).catch(report($))}
-          />
-        ))}
+      <Box flexDirection="column" width={e.props.bodyColumns}>
+        <Box flexDirection="row" flexWrap="wrap" columnGap={1} width={e.props.bodyColumns}>
+          <Text dimColor>Reply:</Text>
+          {current.options.map(option => (
+            <Button
+              key={`option-${option.marker}`}
+              label={`${option.marker}: ${option.label}`}
+              onPress={() => void send($, optionReply(option)).catch(report($))}
+            />
+          ))}
+          {replies.map(reply => (
+            <Button
+              key={`reply-${reply}`}
+              label={reply}
+              variant={current.hasRecommendation && /recommend/i.test(reply) ? 'primary' : 'secondary'}
+              onPress={() => void send($, reply).catch(report($))}
+            />
+          ))}
+        </Box>
+        {beneath}
       </Box>
     )
   })
