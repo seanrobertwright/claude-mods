@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, and a list of the files this session made.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, and a list of the ones it read.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![8 mods](https://img.shields.io/badge/mods-8-6b5bd2)
+![9 mods](https://img.shields.io/badge/mods-9-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all eight, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all nine, or read the source and write your own.
 
 ## What is a mod?
 
@@ -33,6 +33,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
 | 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
+| 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
 
@@ -257,6 +258,33 @@ EG 2026 Review.docx
 | `c` | Copy the newest document's path |
 | `o` | Show or hide the other files |
 
+### 🔎 sources
+
+A pane listing the files Claude has read this session, grouped by where they came from, so you can see what an answer drew on.
+A lock keeps reads inside the project folder when that folder is meant to be the only source of truth.
+
+```text
+Reads: anywhere                       lock
+
+This folder  4
+  Corporate Docs/standard.pdf
+  program.docx
+
+N:/RECORDS/Permits  2
+  2026/permit.pdf
+```
+
+- With the lock on, a Read, Grep or Glob outside the project folder is refused, and Claude is told why and how you can allow the folder.
+- The lock and the allowed folders last for the session. A new session starts unlocked.
+- The lock covers the three read tools only. A shell command can still read anywhere.
+
+| Command or key | What it does |
+| --- | --- |
+| `/sources` | Bring the pane to the front |
+| `/sources allow <path>` | Let reads into that folder while the lock is on |
+| `/sources allow` | List the allowed folders |
+| `l` | Turn the lock on or off |
+
 ## Quick start
 
 This repo is a plugin marketplace (`.claude-plugin/marketplace.json`). Clone it, add it once, then install the mods you want:
@@ -273,6 +301,7 @@ claude plugin install shelf@claude-mods
 claude plugin install turn-chime@claude-mods
 claude plugin install open-file-guard@claude-mods
 claude plugin install outputs@claude-mods
+claude plugin install sources@claude-mods
 ```
 
 To try a mod for one session only, with nothing installed:

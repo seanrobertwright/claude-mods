@@ -46,6 +46,11 @@
       "name": "outputs",
       "source": "./mods/outputs",
       "description": "A pane listing the files this session has made or changed, newest first; click one to open it."
+    },
+    {
+      "name": "sources",
+      "source": "./mods/sources",
+      "description": "A pane listing the files Claude has read this session, grouped by where they came from, with a lock that keeps reads inside the project folder."
     }
   ]
 }
