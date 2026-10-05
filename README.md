@@ -11,6 +11,7 @@ Each mod is a Claude Code plugin of function hooks under `mods/`.
 - **auto-resume**: after a rate limit or an overloaded API, counts down to the reset and sends "continue".
 - **github-panel**: a GitHub pane beside What's Next listing the repo's open pull requests and issues. Click one to open it in the browser. An issue blocked by an open issue has a red line under it; hover it to see what blocks it.
 - **shelf**: a band of named folders and files above the prompt. Click one to drop its path at the cursor; nothing is sent. `/shelf add <name> [path]` puts a path on the shelf (the project folder when no path is given), `/shelf remove <name>` takes one off and `/shelf` lists them. The shelf is the same in every project folder.
+- **turn-chime**: plays a short sound and shows a toast when a turn that ran three minutes or more ends, when Claude finishes three minutes or more after your last prompt (work it left running in the background reports in a short turn of its own), and once when Claude stops to ask you something that far in. The length is the mod's one option. A turn you stopped yourself stays silent. The sound plays on macOS and Windows; a Linux terminal has no player, so only the toast shows there.
 
 The side panel's tabs come from Claude Code itself: when more than one mod has a pane open, it shows them as tabs.
 

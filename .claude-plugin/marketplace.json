@@ -31,6 +31,11 @@
       "name": "shelf",
       "source": "./mods/shelf",
       "description": "Named folders and files above the prompt: click one to drop its path into what you are typing."
+    },
+    {
+      "name": "turn-chime",
+      "source": "./mods/turn-chime",
+      "description": "Plays a sound and shows a toast when a long turn ends or Claude stops to ask you something."
     }
   ]
 }

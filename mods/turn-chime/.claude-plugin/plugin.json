@@ -1,0 +1,13 @@
+{
+  "name": "turn-chime",
+  "version": "0.1.0",
+  "description": "Plays a sound and shows a toast when a long turn ends or Claude stops to ask you something.",
+  "userConfig": {
+    "thresholdMinutes": {
+      "type": "number",
+      "title": "Long turn (minutes)",
+      "description": "A turn that ran at least this long chimes when it ends; so does a question asked this far into one.",
+      "default": 3
+    }
+  }
+}
