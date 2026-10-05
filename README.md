@@ -34,7 +34,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
 | 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
-| 📊 [hud](#-hud) | Row under the prompt | Model, context window, rate limits, turn timer, tool calls, agents, git state, cost, session length and folder, in colour |
+| 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, cost, session length and folder, each named and in colour |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
 
@@ -288,24 +288,26 @@ N:/RECORDS/Permits  2
 
 ### 📊 hud
 
-One coloured row under the prompt with the figures you keep checking, so you never have to ask for them.
+Two coloured lines under the prompt with the figures you keep checking, each one named, so you never have to ask for them.
 
 ```text
-◆ fable 5.1  ctx ███░░░░░ 42%  5h 31% · 2h 5m  ▶ 3m 12s  tools 4/19  2 agents  main ±3 ↑1  $1.24  up 1h 12m  claude-mods
+model fable 5.1  effort high  context ███░░░░░ 42%  5h limit 31% · resets in 2h 5m
+turn 3m 12s  tools 4 this turn · 19 total  agents 2 running  git main · 3 changed · 1 ahead  cost $1.24  session 1h 12m  folder claude-mods
 ```
 
-- **What it shows:** the model, the context window as a gauge, each rate-limit window with the time to its reset, a timer for the running turn, tool calls this turn and this session, running subagents, the git branch with changed files and commits ahead and behind, the session's cost and length, and the folder.
+- **First line, the model:** which model, how hard it is asked to think, the context window as a gauge, and each rate-limit window with the time to its reset.
+- **Second line, the work:** a timer for the running turn, tool calls this turn and in all, running subagents, the git branch with changed files and commits ahead and behind, the session's cost and length, and the folder.
 - **Colour means something.** The context gauge turns yellow at 70% and red at 85%; a rate limit turns yellow at 75% and red at 90%.
-- **It moves only when there is something to watch.** While a turn runs, the theme's colours travel along the row and a figure in the red blinks. Idle, the row is still.
-- **It fits.** On a narrow terminal whole figures are left out, the least important first, and the context window goes last.
-- A figure with nothing to show is absent: no git state outside a repository, no agents when none run.
+- **It moves only when there is something to watch.** While a turn runs, the theme's colours travel along the lines and a figure in the red blinks. Idle, they are still.
+- **It fits.** On a narrow terminal whole figures are left out of each line, the least important first, and the context window goes last.
+- A figure with nothing to show is absent: no git state outside a repository, no agents when none run, no effort until the first request has gone out.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | Colour theme | `neon` | `neon`, `ocean`, `ember` or `mono` |
 | Animate while working | on | Move the colours during a turn and blink a figure in the red |
 | Where the row is drawn | `below` | `below` the prompt, or `above` it in the band |
-| Segments to hide | none | Comma-separated, from: model, context, limits, turn, tools, agents, git, cost, session, folder |
+| Segments to hide | none | Comma-separated, from: model, effort, context, limits, turn, tools, agents, git, cost, session, folder |
 
 **Needs:** nothing. Git state shows when `git` is on the PATH and the folder is a repository.
 

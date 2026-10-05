@@ -1,7 +1,7 @@
 {
   "name": "hud",
   "version": "0.1.0",
-  "description": "A coloured, animated row under the prompt: model, context window, rate limits, turn timer, tool calls, agents, git state, cost, session length and folder.",
+  "description": "Two coloured, animated lines under the prompt, every figure named: model, effort, context window, rate limits, turn timer, tool calls, agents, git state, cost, session length and folder.",
   "types": "./types/index.d.ts",
   "userConfig": {
     "theme": {
@@ -27,7 +27,7 @@
     "hide": {
       "type": "string",
       "title": "Segments to hide",
-      "description": "Comma-separated, from: model, context, limits, turn, tools, agents, git, cost, session, folder.",
+      "description": "Comma-separated, from: model, effort, context, limits, turn, tools, agents, git, cost, session, folder.",
       "default": ""
     }
   }

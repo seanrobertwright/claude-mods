@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Git, HudView } from '../types'
-import { parseConfig, parseGit, row } from './hud'
+import { parseConfig, parseGit, rows } from './hud'
 import type { Config } from './hud'
 
 /** How often the colours move while a turn runs. */
@@ -16,6 +16,7 @@ const DEFAULT_COLUMNS = 100
 
 const EMPTY: HudView = {
   model: '',
+  effort: null,
   contextPercent: null,
   limits: [],
   costUsd: null,
@@ -148,6 +149,16 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  on('turn.step', async function* ($, e, next) {
+    // The request says how hard it asks the model to think; a subagent's own setting is not the session's.
+    if (e.agentId === undefined) {
+      const effort = e.effort === undefined ? null : String(e.effort)
+      await update($, view, (current): HudView => (current.effort === effort ? current : { ...current, effort })).catch(() => undefined)
+    }
+    // The response streams through untouched.
+    return yield* next(e)
+  })
+
   on('tool.call', async ($, e, next) => {
     if (await isShown($).catch(() => false)) {
       await update($, view, (current): HudView => ({ ...current, toolsTurn: current.toolsTurn + 1, toolsSession: current.toolsSession + 1 })).catch(() => undefined)
@@ -171,19 +182,24 @@ export const register: Register = (on, options) => {
     const beneath = await next(e)
     if (config.placement !== 'below') return beneath
     const current = await read($, view)
-    const segments = row(current, config, await $.clock.now(), await read($, frame), e.viewport?.columns ?? DEFAULT_COLUMNS)
-    if (segments.length === 0) return beneath
+    const lines = rows(current, config, await $.clock.now(), await read($, frame), e.viewport?.columns ?? DEFAULT_COLUMNS)
+    if (lines.length === 0) return beneath
     const { Box, Text } = $.ui.resolve(e)
 
     return (
       <Box flexDirection="column">
-        <Box flexDirection="row" columnGap={2}>
-          {segments.map(segment => (
-            <Text key={segment.id} color={segment.color} bold={segment.isBold} inverse={segment.isInverse} dimColor={segment.color === undefined && !segment.isBold}>
-              {segment.text}
-            </Text>
-          ))}
-        </Box>
+        {lines.map((line, at) => (
+          <Box key={`line-${at}`} flexDirection="row" columnGap={2}>
+            {line.map(segment => (
+              <Box key={segment.id} flexDirection="row" columnGap={1}>
+                <Text dimColor>{segment.label}</Text>
+                <Text color={segment.color} bold={segment.isBold} inverse={segment.isInverse}>
+                  {segment.text}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+        ))}
         {beneath}
       </Box>
     )
@@ -193,19 +209,24 @@ export const register: Register = (on, options) => {
     const beneath = await next(e)
     if (config.placement !== 'above' || e.props.hasSurvey || e.props.view.agentId !== undefined) return beneath
     const current = await read($, view)
-    const segments = row(current, config, await $.clock.now(), await read($, frame), e.props.bodyColumns)
-    if (segments.length === 0) return beneath
+    const lines = rows(current, config, await $.clock.now(), await read($, frame), e.props.bodyColumns)
+    if (lines.length === 0) return beneath
     const { Box, Text } = $.ui.resolve(e)
 
     return (
       <Box flexDirection="column" width={e.props.bodyColumns}>
-        <Box flexDirection="row" columnGap={2}>
-          {segments.map(segment => (
-            <Text key={segment.id} color={segment.color} bold={segment.isBold} inverse={segment.isInverse} dimColor={segment.color === undefined && !segment.isBold}>
-              {segment.text}
-            </Text>
-          ))}
-        </Box>
+        {lines.map((line, at) => (
+          <Box key={`line-${at}`} flexDirection="row" columnGap={2}>
+            {line.map(segment => (
+              <Box key={segment.id} flexDirection="row" columnGap={1}>
+                <Text dimColor>{segment.label}</Text>
+                <Text color={segment.color} bold={segment.isBold} inverse={segment.isInverse}>
+                  {segment.text}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+        ))}
         {beneath}
       </Box>
     )

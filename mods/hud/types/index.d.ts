@@ -7,6 +7,8 @@ export type Git = { branch: string; changed: number; ahead: number; behind: numb
 /** The figures the row shows, as last read. */
 export type HudView = {
   model: string
+  /** How hard the last request asked the model to think; null until a request has gone out, or for a model that takes none. */
+  effort: string | null
   /** The context window's fill, 0-100; null until the engine has a reading. */
   contextPercent: number | null
   limits: Limit[]

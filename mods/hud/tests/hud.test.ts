@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On, RenderSurface } from 'claude-code'
 
 import type { HudView } from '../types'
-import { coarse, duration, folderName, gauge, level, parseConfig, parseGit, row, rowWidth, shortModel } from '../hooks/hud'
+import { coarse, duration, folderName, gauge, level, parseConfig, parseGit, rows, rowWidth, shortModel } from '../hooks/hud'
 
 const START = 1_800_000_000_000
 const MINUTE = 60_000
@@ -14,6 +14,7 @@ const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 200
 
 const VIEW: HudView = {
   model: 'claude-fable-5-1[1m]',
+  effort: 'high',
   contextPercent: 42,
   limits: [{ kind: 'five_hour', percent: 31, resetsAt: new Date(START + 125 * MINUTE).toISOString() }],
   costUsd: 1.239,
@@ -59,12 +60,21 @@ function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']
   on('ui.render', { component: 'PromptHint' }, () => ({ type: 'Text', props: {}, children: ['? for shortcuts'] }))
   on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  // eslint-disable-next-line require-yield -- the stand-in sends no chunks, only the step's result
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+  })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('tool.call', { tool: 'Read' }, (_$, e) => ({ result: { type: 'text', file: { filePath: e.file_path, content: '', numLines: 0, startLine: 1, totalLines: 0 } } }))
   return { world, clock }
 }
 
 const DONE = { answer: 'Done.', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' } as const
+
+/** What the row says, figure by figure: each label with its text. */
+function said(lines: ReturnType<typeof rows>): string[][] {
+  return lines.map(line => line.map(segment => `${segment.label} ${segment.text}`))
+}
 
 test('the small formatters say what the row shows', () => {
   expect(shortModel('claude-fable-5-1[1m]')).toBe('fable 5.1')
@@ -97,93 +107,90 @@ test('parseConfig falls back to the defaults and reads the hidden segments', () 
   expect([plain.theme, plain.animate, plain.placement, plain.hidden.size]).toEqual(['neon', true, 'below', 0])
 })
 
-test('the row holds every figure in order, and a figure at its level takes that colour', () => {
-  const segments = row(VIEW, parseConfig({}), START, 0, 300)
-  expect(segments.map(segment => segment.text)).toEqual([
-    '◆ fable 5.1',
-    'ctx ███░░░░░ 42%',
-    '5h 31% · 2h 5m',
-    '▶ 3m 12s',
-    'tools 4/19',
-    '2 agents',
-    'main ±3 ↑1',
-    '$1.24',
-    'up 1h 12m',
-    'claude-mods',
+test('every figure carries a label, on two lines, and a figure at its level takes that colour', () => {
+  const lines = rows(VIEW, parseConfig({}), START, 0, 300)
+  expect(said(lines)).toEqual([
+    ['model fable 5.1', 'effort high', 'context ███░░░░░ 42%', '5h limit 31% · resets in 2h 5m'],
+    ['turn 3m 12s', 'tools 4 this turn · 19 total', 'agents 2 running', 'git main · 3 changed · 1 ahead', 'cost $1.24', 'session 1h 12m', 'folder claude-mods'],
   ])
-  expect(segments[1]?.color).toBe('#5fff87')
-  const hot = row({ ...VIEW, contextPercent: 72, limits: [{ kind: 'seven_day', percent: 93, resetsAt: null }] }, parseConfig({}), START, 0, 300)
-  expect([hot[1]?.color, hot[2]?.text, hot[2]?.color, hot[2]?.isBold]).toEqual(['#ffd75f', '7d 93%', '#ff5f5f', true])
+  expect(lines[0]?.[2]?.color).toBe('#5fff87')
+  const hot = rows({ ...VIEW, contextPercent: 72, limits: [{ kind: 'seven_day', percent: 93, resetsAt: null }] }, parseConfig({}), START, 0, 300)[0]
+  expect([hot?.[2]?.color, hot?.[3]?.label, hot?.[3]?.text, hot?.[3]?.color, hot?.[3]?.isBold]).toEqual(['#ffd75f', '7d limit', '93%', '#ff5f5f', true])
 })
 
-test('the empty figures are left out, and so are the hidden ones', () => {
-  const bare = row({ ...VIEW, git: null, costUsd: null, agents: 0, toolsSession: 0, isWorking: false }, parseConfig({ hide: 'model,session' }), START, 0, 300)
-  expect(bare.map(segment => segment.kind)).toEqual(['context', 'limits', 'folder'])
+test('the empty figures are left out, and so are the hidden ones; a line with nothing is not drawn', () => {
+  const quiet = { ...VIEW, effort: null, git: null, costUsd: null, agents: 0, toolsSession: 0, isWorking: false }
+  expect(rows(quiet, parseConfig({ hide: 'model,session' }), START, 0, 300).map(line => line.map(segment => segment.kind))).toEqual([['context', 'limits'], ['folder']])
+  expect(rows(quiet, parseConfig({ hide: 'model,session,folder' }), START, 0, 300).length).toBe(1)
 })
 
-test('a narrow row leaves out whole segments, the least important first', () => {
+test('a narrow row leaves out whole figures from each line, the least important first', () => {
   const config = parseConfig({})
-  const kinds = (columns: number) => row(VIEW, config, START, 0, columns).map(segment => segment.kind)
-  expect(kinds(110)).toEqual(['model', 'context', 'limits', 'turn', 'tools', 'agents', 'git', 'cost', 'session'])
-  expect(kinds(100)).toEqual(['model', 'context', 'limits', 'turn', 'tools', 'agents', 'git', 'cost'])
-  expect(kinds(60)).toEqual(['model', 'context', 'limits', 'turn'])
-  expect(kinds(20)).toEqual(['context'])
-  expect(rowWidth(row(VIEW, config, START, 0, 60))).toBeLessThanOrEqual(60)
+  const kinds = (columns: number) => rows(VIEW, config, START, 0, columns).map(line => line.map(segment => segment.kind))
+  expect(kinds(100)).toEqual([
+    ['model', 'effort', 'context', 'limits'],
+    ['turn', 'tools', 'agents', 'git'],
+  ])
+  expect(kinds(50)).toEqual([['context'], ['turn', 'agents']])
+  for (const line of rows(VIEW, config, START, 0, 100)) expect(rowWidth(line)).toBeLessThanOrEqual(100)
 })
 
 test('while a turn runs the colours move and a figure in danger blinks; idle or with animation off the row is still', () => {
   const config = parseConfig({})
   const danger = { ...VIEW, contextPercent: 90 }
-  const colors = (view: HudView, frame: number, options = config) => row(view, options, START, frame, 300).map(segment => segment.color)
+  const colors = (view: HudView, frame: number, options = config) => rows(view, options, START, frame, 300).flat().map(segment => segment.color)
+  const context = (view: HudView, frame: number) => rows(view, config, START, frame, 300)[0]?.[2]
   expect(colors(VIEW, 0)).not.toEqual(colors(VIEW, 2))
   expect(colors({ ...VIEW, isWorking: false }, 0)).toEqual(colors({ ...VIEW, isWorking: false }, 2))
   expect(colors(VIEW, 0, parseConfig({ animate: false }))).toEqual(colors(VIEW, 2, parseConfig({ animate: false })))
-  expect([row(danger, config, START, 0, 300)[1]?.isInverse, row(danger, config, START, 2, 300)[1]?.isInverse]).toEqual([true, false])
-  expect(row({ ...danger, isWorking: false }, config, START, 0, 300)[1]?.isInverse).toBe(false)
+  expect([context(danger, 0)?.isInverse, context(danger, 2)?.isInverse]).toEqual([true, false])
+  expect(context({ ...danger, isWorking: false }, 0)?.isInverse).toBe(false)
   // The mono theme paints no theme colour, only the levels.
-  expect(row(VIEW, parseConfig({ theme: 'mono' }), START, 0, 300)[0]?.color).toBeUndefined()
+  expect(rows(VIEW, parseConfig({ theme: 'mono' }), START, 0, 300)[0]?.[0]?.color).toBeUndefined()
 })
 
-test('the row under the prompt shows what the engine reports, above its own hint line', async ($, on) => {
+test('the row under the prompt names and shows what the engine reports, above its own hint line', async ($, on) => {
   const { world } = engineBeneath(on)
   await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
   expect(world.runs).toEqual([['git', 'status', '--porcelain=v2', '--branch']])
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const hint = await $.ui.mount({ plugin: 'hud', surface, component: 'PromptHint', props: HINT })
-    for (const text of ['◆ fable 5.1', 'ctx ███░░░░░ 42%', '5h 31%', 'main ±2 ↑1 ↓2', '$1.24', 'up 1h 12m', 'claude-mods', '? for shortcuts']) {
-      expect(await hint.find({ type: 'Text', text })).toBeDefined()
-    }
-    // Nothing has run yet: no turn timer, no tool calls, no agents.
-    expect(await hint.find({ type: 'Text', text: 'tools 0/0' })).toBeUndefined()
+    const texts = ['model', 'fable 5.1', 'context', '███░░░░░ 42%', '5h limit', '31%', 'git', 'main · 2 changed · 1 ahead · 2 behind', 'cost', '$1.24', 'session', '1h 12m', '? for shortcuts']
+    for (const text of texts) expect(await hint.find({ type: 'Text', text })).toBeDefined()
+    // Nothing has run yet: no turn timer, no tool calls, no agents, no effort.
+    for (const label of ['turn', 'tools', 'agents', 'effort']) expect(await hint.find({ type: 'Text', text: label })).toBeUndefined()
     await hint.unmount()
   }
 })
 
-test('during a turn the timer and the tool calls advance, and the end of the turn reads the figures again', async ($, on) => {
+test('during a turn the effort, the timer and the tool calls show, and the end of the turn reads the figures again', async ($, on) => {
   const { world, clock } = engineBeneath(on)
   await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
   const hint = await $.ui.mount({ plugin: 'hud', surface: 'terminal', component: 'PromptHint', props: HINT })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
+  for await (const chunk of $.turn.step({ turnId: 't1', index: 0, model: 'claude-fable-5-1', effort: 'xhigh', messageCount: 1 })) void chunk
+  // A subagent's request does not change what the session's effort reads.
+  for await (const chunk of $.turn.step({ turnId: 's1', index: 0, model: 'claude-haiku-4-5', effort: 'low', messageCount: 1, agentId: 'a1' })) void chunk
   await $.tool.call({ tool: 'Read', file_path: 'a.md' })
   await $.tool.call({ tool: 'Read', file_path: 'b.md' })
   // The row is drawn again at each beat, so the timer reads as of the last one.
-  await clock.advance(65_100)
-  expect(await hint.find({ type: 'Text', text: '▶ 1m 5s' })).toBeDefined()
-  expect(await hint.find({ type: 'Text', text: 'tools 2/2' })).toBeDefined()
+  await clock.advance(5_100)
+  for (const text of ['effort', 'xhigh', 'turn', '5s', 'tools', '2 this turn · 2 total']) expect(await hint.find({ type: 'Text', text })).toBeDefined()
 
   world.contextPercent = 88
   world.agents = 1
   await $.turn.complete(DONE)
-  expect(await hint.find({ type: 'Text', text: 'ctx ███████░ 88%' })).toBeDefined()
-  expect(await hint.find({ type: 'Text', text: '1 agent' })).toBeDefined()
-  expect(await hint.find({ type: 'Text', text: '▶ 1m 5s' })).toBeUndefined()
+  expect(await hint.find({ type: 'Text', text: '███████░ 88%' })).toBeDefined()
+  expect(await hint.find({ type: 'Text', text: '1 running' })).toBeDefined()
+  // The turn is over: its timer is gone.
+  expect(await hint.find({ type: 'Text', text: '5s' })).toBeUndefined()
 
   // The next turn counts its own tool calls and keeps the session's.
   await $.turn.start({ text: 'again', turnId: 't2' })
   await $.tool.call({ tool: 'Read', file_path: 'c.md' })
-  expect(await hint.find({ type: 'Text', text: 'tools 1/3' })).toBeDefined()
+  expect(await hint.find({ type: 'Text', text: '1 this turn · 3 total' })).toBeDefined()
   await hint.unmount()
 })
 
@@ -192,7 +199,7 @@ test('outside a git repository the git figure is absent', async ($, on) => {
   world.isRepo = false
   await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
   const hint = await $.ui.mount({ plugin: 'hud', surface: 'terminal', component: 'PromptHint', props: HINT })
-  expect(await hint.find({ type: 'Text', text: 'main ±2 ↑1 ↓2' })).toBeUndefined()
+  expect(await hint.find({ type: 'Text', text: 'git' })).toBeUndefined()
   expect(await hint.find({ type: 'Text', text: 'claude-mods' })).toBeDefined()
   await hint.unmount()
 })
@@ -201,11 +208,11 @@ test('placed above, the row is drawn in the band and the hint line is left alone
   engineBeneath(on)
   await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
   const band = await $.ui.mount({ plugin: 'hud', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: 'ctx ███░░░░░ 42%' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: '███░░░░░ 42%' })).toBeDefined()
   expect(await band.find({ type: 'Text', text: '$1.24' })).toBeUndefined()
   await band.unmount()
   const hint = await $.ui.mount({ plugin: 'hud', surface: 'terminal', component: 'PromptHint', props: HINT })
-  expect(await hint.find({ type: 'Text', text: 'ctx ███░░░░░ 42%' })).toBeUndefined()
+  expect(await hint.find({ type: 'Text', text: '███░░░░░ 42%' })).toBeUndefined()
   expect(await hint.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
   await hint.unmount()
 })
