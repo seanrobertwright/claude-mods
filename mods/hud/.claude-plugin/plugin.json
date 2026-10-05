@@ -1,0 +1,34 @@
+{
+  "name": "hud",
+  "version": "0.1.0",
+  "description": "Two coloured, animated lines under the prompt, every figure named: model, effort, context window, rate limits, turn timer, tool calls, agents, git state, cost, session length and folder.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "theme": {
+      "type": "string",
+      "title": "Colour theme",
+      "description": "The colours the row moves through.",
+      "options": ["neon", "ocean", "ember", "mono"],
+      "default": "neon"
+    },
+    "animate": {
+      "type": "boolean",
+      "title": "Animate while working",
+      "description": "Move the colours across the row while a turn runs, and blink a figure at its warning level.",
+      "default": true
+    },
+    "placement": {
+      "type": "string",
+      "title": "Where the row is drawn",
+      "description": "Below the prompt, above Claude Code's hint line, or in the band above the prompt.",
+      "options": ["below", "above"],
+      "default": "below"
+    },
+    "hide": {
+      "type": "string",
+      "title": "Segments to hide",
+      "description": "Comma-separated, from: model, effort, context, limits, turn, tools, agents, git, cost, session, folder.",
+      "default": ""
+    }
+  }
+}
