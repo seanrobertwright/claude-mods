@@ -311,10 +311,10 @@ One coloured row under the prompt with the figures you keep checking, so you nev
 
 ## Quick start
 
-The fastest way is to let Claude do it. Paste this prompt into Claude Code, with this repo's URL in place of `<this repo's URL>`:
+The fastest way is to let Claude do it. Paste this prompt into Claude Code:
 
 ```text
-Install the Claude Code mods from <this repo's URL>.
+Install the Claude Code mods from https://github.com/seanrobertwright/claude-mods.
 
 1. Clone the repository into a folder that will stay where it is: the mods run from that folder.
 2. Add it as a plugin marketplace: claude plugin marketplace add <that folder>
@@ -327,7 +327,7 @@ Change no other setting, and stop and tell me if a step fails.
 Or do it by hand. This repo is a plugin marketplace (`.claude-plugin/marketplace.json`). Clone it, add it once, then install the mods you want:
 
 ```sh
-git clone <this repo's URL> claude-mods
+git clone https://github.com/seanrobertwright/claude-mods claude-mods
 claude plugin marketplace add ./claude-mods
 
 claude plugin install whats-next@claude-mods
