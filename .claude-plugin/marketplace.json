@@ -26,6 +26,11 @@
       "name": "github-panel",
       "source": "./mods/github-panel",
       "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser."
+    },
+    {
+      "name": "shelf",
+      "source": "./mods/shelf",
+      "description": "Named folders and files above the prompt: click one to drop its path into what you are typing."
     }
   ]
 }

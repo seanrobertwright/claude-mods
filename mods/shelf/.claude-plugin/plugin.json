@@ -1,0 +1,6 @@
+{
+  "name": "shelf",
+  "version": "0.1.0",
+  "description": "Named folders and files above the prompt: click one to drop its path into what you are typing.",
+  "types": "./types/index.d.ts"
+}
