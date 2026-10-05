@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, and a guard for the Office file you left open.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, and a list of the files this session made.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![7 mods](https://img.shields.io/badge/mods-7-6b5bd2)
+![8 mods](https://img.shields.io/badge/mods-8-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all seven, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all eight, or read the source and write your own.
 
 ## What is a mod?
 
@@ -32,6 +32,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
+| 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
 
@@ -230,6 +231,32 @@ Close it so a write to it can go through?
 It sees a file named in a Write or Edit call or in the text of a shell command.
 It does not see one a script works out as it runs, nor one on a network location.
 
+### 📂 outputs
+
+A pane listing the files this session has made or changed in the project folder, newest first.
+Click one to open it with its own application, so "where did that file go?" needs no prompt.
+
+```text
+Outputs                            refresh
+Audit Summary.pptx
+  reports · just now          copy path
+EG 2026 Review.docx
+  2 min ago                   copy path
+
+3 other files (show)
+```
+
+- Documents come first: Word, Excel, PowerPoint, PDF, Markdown, HTML and text files. Scripts, images and data fold under one "other files" line.
+- The list refreshes after each tool call that can write, when a turn ends, and on `r`.
+- Hidden folders, `node_modules` and Office's lock files are passed over. A very large folder is looked through only in part, and the pane says so.
+
+| Command or key | What it does |
+| --- | --- |
+| `/outputs` | Bring the pane to the front and list afresh |
+| `r` | Refresh |
+| `c` | Copy the newest document's path |
+| `o` | Show or hide the other files |
+
 ## Quick start
 
 This repo is a plugin marketplace (`.claude-plugin/marketplace.json`). Clone it, add it once, then install the mods you want:
@@ -245,6 +272,7 @@ claude plugin install github-panel@claude-mods
 claude plugin install shelf@claude-mods
 claude plugin install turn-chime@claude-mods
 claude plugin install open-file-guard@claude-mods
+claude plugin install outputs@claude-mods
 ```
 
 To try a mod for one session only, with nothing installed:

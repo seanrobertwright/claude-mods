@@ -1,0 +1,6 @@
+{
+  "name": "outputs",
+  "version": "0.1.0",
+  "description": "A pane listing the files this session has made or changed, newest first; click one to open it.",
+  "types": "./types/index.d.ts"
+}
