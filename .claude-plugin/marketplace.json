@@ -36,6 +36,11 @@
       "name": "turn-chime",
       "source": "./mods/turn-chime",
       "description": "Plays a sound and shows a toast when a long turn ends or Claude stops to ask you something."
+    },
+    {
+      "name": "open-file-guard",
+      "source": "./mods/open-file-guard",
+      "description": "Before Claude uses a Word, Excel or PowerPoint file you have open, asks you to close it instead of letting the write fail."
     }
   ]
 }
