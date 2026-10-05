@@ -1,7 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 import type { On, RenderSurface } from 'claude-code'
 
-import { fullPath, grouped, isUnder, parseRequest, rootOf, shown, withSource } from '../hooks/paths'
+import { fullPath, grouped, isUnder, normal, parseRequest, reached, rootOf, shown, withSource } from '../hooks/paths'
 
 const ROOT = '/work/audit'
 const PERMIT = 'N:\\RECORDS\\Permits\\2026\\permit.pdf'
@@ -17,8 +18,11 @@ const PANE = {
 
 const COMPOSER = { origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 60 } } as const
 
-/** The engine beneath the mod: the reads that got through, and the panes it opened. */
-function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']) {
+/**
+ * The engine beneath the mod: the reads that got through, and the panes it opened.
+ * `landing` is the file system: each path that exists and where it lands; any other path is missing.
+ */
+function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal'], landing: Readonly<Record<string, string>> = {}) {
   const ran: string[] = []
   const opened: { id: string; focus: boolean }[] = []
   const clock = mock.clock(on, { now: 1_000 })
@@ -35,7 +39,28 @@ function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']
     ran.push(e.file_path)
     return { result: { type: 'text', file: { filePath: e.file_path, content: '', numLines: 0, startLine: 1, totalLines: 0 } } }
   })
+  on('tool.call', { tool: 'Glob' }, (_$, e) => {
+    ran.push(`Glob ${e.path ?? '.'} ${e.pattern}`)
+    return { result: { durationMs: 0, numFiles: 0, filenames: [], truncated: false } }
+  })
+  on('tool.call', { tool: 'Grep' }, (_$, e) => {
+    ran.push(`Grep ${e.path ?? '.'} ${e.pattern}`)
+    return { result: { numFiles: 0, filenames: [] } }
+  })
+  on('fs.stat', (_$, e) => {
+    // The engine hands the path over in the machine's own spelling; the test keeps one.
+    const path = e.path.replace(/^[A-Za-z]:/, '').replace(/\\/g, '/')
+    const realPath = Object.hasOwn(landing, path) ? landing[path] : undefined
+    // A path that leads nowhere comes back without realPath, as the engine answers one it cannot resolve.
+    return { value: { kind: 'file', size: 0, mtimeMs: 0, isLink: realPath !== undefined && realPath !== path, ...(e.resolve && realPath !== undefined ? { realPath } : {}) } }
+  })
   return { ran, opened, clock }
+}
+
+async function locked($: Engine) {
+  const pane = await $.ui.mount({ plugin: 'sources', surface: 'terminal', component: 'Pane', requestId: 'sources', props: PANE })
+  await pane.press({ key: 'lock' })
+  return pane
 }
 
 test('paths compare whatever their slashes and case, and a relative one is under the project folder', () => {
@@ -44,6 +69,45 @@ test('paths compare whatever their slashes and case, and a relative one is under
   expect(isUnder('c:/work/AUDIT/notes/plan.md', 'C:\\Work\\audit\\')).toBe(true)
   expect(isUnder('C:/Work/audit-old/plan.md', 'C:/Work/audit')).toBe(false)
   expect(isUnder('C:/Work/audit', 'C:/Work/audit')).toBe(true)
+})
+
+test('a path is compared where its . and .. segments lead, never above a drive, share or root', () => {
+  expect(fullPath('E:\\Projects\\claude-mods\\..\\other\\secret.txt', 'E:\\Projects\\claude-mods')).toBe('E:/Projects/other/secret.txt')
+  expect(fullPath('../..', 'E:/Projects/claude-mods')).toBe('E:/')
+  expect(fullPath('./sub/../plan.md', ROOT)).toBe('/work/audit/plan.md')
+  expect(normal('C:/..')).toBe('C:/')
+  expect(normal('/../etc/passwd')).toBe('/etc/passwd')
+  expect(normal('\\\\server\\share\\..\\..\\x')).toBe('//server/share/x')
+  expect(normal('../x/./y/')).toBe('../x/y')
+  expect(isUnder(`${ROOT}/../x`, ROOT)).toBe(false)
+  expect(isUnder(`${ROOT}/sub/../file.md`, ROOT)).toBe(true)
+  expect(isUnder('C:/Work/audit/../audit-old/plan.md', 'C:/Work/audit')).toBe(false)
+})
+
+test('reached names the file Read takes, and the folder Grep or Glob searches and where its pattern starts', () => {
+  expect(reached('Read', { file_path: `${ROOT}/../x` }, ROOT)).toEqual({ kind: 'places', places: ['/work/x'] })
+  expect(reached('Grep', { pattern: 'a/../b', path: '..' }, ROOT)).toEqual({ kind: 'places', places: ['/work'] })
+  expect(reached('Glob', { pattern: '**/*.md' }, ROOT)).toEqual({ kind: 'places', places: [ROOT, ROOT] })
+  expect(reached('Glob', { pattern: '../**' }, ROOT)).toEqual({ kind: 'places', places: [ROOT, '/work'] })
+  expect(reached('Glob', { pattern: 'sub/../notes/*.md', path: ROOT }, ROOT)).toEqual({ kind: 'places', places: [ROOT, `${ROOT}/notes`] })
+  expect(reached('Glob', { pattern: 'N:\\RECORDS\\**\\*.pdf' }, ROOT)).toEqual({ kind: 'places', places: [ROOT, 'N:/RECORDS'] })
+  expect(reached('Glob', { pattern: '/**' }, ROOT)).toEqual({ kind: 'places', places: [ROOT, '/'] })
+  expect(reached('Grep', { pattern: 'x', glob: '../*.md' }, ROOT)).toEqual({ kind: 'places', places: [ROOT, '/work'] })
+  // A .. after a wildcard, or inside braces, has no one folder it stays under.
+  expect(reached('Glob', { pattern: '**/../../x' }, ROOT)).toEqual({ kind: 'unplaced', spelling: '**/../../x' })
+  expect(reached('Glob', { pattern: '{..,notes}/*.md' }, ROOT)).toEqual({ kind: 'unplaced', spelling: '{..,notes}/*.md' })
+  // The tool takes ~ as the home folder and D:x from that drive's own current folder.
+  expect(reached('Read', { file_path: '~/.ssh/id_rsa' }, ROOT)).toEqual({ kind: 'unplaced', spelling: '~/.ssh/id_rsa' })
+  expect(reached('Read', { file_path: 'D:secret.txt' }, ROOT)).toEqual({ kind: 'unplaced', spelling: 'D:secret.txt' })
+  expect(reached('Read', { file_path: '~$plan.docx' }, ROOT)).toEqual({ kind: 'places', places: [`${ROOT}/~$plan.docx`] })
+})
+
+test('grouped lists a path that climbs out under its own root, and one that only looks like it under the project folder', () => {
+  const held = [{ path: `${ROOT}/../other/x.md`, at: 2 }, { path: `${ROOT}/sub/../plan.md`, at: 1 }]
+  expect(grouped(held, ROOT).map(group => [group.label, group.sources.length])).toEqual([
+    ['This folder', 1],
+    ['/work/other', 1],
+  ])
 })
 
 test('rootOf names a drive or share with its first two folders', () => {
@@ -126,6 +190,63 @@ test('after /sources allow a read under that folder goes through with the lock o
   expect(ran).toEqual([PERMIT])
   expect((await $.tool.call({ tool: 'Read', file_path: 'N:\\RECORDS\\Other\\x.pdf' })).deny).toBeDefined()
   expect((await $.command.run({ command: 'sources', args: 'allow', ...COMPOSER })).text).toContain('N:/RECORDS/Permits')
+  await pane.unmount()
+})
+
+test('with the lock on a read or search that climbs out with .. is refused, and one that climbs back in goes through', async ($, on) => {
+  const { ran } = engineBeneath(on)
+  const pane = await locked($)
+
+  const read = await $.tool.call({ tool: 'Read', file_path: `${ROOT}/../other/secret.txt` })
+  expect(read.deny).toContain('/work/other/secret.txt is outside it')
+  expect(read.deny).toContain('/sources allow <path>')
+  expect((await $.tool.call({ tool: 'Grep', pattern: 'password', path: '..' })).deny).toContain('/work is outside it')
+  expect((await $.tool.call({ tool: 'Glob', pattern: '*.md', path: '../..' })).deny).toContain('/ is outside it')
+  expect((await $.tool.call({ tool: 'Glob', pattern: '../**/*.md' })).deny).toContain('/work is outside it')
+  expect((await $.tool.call({ tool: 'Glob', pattern: '/home/sam/**' })).deny).toContain('/home/sam is outside it')
+  expect((await $.tool.call({ tool: 'Glob', pattern: 'notes/**/../../../x' })).deny).toContain('notes/**/../../../x is outside it')
+  expect((await $.tool.call({ tool: 'Read', file_path: '~/.ssh/id_rsa' })).deny).toContain('~/.ssh/id_rsa is outside it')
+  expect(ran).toEqual([])
+
+  await $.tool.call({ tool: 'Read', file_path: `${ROOT}/sub/../plan.md` })
+  await $.tool.call({ tool: 'Glob', pattern: 'sub/../notes/*.md' })
+  // A regex is not a path, so Grep's pattern is never taken for one.
+  await $.tool.call({ tool: 'Grep', pattern: '\\.\\./', path: 'notes' })
+  expect(ran).toEqual([`${ROOT}/sub/../plan.md`, 'Glob . sub/../notes/*.md', 'Grep notes \\.\\./'])
+  expect(await pane.find({ type: 'Text', text: 'This folder  3' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: '  plan.md' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('with the lock on a path under an allowed folder that climbs out of it is refused', async ($, on) => {
+  const { ran } = engineBeneath(on)
+  const pane = await locked($)
+  const allowed = await $.command.run({ command: 'sources', args: 'allow N:\\RECORDS\\Permits\\2026\\..', ...COMPOSER })
+  expect(allowed.text).toBe('Reads are allowed in N:/RECORDS/Permits for this session.')
+
+  expect((await $.tool.call({ tool: 'Read', file_path: 'N:\\RECORDS\\Permits\\..\\Payroll\\2026.xlsx' })).deny).toContain('N:/RECORDS/Payroll/2026.xlsx is outside it')
+  await $.tool.call({ tool: 'Read', file_path: 'N:/RECORDS/Permits/../Permits/2026/permit.pdf' })
+  expect(ran).toEqual(['N:/RECORDS/Permits/../Permits/2026/permit.pdf'])
+  expect(await pane.find({ type: 'Text', text: 'N:/RECORDS/Permits  1' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('with the lock on a link inside the project folder is judged by where it lands', async ($, on) => {
+  const { ran } = engineBeneath(on, ['terminal'], {
+    [ROOT]: '/data/audit',
+    [`${ROOT}/plan.md`]: '/data/audit/plan.md',
+    [`${ROOT}/linked/secret.txt`]: '/home/sam/secret.txt',
+    [`${ROOT}/linked`]: '/home/sam',
+  })
+  const pane = await locked($)
+
+  expect((await $.tool.call({ tool: 'Read', file_path: 'linked/secret.txt' })).deny).toContain('/home/sam/secret.txt is outside it')
+  expect((await $.tool.call({ tool: 'Grep', pattern: 'x', path: 'linked' })).deny).toContain('/home/sam is outside it')
+  expect((await $.tool.call({ tool: 'Glob', pattern: 'linked/**' })).deny).toContain('/home/sam is outside it')
+  // The project folder is itself a link: what lands inside it, or is not there yet, goes through.
+  await $.tool.call({ tool: 'Read', file_path: 'plan.md' })
+  await $.tool.call({ tool: 'Read', file_path: 'drafts/new.md' })
+  expect(ran).toEqual(['plan.md', 'drafts/new.md'])
   await pane.unmount()
 })
 

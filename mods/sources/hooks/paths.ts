@@ -10,32 +10,93 @@ export type Request = { kind: 'open' } | { kind: 'allowed' } | { kind: 'allow'; 
 
 export const USAGE = 'Usage: /sources, /sources allow, /sources allow <path>'
 
-/** The path with forward slashes and no trailing one, so two spellings of a folder compare equal. */
+/**
+ * The path with forward slashes, its `.` and `..` segments folded and no trailing slash, so two spellings
+ * of a place compare equal. A `..` at a drive, share or root stays there, as the file system has it;
+ * one at the start of a relative path is kept.
+ */
 export function normal(path: string): string {
   const slashed = path.replace(/\\/g, '/')
-  const trimmed = slashed.replace(/\/+$/, '')
-  // A bare drive or the root keeps its slash.
-  return trimmed === '' || /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}/` : trimmed
+  const [, head = '', rest = ''] = /^(\/\/[^/]+\/[^/]+|[A-Za-z]:(?=\/|$)|\/?)(.*)$/.exec(slashed) ?? []
+  const parts: string[] = []
+  for (const part of rest.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part !== '..') parts.push(part)
+    else if (parts.length > 0 && parts[parts.length - 1] !== '..') parts.pop()
+    else if (head === '') parts.push(part)
+  }
+  const body = parts.join('/')
+  if (head === '') return body === '' ? '.' : body
+  // A bare drive or the root keeps its slash; a share has none of its own.
+  if (head.startsWith('//')) return body === '' ? head : `${head}/${body}`
+  return head === '/' ? `/${body}` : `${head}/${body}`
 }
 
 function isAbsolute(path: string): boolean {
   return /^([A-Za-z]:[\\/]|[\\/])/.test(path)
 }
 
-/** The full path of what a tool named, which may be given from the project folder. */
+/**
+ * Whether the tool reads the path from somewhere its spelling does not say: `~` is the home folder to it,
+ * and `D:x` is relative to that drive's own current folder.
+ */
+function isUnplaceable(path: string): boolean {
+  return /^~\w*(?:[\\/]|$)/.test(path) || /^[A-Za-z]:(?![\\/])/.test(path)
+}
+
+/** The full path of what a tool named, which may be given from the project folder, with its `.` and `..` folded. */
 export function fullPath(path: string, cwd: string): string {
   return normal(isAbsolute(path) ? path : `${cwd}/${path}`)
 }
 
-/** Whether `path` is the folder or lies inside it. Letter case is passed over, as Windows does. */
+/** Whether `path` is the folder or lies inside it, once both are folded. Letter case is passed over, as Windows does. */
 export function isUnder(path: string, folder: string): boolean {
   const inner = normal(path).toLowerCase()
   const outer = normal(folder).toLowerCase()
   return inner === outer || inner.startsWith(outer.endsWith('/') ? outer : `${outer}/`)
 }
 
-export function isAllowed(path: string, cwd: string, allowed: readonly string[]): boolean {
-  return [cwd, ...allowed].some(folder => isUnder(path, folder))
+/** Whether `path` is one of the folders or lies inside one. */
+export function isAllowed(path: string, folders: readonly string[]): boolean {
+  return folders.some(folder => isUnder(path, folder))
+}
+
+/** What a read tool's call names: a file for Read, the folder searched for Grep and Glob (the project folder when none is given). */
+export function named(input: object): string {
+  const { file_path: file, path } = input as { file_path?: unknown; path?: unknown }
+  if (typeof file === 'string') return file
+  return typeof path === 'string' ? path : '.'
+}
+
+/** Where a read tool's call reaches: full paths, or the spelling no folder bounds. */
+export type Reach = { kind: 'places'; places: string[] } | { kind: 'unplaced'; spelling: string }
+
+/**
+ * The places a read tool's call reaches, each a full path: the file Read names; for Grep and Glob, the folder
+ * searched and, for Glob's `pattern` or Grep's `glob`, the folder before its first wildcard (the whole
+ * pattern when it has none). Grep's own
+ * `pattern` is a regex, not a path. A spelling no folder bounds is given back instead: `~`, `D:x`, or a `..`
+ * after a wildcard or among braces.
+ */
+export function reached(tool: string, input: object, cwd: string): Reach {
+  const { pattern, glob } = input as { pattern?: unknown; glob?: unknown }
+  const filter = tool === 'Glob' ? pattern : tool === 'Grep' ? glob : undefined
+  const spellings = [named(input), ...(typeof filter === 'string' ? [filter] : [])]
+  const unplaced = spellings.find(isUnplaceable)
+  if (unplaced !== undefined) return { kind: 'unplaced', spelling: unplaced }
+  const [searched = '.', ...filters] = spellings
+  const folder = fullPath(searched, cwd)
+  const places = [folder]
+  for (const each of filters) {
+    const slashed = each.replace(/\\/g, '/')
+    const parts = slashed.split('/')
+    const wild = parts.findIndex(part => /[*?[\]{}]/.test(part))
+    const literal = wild === -1 ? parts : parts.slice(0, wild)
+    if (wild !== -1 && parts.slice(wild).some(part => /(?:^|[{,])\.\.(?:$|[},])/.test(part))) return { kind: 'unplaced', spelling: each }
+    // A pattern that starts at the root keeps it.
+    places.push(fullPath(literal.join('/') || (slashed.startsWith('/') ? '/' : '.'), folder))
+  }
+  return { kind: 'places', places }
 }
 
 /** Where a path outside the project folder came from: its drive or share with its first two folders. */
