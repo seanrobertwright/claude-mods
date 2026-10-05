@@ -1,0 +1,5 @@
+{
+  "name": "open-file-guard",
+  "version": "0.1.0",
+  "description": "Before Claude uses a Word, Excel or PowerPoint file you have open, asks you to close it instead of letting the write fail."
+}
