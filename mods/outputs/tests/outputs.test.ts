@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On, RenderSurface } from 'claude-code'
 
-import { isDocument, isOutput, isScanned, newestFirst, openers, outputFile } from '../hooks/files'
+import { isDocument, isOutput, isScanned, newestFirst, openers, outputFile, windowsFolder } from '../hooks/files'
 import type { Entry } from '../hooks/files'
 
 const ROOT = '/work/audit'
@@ -37,12 +37,16 @@ type World = {
   toasts: string[]
   /** Every folder holds two more, without end. */
   isEndless: boolean
+  /** Files gone from the disk since the scan. */
+  missing: Set<string>
+  /** What each program exits with, by its argv[0]; 0 for any other. */
+  exits: Map<string, number>
 }
 
 function engineBeneath(on: On, { surfaces = ['terminal'], os = '' }: { surfaces?: readonly RenderSurface[]; os?: string } = {}) {
-  const world: World = { folders: new Map(), listed: [], opened: [], runs: [], copied: [], toasts: [], isEndless: false }
+  const world: World = { folders: new Map(), listed: [], opened: [], runs: [], copied: [], toasts: [], isEndless: false, missing: new Set(), exits: new Map() }
   const clock = mock.clock(on, { now: START })
-  mock.env(on, os === '' ? {} : { OS: os })
+  mock.env(on, os === '' ? {} : { OS: os, ...(os === 'Windows_NT' ? { SystemRoot: 'C:\\WINDOWS' } : {}) })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: ROOT }))
   on('session.surfaces', () => ({ value: surfaces }))
@@ -66,9 +70,11 @@ function engineBeneath(on: On, { surfaces = ['terminal'], os = '' }: { surfaces?
     world.copied.push(e.text)
     return { value: { isCopied: true } }
   })
+  on('fs.exists', (_$, e) => ({ value: !world.missing.has(e.path.replace(/^[A-Za-z]:/, '').replace(/\\/g, '/')) }))
   on('process.run', (_$, e) => {
     world.runs.push(e.argv)
-    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    const exitCode = world.exits.get(e.argv[0] ?? '') ?? 0
+    return { value: { exitCode, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('tool.call', { tool: 'Write' }, (_$, e) => ({
@@ -98,11 +104,29 @@ test('outputFile, newestFirst and openers give the path, the order and the proce
   const made = outputFile('C:\\Work\\audit\\', 'reports/final', file('memo.pdf', 5))
   expect(made).toEqual({ path: 'C:\\Work\\audit/reports/final/memo.pdf', name: 'memo.pdf', folder: 'reports/final', mtimeMs: 5, isDocument: true })
   expect(newestFirst([made, { ...made, name: 'later.pdf', mtimeMs: 9 }]).map(each => each.name)).toEqual(['later.pdf', 'memo.pdf'])
-  expect(openers(made.path, true)).toEqual([['cmd', '/c', 'start', '', 'C:\\Work\\audit\\reports\\final\\memo.pdf']])
-  expect(openers('/work/memo.pdf', false)).toEqual([
-    ['open', '/work/memo.pdf'],
-    ['xdg-open', '/work/memo.pdf'],
+  expect(openers(made.path, 'C:\\WINDOWS')).toEqual([{ argv: ['C:\\WINDOWS\\explorer.exe', 'C:\\Work\\audit\\reports\\final\\memo.pdf'], isExitTrusted: false }])
+  expect(openers('/work/memo.pdf', undefined)).toEqual([
+    { argv: ['open', '/work/memo.pdf'], isExitTrusted: true },
+    { argv: ['xdg-open', '/work/memo.pdf'], isExitTrusted: true },
   ])
+})
+
+test('on Windows a name with shell marks in it reaches explorer.exe whole, and no shell reads it', () => {
+  const odd = 'C:\\Work\\audit\\R&D ^draft 100% %PATH% done!.docx'
+  const [opener, ...rest] = openers(odd, 'C:\\WINDOWS')
+  expect(rest).toEqual([])
+  expect(opener?.argv).toEqual(['C:\\WINDOWS\\explorer.exe', odd])
+  expect(opener?.argv.some(each => /(^|\\)(cmd|command|powershell|pwsh|wsl|bash|sh)(\.exe|\.com)?$/i.test(each))).toBe(false)
+})
+
+test('windowsFolder takes SystemRoot only as an absolute folder on a drive, else the usual one', () => {
+  expect(windowsFolder('C:\\WINDOWS')).toBe('C:\\WINDOWS')
+  expect(windowsFolder('D:\\Win\\')).toBe('D:\\Win')
+  expect(windowsFolder(undefined)).toBe('C:\\Windows')
+  expect(windowsFolder('')).toBe('C:\\Windows')
+  expect(windowsFolder('Windows')).toBe('C:\\Windows')
+  expect(windowsFolder('\\\\server\\share')).toBe('C:\\Windows')
+  expect(windowsFolder('C:\\Win"dows')).toBe('C:\\Windows')
 })
 
 test('a file written during the session tops the pane after the call that wrote it, and an older one is left out', async ($, on) => {
@@ -152,10 +176,46 @@ test('clicking a file starts the process that opens it, and copy puts its path o
 
   const pane = await $.ui.mount({ plugin: 'outputs', surface: 'terminal', component: 'Pane', requestId: 'outputs', props: PANE })
   await pane.press({ key: 'doc-open-0' })
-  expect(world.runs).toEqual([['cmd', '/c', 'start', '', '\\work\\audit\\summary.docx']])
+  expect(world.runs).toEqual([['C:\\WINDOWS\\explorer.exe', '\\work\\audit\\summary.docx']])
   await pane.press({ key: 'doc-copy-0' })
   expect(world.copied).toEqual(['\\work\\audit\\summary.docx'])
   expect(world.toasts).toEqual(['Copied the path of summary.docx.'])
+  await pane.unmount()
+})
+
+test('on Windows explorer.exe exiting 1 is not a failed open, and a file gone since the scan is', async ($, on) => {
+  const { world, clock } = engineBeneath(on, { os: 'Windows_NT' })
+  world.exits.set('C:\\WINDOWS\\explorer.exe', 1)
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+  await clock.advance(MINUTE)
+  world.folders.set(ROOT, [file('summary.docx', START + 30), file('memo.pdf', START + 20)])
+  await $.turn.complete(DONE)
+
+  const pane = await $.ui.mount({ plugin: 'outputs', surface: 'terminal', component: 'Pane', requestId: 'outputs', props: PANE })
+  await pane.press({ key: 'doc-open-0' })
+  expect(world.toasts).toEqual([])
+  world.missing.add(`${ROOT}/memo.pdf`)
+  await pane.press({ key: 'doc-open-1' })
+  expect(world.runs).toEqual([['C:\\WINDOWS\\explorer.exe', '\\work\\audit\\summary.docx']])
+  expect(world.toasts).toEqual(['Outputs: could not open memo.pdf'])
+  await pane.unmount()
+})
+
+test('elsewhere open is tried, then xdg-open, and only both failing says the file could not open', async ($, on) => {
+  const { world, clock } = engineBeneath(on)
+  world.exits.set('open', 1)
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+  await clock.advance(MINUTE)
+  world.folders.set(ROOT, [file('summary.docx', START + 30)])
+  await $.turn.complete(DONE)
+
+  const pane = await $.ui.mount({ plugin: 'outputs', surface: 'terminal', component: 'Pane', requestId: 'outputs', props: PANE })
+  await pane.press({ key: 'doc-open-0' })
+  expect(world.runs).toEqual([['open', `${ROOT}/summary.docx`], ['xdg-open', `${ROOT}/summary.docx`]])
+  expect(world.toasts).toEqual([])
+  world.exits.set('xdg-open', 3)
+  await pane.press({ key: 'doc-open-0' })
+  expect(world.toasts).toEqual(['Outputs: could not open summary.docx'])
   await pane.unmount()
 })
 
