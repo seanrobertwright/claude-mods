@@ -12,6 +12,7 @@ type Heard = { clips: string[]; runs: (readonly string[])[]; toasts: string[] }
 /** The engine beneath the mod, on the given surfaces and operating system. */
 function engineBeneath(on: On, { surfaces = ['terminal'], os = '' }: { surfaces?: readonly RenderSurface[]; os?: string } = {}) {
   const heard: Heard = { clips: [], runs: [], toasts: [] }
+  const origins: string[] = []
   const clock = mock.clock(on, { now: 1_000 })
   mock.env(on, os === '' ? {} : { OS: os })
   on('session.surfaces', () => ({ value: surfaces }))
@@ -28,9 +29,13 @@ function engineBeneath(on: On, { surfaces = ['terminal'], os = '' }: { surfaces?
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('prompt.submit', (_$, e) => {
+    origins.push(e.origin.kind)
+    return { text: e.text }
+  })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => ({ result: { questions: e.questions, answers: {} } }))
-  return { heard, clock }
+  return { heard, clock, origins }
 }
 
 function ended(durationMs: number, turnId = 't1') {
@@ -95,7 +100,7 @@ test('a question asked after the threshold plays the sound once, and the turn en
   await $.tool.call({ tool: 'AskUserQuestion', ...QUESTION })
   await $.tool.call({ tool: 'AskUserQuestion', ...QUESTION })
   expect(heard.clips.length).toBe(1)
-  expect(heard.toasts).toEqual(['Claude needs an answer, 4m 0s into the turn.'])
+  expect(heard.toasts).toEqual(['Claude needs an answer, 4m 0s into the work.'])
 
   await $.turn.complete(ended(6 * MINUTE))
   expect(heard.clips.length).toBe(2)
@@ -109,7 +114,29 @@ test('a subagent starting its own turn mid-turn does not restart the count', asy
   await $.turn.start({ text: 'look this up', turnId: 'sub-1' })
   await clock.advance(1_000)
   await $.tool.call({ tool: 'AskUserQuestion', ...QUESTION })
-  expect(heard.toasts).toEqual(['Claude needs an answer, 4m 1s into the turn.'])
+  expect(heard.toasts).toEqual(['Claude needs an answer, 4m 1s into the work.'])
+})
+
+test('work that reports back in a short later turn chimes once the person has waited the threshold', async ($, on) => {
+  const { heard, clock, origins } = engineBeneath(on)
+  await $.prompt.submit({ text: 'wait three minutes, then tell me', wait: false, origin: { kind: 'composer' } })
+  // The turn hands the wait to the background and ends at once.
+  await $.turn.complete(ended(6_000))
+  expect(heard.toasts).toEqual([])
+
+  // The background work reports in a turn of a second, over three minutes after the prompt.
+  await clock.advance(3 * MINUTE + 10_000)
+  // The report arrives as a prompt of the engine's, which is not the person's and moves no mark.
+  await $.prompt.submit({ text: 'the wait is over', wait: false, origin: { kind: 'task-notification' } })
+  expect(origins).toEqual(['composer', 'task-notification'])
+  await $.turn.complete(ended(1_000, 't2'))
+  expect(heard.toasts).toEqual(['Claude finished, 3m 10s after your last prompt.'])
+  expect(heard.clips.length).toBe(1)
+
+  // The chime is the last the person heard: a short turn right after stays silent.
+  await clock.advance(20_000)
+  await $.turn.complete(ended(1_000, 't3'))
+  expect(heard.clips.length).toBe(1)
 })
 
 test('changing the option changes the threshold', { options: { thresholdMinutes: 10 } }, async ($, on) => {

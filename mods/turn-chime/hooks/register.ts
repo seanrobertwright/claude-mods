@@ -23,6 +23,14 @@ export const register: Register = (on, options) => {
   // When the main conversation's turn began, and whether a question in it has chimed yet.
   let startedAt: number | undefined
   let hasQuestionChimed = false
+  // When the person last sent a prompt or last heard the chime: what they have waited since.
+  // Work that goes on in the background ends its turn at once and reports in a later, short one.
+  let lastHeardAt: number | undefined
+
+  on('prompt.submit', async ($, e, next) => {
+    if (e.origin.kind === 'composer' || e.origin.kind === 'bridge') lastHeardAt = await $.clock.now().catch(() => undefined)
+    return next(e)
+  })
 
   on('turn.start', async ($, e, next) => {
     // The event does not say whose turn begins, so only the first start since the main
@@ -35,12 +43,14 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
-    const ran = startedAt === undefined ? 0 : (await $.clock.now().catch(() => 0)) - startedAt
+    const since = Math.min(startedAt ?? Infinity, lastHeardAt ?? Infinity)
+    const ran = since === Infinity ? 0 : Math.max(0, (await $.clock.now().catch(() => 0)) - since)
     if (hasQuestionChimed || e.agentId !== undefined || ran < config.thresholdMs) return next(e)
     hasQuestionChimed = true
+    lastHeardAt = since + ran
     // The sound plays while the question is up, never ahead of it; a failure of the mod's
     // own never costs the call.
-    const late = chimeIfShown($, `Claude needs an answer, ${length(ran)} into the turn.`).catch(() => undefined)
+    const late = chimeIfShown($, `Claude needs an answer, ${length(ran)} into the work.`).catch(() => undefined)
     const [asked] = await Promise.all([next(e), late])
     return asked
   })
@@ -50,9 +60,14 @@ export const register: Register = (on, options) => {
     // A subagent's turn is not one the person waits on, and one they stopped they are already watching.
     if (e.agentId !== undefined) return done
     startedAt = undefined
-    if (e.isAborted || e.durationMs < config.thresholdMs) return done
+    if (e.isAborted) return done
+    const now = await $.clock.now().catch(() => 0)
+    const waited = lastHeardAt === undefined ? 0 : Math.max(0, now - lastHeardAt)
+    if (e.durationMs < config.thresholdMs && waited < config.thresholdMs) return done
+    lastHeardAt = now
+    const text = e.durationMs >= config.thresholdMs ? `Turn finished after ${length(e.durationMs)}.` : `Claude finished, ${length(waited)} after your last prompt.`
     // Awaited: work left running when a hook returns is dropped with its dispatch.
-    await chimeIfShown($, `Turn finished after ${length(e.durationMs)}.`).catch(() => undefined)
+    await chimeIfShown($, text).catch(() => undefined)
     return done
   })
 }
