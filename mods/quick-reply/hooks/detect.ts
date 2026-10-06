@@ -2,6 +2,8 @@ import type { Reading, ReplyOption } from '../types'
 
 const MAX_OPTIONS = 9
 const LABEL_CHARS = 40
+/** How many non-blank lines at the end of an answer are read for a question. */
+const CLOSING_LINES = 5
 
 /**
  * A line that opens a choice: `1. x`, `2) x`, `a. x`, `(b) x`, `**C.** x`,
@@ -11,6 +13,32 @@ const OPTION_LINE =
   /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:option\s+)?\(?([1-9]|[a-h])(?:[.):]|\s+[-–—:])\)?(?:\*\*|__)?\s*(?:[-–—:]\s*)?(.+?)\s*$/i
 
 const ASKING = /\b(which|would you like|should i|do you want|shall i|let me know|prefer|choose|pick|ok to|okay to|go ahead)\b/i
+
+/** A `?` that ends a word, as a question's does. The one in `/search?q=mods` or `a?.b` does not. */
+const QUESTION_MARK = /\?(?!\.?\w)/
+
+/**
+ * What makes an asking sentence more than a yes-or-no question: it is open
+ * ("What would you like to do?"), words a choice ("Which do you prefer?"),
+ * sets alternatives against each other ("the quick fix or the refactor?") or
+ * leads into the list ("Should I:").
+ */
+const OPEN = /\b(what|which|how|prefer|choose|pick|options?|alternatives?|either|one of|or|thoughts|preference)\b|:\W*$/i
+
+/** A marker named on its own, not counting something: "go with 1?", "I recommend A.", "1, 2 or both". */
+const NAMED_MARKER = /(?<![\w.-])\(?(?:[1-9]|[A-H])\)?(?=\s*(?:$|[,.;:?!]|(?:or|and)\b))/
+
+/** Each way an answer negates its "recommend". A "not" that belongs to something else is none of them. */
+const NOT_RECOMMENDED = [
+  // "would not recommend", "wouldn't really recommend", "would not, however, recommend", "is not recommended"
+  /(?:\b(?:not|never|cannot)|n['’]t)(?:[ \t,]+(?:however|though|\w+ly|ever|even|to|be))*[ \t,]+recommend\w*/gi,
+  // "no strong recommendation", "don't have a recommendation"
+  /(?:\bno|(?:\bnot|n['’]t)[ \t]+have[ \t]+(?:an?|any))[ \t]+(?:[\w-]+[ \t]+)?recommendations?\b/gi,
+  // "not an approach I would recommend", "neither is one I can recommend"
+  /\b(?:not[ \t]+(?:an?|the|something|anything|one|what)|neither|nothing)\b[^.,;:!?\n]*?\b(?:i|we)(?:['’]d|[ \t]+(?:would|can|could))[ \t]+(?:ever[ \t]+)?recommend\w*/gi,
+  // "recommend against B"
+  /\brecommend\w*[ \t]+against\b/gi,
+]
 
 /** The position of a marker in its sequence: `1` and `a` are 0, `2` and `b` are 1. */
 function ordinal(marker: string): number {
@@ -35,6 +63,11 @@ function cleanLabel(raw: string): string {
 
 function withoutCode(text: string): string {
   return text.replace(/```[\s\S]*?(```|$)/g, '')
+}
+
+/** `text` without its inline code and URLs: a `?` or an asking word in those is not the answer's own. */
+function withoutInlineCodeAndUrls(text: string): string {
+  return text.replace(/`[^`\n]*`/g, '').replace(/\bhttps?:\/\/\S*[^\s.,;:!?)\]}>"'*_]/gi, '')
 }
 
 /**
@@ -62,20 +95,51 @@ export function findOptions(text: string): ReplyOption[] {
   return last.slice(0, MAX_OPTIONS)
 }
 
+/** One sentence of the answer's own words, and whether it is on a line that opens a choice. */
+type Sentence = { text: string; isOnOptionLine: boolean }
+
+/** The sentences of the closing non-blank lines of `text`, inline code and URLs left out. */
+function closingSentences(text: string): Sentence[] {
+  return text
+    .split('\n')
+    .map(line => ({ text: withoutInlineCodeAndUrls(line).trim(), isOnOptionLine: OPTION_LINE.test(line) }))
+    .filter(line => line.text !== '')
+    .slice(-CLOSING_LINES)
+    .flatMap(line => line.text.split(/(?<=[.?!])\s+/).map(sentence => ({ ...line, text: sentence })))
+}
+
+function asks(sentence: string): boolean {
+  return QUESTION_MARK.test(sentence) || ASKING.test(sentence)
+}
+
+/**
+ * Whether the closing sentences ask the person to pick among the listed items.
+ * A plain yes-or-no question does not: a report followed by "Shall I commit?"
+ * lists what was done. Naming a marker ("I recommend 1. Sound good?") does.
+ */
+function asksToChoose(closing: Sentence[]): boolean {
+  const around = closing.filter(sentence => !sentence.isOnOptionLine)
+  const asking = around.filter(sentence => asks(sentence.text))
+  return (
+    asking.length === 0 || asking.some(sentence => OPEN.test(sentence.text)) || around.some(sentence => NAMED_MARKER.test(sentence.text))
+  )
+}
+
+/** Whether `text` recommends something. "would not recommend B" and "recommend against B" advise against. */
+function recommends(text: string): boolean {
+  const affirmed = NOT_RECOMMENDED.reduce((rest, negated) => rest.replace(negated, ''), withoutInlineCodeAndUrls(text))
+  return /\brecommend/i.test(affirmed)
+}
+
 /** Reads an answer: whether it ends by asking, recommends something, and offers choices. */
 export function readAnswer(answer: string): Reading {
-  const text = answer.replace(/\r\n?/g, '\n')
-  const tail = withoutCode(text)
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line !== '')
-    .slice(-5)
-    .join('\n')
-  const isQuestion = tail.includes('?') || ASKING.test(tail)
+  const text = withoutCode(answer.replace(/\r\n?/g, '\n'))
+  const closing = closingSentences(text)
+  const isQuestion = closing.some(sentence => asks(sentence.text))
   return {
     isQuestion,
-    hasRecommendation: /\brecommend/i.test(text),
-    options: isQuestion ? findOptions(text) : [],
+    hasRecommendation: recommends(text),
+    options: isQuestion && asksToChoose(closing) ? findOptions(text) : [],
   }
 }
 

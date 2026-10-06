@@ -145,6 +145,8 @@ What the heuristics get wrong [probe]:
 - "See `https://example.com/search?q=mods` for the page." reads as a question, so the band shows the question replies instead of the idle ones.
 - "I would not recommend option B here" sets `hasRecommendation`.
 
+The regex reading no longer gets these three wrong (#92), so the table above describes it as surveyed, not as it is now.
+
 **Q1. How does the answer end, and what does it offer?** One request carrying these questions:
 
 - `ending`, a Choice: offers alternatives to pick from; asks a yes/no permission or confirmation; asks for information only the person has; reports finished work and asks nothing; reports a failure or a block it needs help with; other.

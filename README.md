@@ -96,14 +96,15 @@ flowchart LR
 ### ⚡ quick-reply
 
 One row of buttons above the prompt after each answer.
-When Claude ends on a question, the band offers the choices Claude just listed plus your stock replies. Otherwise it offers the replies you send most.
+When Claude ends on a question, the band offers the choices Claude asked you to pick from plus your stock replies. Otherwise it offers the replies you send most.
 
 ```text
 Reply:  [A: Keep the copies]  [B: Add a sync script]  [Yes]  [Go with your recommendation]  [No]
 ```
 
 - A choice's button sends its marker with its label, so the model cannot misread it.
-- When the answer recommends something, the "recommend" reply is the highlighted one.
+- A numbered report before a yes-or-no question ("Shall I commit?") is not offered as choices.
+- When the answer recommends something, the "recommend" reply is the highlighted one. Advice against something does not count.
 - The band stays out of the way while Claude is working, and after a subagent's turn.
 
 | Setting | Default | Meaning |
