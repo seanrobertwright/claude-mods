@@ -28,6 +28,7 @@ export type HudView = {
 
 declare module 'claude-code' {
   interface PluginState {
-    hud: { view: HudView; frame: number }
+    /** `warned`: by limit, the reset time of the window its red level was last toasted in (null when it had none). */
+    hud: { view: HudView; frame: number; warned: Record<string, string | null> }
   }
 }
