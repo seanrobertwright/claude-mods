@@ -32,6 +32,19 @@ _Avoid_: Dependency, prerequisite
 This repository as Claude Code sees it: a catalogue naming each mod, from which a person installs the mods they want one at a time.
 _Avoid_: Registry, store, package
 
+### System One models
+
+**System One model**:
+A model outside Claude that answers a typed question about text (one of several choices, yes or no, or a place on a scale) in a single quick step, without writing text: Jev, which TypeSafe hosts, or Laya, which runs on the person's own machine.
+A mod may use one to make a judgment better, but never needs one to work, so it is not a **Requirement**.
+The one exception is a key the person set that the model rejects: the mod names it as it would a missing requirement.
+_Avoid_: Classifier, judge, small model (when a System One model is meant)
+
+**Fallback**:
+What a mod does for a judgment when no System One model answers, or its answer is too unsure to act on: what it did without one (its own code, a model call it already made, or asking the person), or nothing.
+A fallback never costs more than the mod did without a System One model, and the mod uses it silently, whether no model was ever there or one stopped answering.
+_Avoid_: Degraded mode, offline mode
+
 ### Sessions
 
 **Surface**:
