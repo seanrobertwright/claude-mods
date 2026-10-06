@@ -75,11 +75,23 @@ test('a run is still offered when the question is open, sets alternatives or nam
   expect(readAnswer(['Should I:', '1. Fix it now', '2. Open an issue'].join('\n')).options.length).toBe(2)
 })
 
+test('a lowercase-lettered run is still offered when the question names a marker', () => {
+  const ways = ['I see two ways forward:', 'a. Fix it now', 'b. Open an issue']
+  for (const closing of ['I recommend b. Sound good?', 'Want me to go with a?', 'Shall I start with (b)?']) {
+    expect(readAnswer([...ways, closing].join('\n')).options.map(option => option.marker)).toEqual(['a', 'b'])
+  }
+  // Neither the "e" of "e.g." nor the "f" of "for" is a marker.
+  expect(readAnswer([...ways, 'Want me to add cases, e.g. URLs?'].join('\n')).options).toEqual([])
+  expect(readAnswer([...ways, 'Shall I push it for review?'].join('\n')).options).toEqual([])
+})
+
 test('a yes-or-no question is not about the run, wherever it stands', () => {
   const files = ['1. parse.ts', '2. register.tsx']
   expect(readAnswer(['Shall I commit? Here is what changed:', ...files].join('\n')).options).toEqual([])
   expect(readAnswer(['Here is what changed:', ...files, 'Let me know if you want anything else.'].join('\n')).options).toEqual([])
   expect(readAnswer(['Here is what changed:', ...files, 'All 2 tests pass. Want me to push?'].join('\n')).options).toEqual([])
+  expect(readAnswer(['Here is what changed:', ...files, 'For the record, all tests pass. Shall I commit?'].join('\n')).options).toEqual([])
+  expect(readAnswer(['Here is what changed:', ...files, 'Shall I bump the version to 1.5?'].join('\n')).options).toEqual([])
 })
 
 test('a ? inside a URL or inline code is not a question', () => {

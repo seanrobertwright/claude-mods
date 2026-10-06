@@ -25,8 +25,12 @@ const QUESTION_MARK = /\?(?!\.?\w)/
  */
 const OPEN = /\b(what|which|how|prefer|choose|pick|options?|alternatives?|either|one of|or|thoughts|preference)\b|:\W*$/i
 
-/** A marker named on its own, not counting something: "go with 1?", "I recommend A.", "1, 2 or both". */
-const NAMED_MARKER = /(?<![\w.-])\(?(?:[1-9]|[A-H])\)?(?=\s*(?:$|[,.;:?!]|(?:or|and)\b))/
+/**
+ * A marker named on its own, not counting something: "go with 1?", "I recommend b.", "1, 2 or both".
+ * Letters match in either case, as `OPTION_LINE` does. Neither the `e` of "e.g." nor the `f` of
+ * "for" is one: a mark after a marker has to end the word, and an "or" or "and" has to be a word.
+ */
+const NAMED_MARKER = /(?<![\w.-])\(?(?:[1-9]|[a-h])\)?(?=\s*(?:$|[,.;:?!](?!\w))|\s+(?:or|and)\b)/i
 
 /** Each way an answer negates its "recommend". A "not" that belongs to something else is none of them. */
 const NOT_RECOMMENDED = [
