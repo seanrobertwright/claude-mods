@@ -53,8 +53,8 @@ export function windowsFolder(systemRoot: string | undefined): string {
 /**
  * The processes that open a file with its own application, tried in turn: on Windows (`windows`, its
  * Windows folder) explorer.exe with the path as its one argument, so no shell reads the name; else `open`,
- * then `xdg-open`. explorer.exe is named by its full path, since Windows may look for a bare name in the
- * project folder first, and its exit code is not trusted: it can exit 1 when it opened the file.
+ * then `xdg-open`. explorer.exe is named by its full path in the Windows folder, so no other explorer.exe
+ * on PATH runs in its place, and its exit code is not trusted: it can exit 1 when it opened the file.
  */
 export function openers(path: string, windows: string | undefined): Opener[] {
   if (windows !== undefined) return [{ argv: [`${windows}\\explorer.exe`, path.replace(/\//g, '\\')], isExitTrusted: false }]
