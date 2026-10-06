@@ -38,11 +38,37 @@ _Avoid_: Registry, store, package
 A model outside Claude that answers a typed question about text (one of several choices, yes or no, or a place on a scale) in a single quick step, without writing text: Jev, which TypeSafe hosts, or Laya, which runs on the person's own machine.
 A mod may use one to make a judgment better, but never needs one to work, so it is not a **Requirement**.
 The one exception is a key the person set that the model rejects: the mod names it as it would a missing requirement.
+Which of the two a mod asks is the person's **Model choice**.
 _Avoid_: Classifier, judge, small model (when a System One model is meant)
+
+**Local model**:
+Laya running on the person's own machine and reached at that machine's own address.
+Text a mod sends to it stays on the machine.
+A Laya anywhere else is not a local model, and a mod does not use it.
+_Avoid_: Offline model, self-hosted model
+
+**Hosted model**:
+Jev as TypeSafe itself serves it.
+Text a mod sends to it leaves the machine, and TypeSafe keeps it.
+A mod sends it only what its judgments were declared to send, and never the contents of a file the mod read itself.
+That text and the person's key go to TypeSafe and nowhere else.
+_Avoid_: Cloud model, remote model
+
+**Model choice**:
+The person's setting, one per mod, for which System One models that mod may ask: _local only_, _local first_ or _hosted first_.
+It starts at local only, so a key alone never sends anything to the hosted model.
+Under local first the mod asks the local model, and the hosted model only while the local one is unavailable; hosted first is the reverse.
+A mod asks one model for a judgment: when that model gives no answer it can act on, the mod uses its **Fallback** and does not ask the other.
+_Avoid_: Backend, provider, mode
+
+**Local-only folder**:
+A project folder the person has marked so that no mod sends anything to the hosted model from it, whatever the mod's model choice.
+_Avoid_: Private repo, offline folder
 
 **Fallback**:
 What a mod does for a judgment when no System One model answers, or its answer is too unsure to act on: what it did without one (its own code, a model call it already made, or asking the person), or nothing.
 A fallback never costs more than the mod did without a System One model, and the mod uses it silently, whether no model was ever there or one stopped answering.
+It follows the one model the mod asked, even while the other is running.
 _Avoid_: Degraded mode, offline mode
 
 ### Sessions
