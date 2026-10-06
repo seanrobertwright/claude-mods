@@ -22,6 +22,13 @@ const CHOICE = [
 
 const DONE = ['Done. I changed three files:', '1. parse.ts', '2. register.tsx', '3. the tests', '', 'All tests pass.'].join('\n')
 
+const DONE_ASKS = ['Done. I changed three files:', '1. parse.ts', '2. register.tsx', '3. the tests', 'All tests pass. Shall I commit?'].join(
+  '\n',
+)
+
+const URL_QUOTED = 'See `https://example.com/search?q=mods` for the page.'
+const URL_BARE = 'See https://example.com/search?q=mods for the page.'
+
 const BAND = {
   hasSurvey: false,
   isWorking: false,
@@ -44,6 +51,75 @@ test('readAnswer finds the offered choices and the recommendation', () => {
 
 test('a numbered summary that asks nothing offers no choices', () => {
   expect(readAnswer(DONE)).toEqual({ isQuestion: false, hasRecommendation: false, options: [] })
+})
+
+test('a numbered report before a yes-or-no question offers no choices', () => {
+  expect(readAnswer(DONE_ASKS)).toEqual({ isQuestion: true, hasRecommendation: false, options: [] })
+})
+
+test('a run is still offered when the question is open, sets alternatives or names a marker', () => {
+  const ways = ['I see two ways forward:', '1. Fix it now', '2. Open an issue']
+  const closings = [
+    'What would you like to do?',
+    'How would you like to proceed?',
+    'Should I do 1, 2, or both?',
+    'Want me to go with 1?',
+    'I recommend 1. Sound good?',
+    'Do you want the quick fix or the issue?',
+    'I lean towards the first. Thoughts?',
+    'Let me know which you prefer.',
+  ]
+  for (const closing of closings) {
+    expect(readAnswer([...ways, closing].join('\n')).options.map(option => option.label)).toEqual(['Fix it now', 'Open an issue'])
+  }
+  expect(readAnswer(['Should I:', '1. Fix it now', '2. Open an issue'].join('\n')).options.length).toBe(2)
+})
+
+test('a lowercase-lettered run is still offered when the question names a marker', () => {
+  const ways = ['I see two ways forward:', 'a. Fix it now', 'b. Open an issue']
+  for (const closing of ['I recommend b. Sound good?', 'Want me to go with a?', 'Shall I start with (b)?']) {
+    expect(readAnswer([...ways, closing].join('\n')).options.map(option => option.marker)).toEqual(['a', 'b'])
+  }
+  // Neither the "e" of "e.g." nor the "f" of "for" is a marker.
+  expect(readAnswer([...ways, 'Want me to add cases, e.g. URLs?'].join('\n')).options).toEqual([])
+  expect(readAnswer([...ways, 'Shall I push it for review?'].join('\n')).options).toEqual([])
+})
+
+test('a yes-or-no question is not about the run, wherever it stands', () => {
+  const files = ['1. parse.ts', '2. register.tsx']
+  expect(readAnswer(['Shall I commit? Here is what changed:', ...files].join('\n')).options).toEqual([])
+  expect(readAnswer(['Here is what changed:', ...files, 'Let me know if you want anything else.'].join('\n')).options).toEqual([])
+  expect(readAnswer(['Here is what changed:', ...files, 'All 2 tests pass. Want me to push?'].join('\n')).options).toEqual([])
+  expect(readAnswer(['Here is what changed:', ...files, 'For the record, all tests pass. Shall I commit?'].join('\n')).options).toEqual([])
+  expect(readAnswer(['Here is what changed:', ...files, 'Shall I bump the version to 1.5?'].join('\n')).options).toEqual([])
+})
+
+test('a ? inside a URL or inline code is not a question', () => {
+  const idle = { isQuestion: false, hasRecommendation: false, options: [] }
+  expect(readAnswer(URL_QUOTED)).toEqual(idle)
+  expect(readAnswer(URL_BARE)).toEqual(idle)
+  expect(readAnswer('The check is `value?.length ? 1 : 0` now.')).toEqual(idle)
+  expect(readAnswer('The route is /search?q=mods now, see https://example.com/pick for more.')).toEqual(idle)
+  expect(readAnswer('Open (https://example.com/search?q=mods) — is that the page?').isQuestion).toBe(true)
+  expect(readAnswer('Is this what you meant?**').isQuestion).toBe(true)
+  expect(readAnswer('Ready to merge?—or wait for CI').isQuestion).toBe(true)
+})
+
+test('an answer that recommends against something has no recommendation', () => {
+  expect(readAnswer('I would not recommend option B here.').hasRecommendation).toBe(false)
+  expect(readAnswer("I wouldn't recommend B, and A is not recommended either.").hasRecommendation).toBe(false)
+  expect(readAnswer('I recommend against option B.').hasRecommendation).toBe(false)
+  expect(readAnswer('I have no strong recommendation here.').hasRecommendation).toBe(false)
+  expect(readAnswer('Run `npm run recommend` to list them.').hasRecommendation).toBe(false)
+  expect(readAnswer('I would not recommend option B here. I recommend A.').hasRecommendation).toBe(true)
+  expect(readAnswer('I would not, however, recommend option B.').hasRecommendation).toBe(false)
+  expect(readAnswer('This is not an approach I would recommend.').hasRecommendation).toBe(false)
+  expect(readAnswer('Neither option is one I can recommend.').hasRecommendation).toBe(false)
+  expect(readAnswer('If not, I recommend A.').hasRecommendation).toBe(true)
+  // A "not" or a "no" that belongs to something else leaves the recommendation standing.
+  expect(readAnswer('Since the tests do not pass I recommend reverting.').hasRecommendation).toBe(true)
+  expect(readAnswer('I have no objections and recommend merging.').hasRecommendation).toBe(true)
+  expect(readAnswer('If that is not possible I recommend option A.').hasRecommendation).toBe(true)
 })
 
 test('findOptions keeps the last run in sequence and skips code', () => {
@@ -79,6 +155,48 @@ test('after a question the band offers its choices and sends the pick', async ($
     expect(sent[sent.length - 1]).toBe('b) Redis')
     // Sending clears the band until the next answer.
     expect(await band.find({ key: 'option-a' })).toBeUndefined()
+    await band.unmount()
+  }
+})
+
+test('after a report that ends on a yes-or-no question the band offers the question replies only', async ($, on) => {
+  engineBeneath(on)
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  await $.turn.complete({ answer: DONE_ASKS, durationMs: 10, isAborted: false, turnId: 't5', reason: 'answer' })
+
+  const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ key: 'reply-Yes' })).toBeDefined()
+  expect(await band.find({ key: 'option-1' })).toBeUndefined()
+  expect(await band.find({ key: 'option-2' })).toBeUndefined()
+  expect(await band.find({ key: 'option-3' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('after an answer whose only ? is in a URL the band offers the idle replies', async ($, on) => {
+  engineBeneath(on)
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+
+  for (const answer of [URL_QUOTED, URL_BARE]) {
+    await $.turn.complete({ answer, durationMs: 10, isAborted: false, turnId: 't6', reason: 'answer' })
+    const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    expect(await band.find({ key: 'reply-Continue' })).toBeDefined()
+    expect(await band.find({ key: 'reply-Yes' })).toBeUndefined()
+    await band.unmount()
+  }
+})
+
+test('the recommendation reply is primary only when the answer recommends something', async ($, on) => {
+  engineBeneath(on)
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+
+  const variants: [string, string][] = [
+    ['I recommend option A here. Shall I go on?', 'primary'],
+    ['I would not recommend option B here. Shall I go on?', 'secondary'],
+  ]
+  for (const [answer, variant] of variants) {
+    await $.turn.complete({ answer, durationMs: 10, isAborted: false, turnId: 't7', reason: 'answer' })
+    const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    expect((await band.find({ key: 'reply-Go with your recommendation' }))?.props.variant).toBe(variant)
     await band.unmount()
   }
 })

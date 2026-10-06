@@ -1,4 +1,4 @@
-/** One choice Claude offered: its marker as written (`1`, `b`) and a short label. */
+/** One choice Claude offered: its marker in lower case (`1`, `b`, also for a `B.` line) and a short label. */
 export type ReplyOption = { marker: string; label: string }
 
 /** What the last answer asked for, as far as the band can tell. */
