@@ -17,8 +17,9 @@ What you decided around it:
 - In session `5f436923` (also 2026-10-04), the grilling on what to build next found no named candidate for another mod. It recommended hardening the existing mods first, with the next mod getting its own grilling once you could name it. You answered "Go with your recommendation".
 - In the same session you chose "Accept it and make it a rule": a step's prompt reaches the model only when you send it yourself (CONTEXT.md, **Step**). Ideas below that would send prompts on their own run into this rule, and each such idea says so.
 
-None of these ideas was rejected; they were left unchosen.
-Each is now filed as an issue, labelled enhancement and needs-triage.
+None of these ideas was rejected when they were raised; they were left unchosen.
+Each is filed as an issue.
+The triage of 2026-10-06 is recorded on each issue, and the ideas it closed are written up in `.out-of-scope/`.
 
 Sessions on your other computer are not covered, and that includes the ones that produced shelf, turn-chime, open-file-guard, outputs, sources and hud.
 
@@ -137,7 +138,7 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 ## Partly covered by a built mod
 
 - **Issue and PR board, rank 18 (issue #76).** Open issues and PRs with their CI state; a click fills `/wayfinder <url>` or `/implement <url>`.
-  github-panel lists the issues and PRs, but a click opens them in the browser, and there's no CI state.
+  github-panel lists the issues and PRs, with each PR's checks; a click opens them in the browser.
 - **Usage meter, rank 24 (issue #77).** A warning before you hit the rate limit.
   hud shows the rate limits; only the warning is missing.
 
