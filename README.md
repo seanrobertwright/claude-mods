@@ -96,7 +96,7 @@ flowchart LR
 ### ⚡ quick-reply
 
 One row of buttons above the prompt after each answer.
-When Claude ends on a question, the band offers the choices Claude asked you to pick from plus your stock replies. Otherwise it offers the replies you send most.
+When Claude ends on a question, the band offers the choices Claude asked you to pick from, then your replies to a question. After any other answer it offers your other replies. You set both lists in the settings below.
 
 ```text
 Reply:  [a: Keep the copies]  [b: Add a sync script]  [Yes]  [Go with your recommendation]  [No]
