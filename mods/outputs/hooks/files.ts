@@ -41,12 +41,26 @@ export function newestFirst(files: readonly OutputFile[]): OutputFile[] {
   return [...files].sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, MOST_FILES)
 }
 
-/** The process that opens a file with its own application: `start` on Windows, else `open`, then `xdg-open`. */
-export function openers(path: string, isWindows: boolean): string[][] {
-  if (isWindows) return [['cmd', '/c', 'start', '', path.replace(/\//g, '\\')]]
+/** A process that opens a file with its own application, and whether its exit code tells an open from a failure. */
+export type Opener = { argv: string[]; isExitTrusted: boolean }
+
+/** The Windows folder from `SystemRoot`, taken only as an absolute folder on a drive; else `C:\Windows`. */
+export function windowsFolder(systemRoot: string | undefined): string {
+  const trimmed = (systemRoot ?? '').replace(/\\+$/, '')
+  return /^[A-Za-z]:\\[^"<>|?*]*$/.test(trimmed) ? trimmed : 'C:\\Windows'
+}
+
+/**
+ * The processes that open a file with its own application, tried in turn: on Windows (`windows`, its
+ * Windows folder) explorer.exe with the path as its one argument, so no shell reads the name; else `open`,
+ * then `xdg-open`. explorer.exe is named by its full path, since Windows may look for a bare name in the
+ * project folder first, and its exit code is not trusted: it can exit 1 when it opened the file.
+ */
+export function openers(path: string, windows: string | undefined): Opener[] {
+  if (windows !== undefined) return [{ argv: [`${windows}\\explorer.exe`, path.replace(/\//g, '\\')], isExitTrusted: false }]
   return [
-    ['open', path],
-    ['xdg-open', path],
+    { argv: ['open', path], isExitTrusted: true },
+    { argv: ['xdg-open', path], isExitTrusted: true },
   ]
 }
 

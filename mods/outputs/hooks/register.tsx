@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { OutputFile, OutputsView } from '../types'
-import { ago, fit, isOutput, isScanned, joined, MOST_DEPTH, MOST_FOLDERS, nativePath, newestFirst, openers, outputFile } from './files'
+import { ago, fit, isOutput, isScanned, joined, MOST_DEPTH, MOST_FOLDERS, nativePath, newestFirst, openers, outputFile, windowsFolder } from './files'
 
 const PANE = 'outputs'
 const TITLE = 'Outputs'
@@ -61,10 +61,18 @@ async function scan($: EngineInterface): Promise<void> {
   await update($, view, (current): OutputsView => ({ ...current, files: newestFirst(found), isCut, error }))
 }
 
+/**
+ * Opens the file with its own application, or says it could not: when the file is gone since the scan, or
+ * when no opener both started and, where its exit code is trusted, exited 0.
+ */
 async function openFile($: EngineInterface, file: OutputFile): Promise<void> {
-  for (const argv of openers(file.path, await isWindows($))) {
-    const run = await $.process.run(argv).catch(() => undefined)
-    if (run?.exitCode === 0) return
+  // A network location is not looked at; the openers try it as they would any file.
+  if (await $.fs.exists(file.path).catch(() => true)) {
+    const windows = (await isWindows($)) ? windowsFolder(await $.env.get('SystemRoot')) : undefined
+    for (const { argv, isExitTrusted } of openers(file.path, windows)) {
+      const run = await $.process.run(argv).catch(() => undefined)
+      if (run !== undefined && (run.exitCode === 0 || !isExitTrusted)) return
+    }
   }
   $.ui.toast(`Outputs: could not open ${file.name}`)
 }
