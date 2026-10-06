@@ -45,6 +45,8 @@ _Avoid_: Classifier, judge, small model (when a System One model is meant)
 Laya running on the person's own machine and reached at that machine's own address.
 Text a mod sends to it stays on the machine.
 A Laya anywhere else is not a local model, and a mod does not use it.
+The person starts it; a mod never does.
+A mod counts it available only when what answers at that address says it is Laya.
 _Avoid_: Offline model, self-hosted model
 
 **Hosted model**:
