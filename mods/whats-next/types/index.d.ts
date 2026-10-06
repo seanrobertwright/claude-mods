@@ -25,7 +25,8 @@ declare module 'claude-code' {
   interface PluginState {
     'whats-next': {
       list: NextList
-      selected: NextStep | null
+      /** The id of the step whose prompt the pane shows in place of the list, or null for the list. */
+      shownId: string | null
       /** True once this session's start-up work has run: at start, or at the first attach. */
       hasStartedUp: boolean
       /** Counts the glow timer's beats; a write redraws the active step's shimmer. */

@@ -24,7 +24,6 @@ import {
 import type { Config } from './parse'
 
 const PANE = 'whats-next'
-const POPUP = 'whats-next-prompt'
 const TITLE = "What's next"
 const TEN_MINUTES = 600_000
 /** Room for a cold start of the `claude` CLI before the probe calls it missing. */
@@ -35,7 +34,7 @@ const WORKING = 'working on it'
 
 const EMPTY: NextList = { status: 'idle', steps: [], updatedAt: 0, error: '', runId: 0, activeId: null }
 const list = atom({ plugin: 'whats-next', key: 'list' } as const, EMPTY)
-const selected = atom({ plugin: 'whats-next', key: 'selected' } as const, null)
+const shownId = atom({ plugin: 'whats-next', key: 'shownId' } as const, null)
 const hasStartedUp = atom({ plugin: 'whats-next', key: 'hasStartedUp' } as const, false)
 const tick = atom({ plugin: 'whats-next', key: 'tick' } as const, 0)
 
@@ -47,9 +46,14 @@ let attaches = 0
 
 const storeKey = (cwd: string) => `list:${cwd}`
 
+/** The listed step `id` names, if any. */
+function stepWithId(current: NextList, id: string | null): NextStep | null {
+  return current.steps.find(step => step.id === id) ?? null
+}
+
 /** The step this session is working on: the listed step `activeId` names, if any. */
 function activeStep(current: NextList): NextStep | null {
-  return current.steps.find(step => step.id === current.activeId) ?? null
+  return stepWithId(current, current.activeId)
 }
 
 /**
@@ -290,9 +294,36 @@ async function startUp($: EngineInterface, config: Config, isPaneWanted: boolean
   if (missing === undefined && config.refreshOnStart && (await isGitRepo($))) void refresh($, config).catch(report($))
 }
 
-async function openPopup($: EngineInterface, step: NextStep): Promise<void> {
-  await update($, selected, () => step)
-  await $.ui.open({ id: POPUP, title: step.title, focus: true, closeOnEscape: true, holdToasts: true })
+/**
+ * Shows a step's prompt in the pane itself, in place of the list. A pane of
+ * its own would open as a tab behind this one: a surface refuses `focus` while
+ * the person holds a pane, and pressing a step is holding this one.
+ */
+async function showStep($: EngineInterface, step: NextStep): Promise<void> {
+  await update($, shownId, () => step.id)
+  // Enter then acts on the main button. Only a convenience, so a failure is not reported: the
+  // surface refuses it where the pane lacks the keyboard, and the call rejects where nothing
+  // answers it, as under a test.
+  await $.ui.focus({ requestId: PANE, key: 'paste' }).catch(() => undefined)
+}
+
+/**
+ * Puts a step's prompt in the prompt box, after `/clear` when `isFresh`, and
+ * goes back to the list. The person types there next, so the prompt box needs
+ * the keyboard, and closing the pane is the one way a mod hands it back: the
+ * pane is closed, then opened again without asking for the keyboard, whatever
+ * became of the paste.
+ */
+async function pasteStep($: EngineInterface, step: NextStep, isFresh: boolean): Promise<void> {
+  await update($, shownId, () => null)
+  await $.ui.close({ id: PANE })
+  try {
+    if (isFresh) await $.command.run({ command: 'clear' })
+    const filled = await $.prompt.fill({ text: step.prompt })
+    if (!filled.isFilled) $.ui.toast("What's next: the prompt box could not take the prompt.")
+  } finally {
+    await $.ui.open({ id: PANE, title: TITLE })
+  }
 }
 
 export const register: Register = (on, options) => {
@@ -312,6 +343,8 @@ export const register: Register = (on, options) => {
       status: current.status === 'loading' ? 'idle' : current.status,
       runId: current.runId + 1,
     }))
+    // A new session, or a reload, opens on the list, never on a prompt shown before.
+    await update($, shownId, () => null)
 
     // A headless session, this mod's own headless runs included, does nothing
     // until a surface attaches (session.attach).
@@ -370,6 +403,8 @@ export const register: Register = (on, options) => {
     // Focus brings the pane in front of another mod's tab; an open pane would only be retitled
     // without it. The open at start never asks it, so the mod takes the keyboard only when asked.
     await $.ui.open({ id: PANE, title: TITLE, focus: true })
+    // Asking for the pane asks for the list: a prompt shown before gives way to it.
+    await update($, shownId, () => null)
     const current = await read($, list)
     const isAsked = e.args.trim() === 'refresh'
     // An empty list, or a missing requirement the person may have met since, asks again.
@@ -388,6 +423,56 @@ export const register: Register = (on, options) => {
     const width = Math.max(16, e.props.bodyColumns)
     const activeIndex = current.steps.findIndex(step => step.id === working?.id)
     const [before, lit, after] = shimmer(WORKING, beat)
+    // A step a refresh or a finish dropped is no longer shown: its id is gone.
+    const shown = stepWithId(current, await read($, shownId))
+
+    if (shown !== null) {
+      const back = () => update($, shownId, () => null)
+      const copy = async (surface: typeof e.surface) => {
+        const copied = await $.ui.copy({ text: shown.prompt, surface })
+        await back()
+        $.ui.toast(copied.isCopied ? 'Prompt copied.' : `Could not copy: ${copied.reason}`)
+      }
+
+      return (
+        <Box flexDirection="column" width={width}>
+          <Box flexDirection="row" justifyContent="space-between">
+            <Text bold>{TITLE}</Text>
+            <Button key="back" plain dimColor hotkey="b" label="back" onPress={() => void back().catch(report($))} />
+          </Box>
+          <Box marginTop={1} flexDirection="column">
+            <Text bold wrap="wrap">{shown.title}</Text>
+            {shown.why !== '' && <Text dimColor wrap="wrap">{shown.why}</Text>}
+          </Box>
+          <Box borderStyle="round" borderDimColor paddingX={1} marginY={1} flexDirection="column">
+            <Text wrap="wrap">{shown.prompt}</Text>
+          </Box>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            <Button
+              key="paste"
+              variant="primary"
+              hotkey="p"
+              autoFocus
+              label="Paste into prompt"
+              onPress={() => void pasteStep($, shown, false).catch(report($))}
+            />
+            <Button
+              key="fresh"
+              hotkey="n"
+              label="/clear + paste"
+              onPress={() => void pasteStep($, shown, true).catch(report($))}
+            />
+            <Button
+              key="copy"
+              hotkey="c"
+              label="Copy"
+              onPress={press => void copy(press.surface).catch(report($))}
+            />
+          </Box>
+          <Text dimColor wrap="wrap">Written for a fresh session: /clear + paste starts one. b goes back.</Text>
+        </Box>
+      )
+    }
 
     return (
       <Box flexDirection="column" width={width}>
@@ -422,7 +507,7 @@ export const register: Register = (on, options) => {
               hotkey={String(index + 1)}
               variant={index === (activeIndex === -1 ? 0 : activeIndex) ? 'primary' : 'secondary'}
               label={step.title}
-              onPress={() => void openPopup($, step).catch(report($))}
+              onPress={() => void showStep($, step).catch(report($))}
             />
             {index === activeIndex && (
               <Box flexDirection="row" columnGap={2}>
@@ -444,63 +529,6 @@ export const register: Register = (on, options) => {
             {step.why !== '' && <Text dimColor wrap="wrap">{step.why}</Text>}
           </Box>
         ))}
-      </Box>
-    )
-  })
-
-  on('ui.render', { component: 'Pane', requestId: POPUP }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const step = await read($, selected)
-    const width = Math.max(16, e.props.bodyColumns)
-    if (step === null) return <Text dimColor>No step selected.</Text>
-
-    const close = () => $.ui.close({ id: POPUP })
-    const paste = async () => {
-      await close()
-      await $.prompt.fill({ text: step.prompt })
-    }
-    const clearAndPaste = async () => {
-      await close()
-      await $.command.run({ command: 'clear' })
-      await $.prompt.fill({ text: step.prompt })
-    }
-    const copy = async (surface: typeof e.surface) => {
-      const copied = await $.ui.copy({ text: step.prompt, surface })
-      await close()
-      $.ui.toast(copied.isCopied ? 'Prompt copied.' : `Could not copy: ${copied.reason}`)
-    }
-
-    return (
-      <Box flexDirection="column" width={width}>
-        <Text bold wrap="wrap">{step.title}</Text>
-        {step.why !== '' && <Text dimColor wrap="wrap">{step.why}</Text>}
-        <Box borderStyle="round" borderDimColor paddingX={1} marginY={1} flexDirection="column">
-          <Text wrap="wrap">{step.prompt}</Text>
-        </Box>
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          <Button
-            key="paste"
-            variant="primary"
-            hotkey="p"
-            autoFocus
-            label="Paste into prompt"
-            onPress={() => void paste().catch(report($))}
-          />
-          <Button
-            key="fresh"
-            hotkey="n"
-            label="/clear + paste"
-            onPress={() => void clearAndPaste().catch(report($))}
-          />
-          <Button
-            key="copy"
-            hotkey="c"
-            label="Copy"
-            onPress={press => void copy(press.surface).catch(report($))}
-          />
-          <Button key="close" role="dismiss" label="Close" onPress={() => void close().catch(report($))} />
-        </Box>
-        <Text dimColor wrap="wrap">Written for a fresh session: /clear + paste starts one. Esc closes.</Text>
       </Box>
     )
   })

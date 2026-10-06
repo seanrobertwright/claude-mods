@@ -119,7 +119,7 @@ test('the default rules allow no blanket git or gh access', () => {
   expect(DENIED_TOOLS).toContain('Bash(gh api:*)')
 })
 
-test('refresh lists the steps and a press opens the prompt popup', async ($, on) => {
+test('refresh lists the steps and a press shows the prompt in the pane', async ($, on) => {
   mock.clock(on, { now: 1_000 })
   mock.store(on)
   mock.env(on, {})
@@ -127,10 +127,14 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
   on('command.list', () => ({ value: [ASK_SEAN] }))
   const opened: string[] = []
   on('ui.open', (_$, e) => {
-    opened.push(e.id)
+    opened.push(e.focus === true ? `${e.id}+focus` : e.id)
     return { value: { isPlaced: true } }
   })
-  on('ui.close', () => ({ value: undefined }))
+  const closed: string[] = []
+  on('ui.close', (_$, e) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
   const filled: string[] = []
   on('prompt.fill', (_$, e) => {
     filled.push(e.text)
@@ -165,22 +169,32 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
     // Keyed by the step's id, so a dropped step never hands its key to the next.
     expect((await stepButton(pane, 2))?.key).toBe('open-1000-2')
 
+    // The prompt replaces the list in the same pane: a pane of its own would
+    // open behind this one, the person holding it, and never be seen.
+    opened.length = 0
+    closed.length = 0
     await pressStep(pane, 2)
-    const popup = await $.ui.mount({
-      plugin: 'whats-next',
-      surface,
-      component: 'Pane',
-      requestId: 'whats-next-prompt',
-      props: { ...PANE_PROPS, title: 'Triage incoming bugs' },
-    })
-    expect(await popup.find({ type: 'Text', text: '/triage' })).toBeDefined()
-    await popup.press({ key: 'paste' })
+    expect(opened).toEqual([])
+    expect(await stepButton(pane, 1)).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: 'Triage incoming bugs' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: 'Three new issues arrived overnight.' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: '/triage' })).toBeDefined()
+    // The harness answers no $.ui.focus, so the ring's place is read from the button that asks for it.
+    expect((await pane.find({ key: 'paste' }))?.props.autoFocus).toBe(true)
+
+    await pane.press({ key: 'back' })
+    expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
+
+    // A paste closes the pane and opens it again without asking for the keyboard, which the prompt box then has.
+    await pressStep(pane, 2)
+    await pane.press({ key: 'paste' })
     expect(filled[filled.length - 1]).toBe('/triage')
-    await popup.unmount()
+    expect(closed).toEqual(['whats-next'])
+    expect(opened).toEqual(['whats-next'])
+    expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
     await pane.unmount()
   }
 
-  expect(opened).toContain('whats-next-prompt')
   const claudeRun = runs.find(isHeadlessRun)
   expect(claudeRun).toContain('dontAsk')
   expect(claudeRun).toContain('Bash(git log:*)')
@@ -193,6 +207,130 @@ test('refresh lists the steps and a press opens the prompt popup', async ($, on)
   expect(claudeRun).toContain('--strict-mcp-config')
   // Every deny rule follows --disallowedTools, after the allow list.
   expect(claudeRun?.indexOf('--disallowedTools') ?? -1).toBeGreaterThan(claudeRun?.indexOf('--allowedTools') ?? 0)
+})
+
+/**
+ * The engine beneath the pane for the tests of a shown prompt: `log` holds, in
+ * order, each pane closed and opened (with `+focus` when the open asked for the
+ * keyboard), each `/clear` and each prompt the prompt box took. The prompt box
+ * refuses while `isBoxTaken`, and `/clear` fails while `isClearBroken`.
+ */
+type Desk = { log: string[]; copied: string[]; toasts: string[]; isBoxTaken: boolean; isClearBroken: boolean }
+
+function fakeDesk(on: On, desk: Desk): void {
+  mock.store(on)
+  mock.env(on, {})
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/work/repo' }))
+  on('session.surfaces', () => ({ value: ['terminal'] as never }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('command.list', () => ({ value: [ASK_SEAN] }))
+  on('command.run', (_$, e) => {
+    desk.log.push(`/${e.command}`)
+    if (desk.isClearBroken) throw new Error('clear failed')
+    return {}
+  })
+  on('ui.open', (_$, e) => {
+    desk.log.push(e.focus === true ? `open ${e.id}+focus` : `open ${e.id}`)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', (_$, e) => {
+    desk.log.push(`close ${e.id}`)
+    return { value: undefined }
+  })
+  on('ui.copy', (_$, e) => {
+    desk.copied.push(e.text)
+    return { value: { isCopied: true } }
+  })
+  on('ui.toast', (_$, e) => {
+    desk.toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('prompt.fill', (_$, e) => {
+    if (desk.isBoxTaken) return { isFilled: false, refusal: 'dialog', text: '', cursor: 0 }
+    desk.log.push(`fill ${e.text}`)
+    return { isFilled: true, text: e.text, cursor: e.text.length }
+  })
+  on('process.run', (_$, e) => ({
+    value: { exitCode: 0, stdout: e.argv[0] === 'git' ? 'true\n' : REPLY, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+}
+
+const MOUNT = { plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS } as const
+const START = { cwd: '/work/repo', surface: 'terminal', isInteractive: true } as const
+
+test('/clear + paste clears before it fills, and copy goes back to the list with a toast', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, isClearBroken: false }
+  fakeDesk(on, desk)
+
+  const pane = await $.ui.mount(MOUNT)
+  await pane.press({ key: 'refresh' })
+  await pressStep(pane, 2)
+  await pane.press({ key: 'fresh' })
+  expect(desk.log).toEqual(['close whats-next', '/clear', 'fill /triage', 'open whats-next'])
+  expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
+
+  await pressStep(pane, 1)
+  desk.log.length = 0
+  await pane.press({ key: 'copy' })
+  expect(desk.copied).toEqual(['/implement GitHub issue #52\nBranch from main.'])
+  expect(desk.toasts).toEqual(['Prompt copied.'])
+  // A copy leaves the pane where it is: nothing is closed, opened or put in the prompt box.
+  expect(desk.log).toEqual([])
+  expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
+  await pane.unmount()
+})
+
+test('a paste the prompt box refuses, or one that fails, still opens the pane again on the list', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: true, isClearBroken: false }
+  fakeDesk(on, desk)
+
+  const pane = await $.ui.mount(MOUNT)
+  await pane.press({ key: 'refresh' })
+  await pressStep(pane, 2)
+  await pane.press({ key: 'paste' })
+  expect(desk.log).toEqual(['close whats-next', 'open whats-next'])
+  expect(desk.toasts).toEqual(["What's next: the prompt box could not take the prompt."])
+  expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
+
+  desk.isBoxTaken = false
+  desk.isClearBroken = true
+  desk.log.length = 0
+  desk.toasts.length = 0
+  await pressStep(pane, 2)
+  await pane.press({ key: 'fresh' })
+  expect(desk.log).toEqual(['close whats-next', '/clear', 'open whats-next'])
+  // The failure is said once, whatever its words.
+  expect(desk.toasts.length).toBe(1)
+  expect(desk.toasts[0]).toStartWith("What's next: ")
+  expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
+  await pane.unmount()
+})
+
+test('/whats-next and a new session start both go back to the list from a shown prompt', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, isClearBroken: false }
+  fakeDesk(on, desk)
+
+  await $.session.start(START)
+  await clock.settle()
+  const pane = await $.ui.mount(MOUNT)
+  await pressStep(pane, 1)
+  expect(await pane.find({ key: 'paste' })).toBeDefined()
+  await $.command.run({ command: 'whats-next', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(await pane.find({ key: 'paste' })).toBeUndefined()
+  expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
+
+  // A reload runs session.start again; the prompt shown before it does not come back.
+  await pressStep(pane, 1)
+  expect(await pane.find({ key: 'paste' })).toBeDefined()
+  await $.session.start(START)
+  await clock.settle()
+  expect(await pane.find({ key: 'paste' })).toBeUndefined()
+  expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
+  await pane.unmount()
 })
 
 const DESKTOP = { surface: 'desktop', clientId: 'desktop:default', viewport: { columns: 200, rows: 50, isFullscreen: true } } as const
@@ -678,6 +816,35 @@ test('with no surface an answered turn is not judged; once one is back, the next
   await $.turn.complete(turn('All three are triaged.'))
   expect(verdicts).toEqual([])
   expect(await stepButton(pane, 2)).toBeUndefined()
+  await pane.unmount()
+})
+
+test('a shown step that a finish or a refresh drops gives way to the list', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  fakeEngine(on, ['DONE'], [], new Map())
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+
+  const pane = await $.ui.mount(MOUNT)
+  await pane.press({ key: 'refresh' })
+
+  // Its prompt is shown when the judge calls the step done.
+  await $.prompt.submit(submit('/triage'))
+  await pressStep(pane, 2)
+  expect(await pane.find({ key: 'paste' })).toBeDefined()
+  await $.turn.complete(turn('All three are triaged.'))
+  expect(await pane.find({ key: 'paste' })).toBeUndefined()
+  expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
+  expect(await stepButton(pane, 2)).toBeUndefined()
+
+  // Its prompt is shown when a refresh replaces the list: the first attach starts one.
+  await pressStep(pane, 1)
+  expect(await pane.find({ key: 'paste' })).toBeDefined()
+  await clock.advance(5_000)
+  await $.session.attach(DESKTOP)
+  await clock.settle()
+  expect(await pane.find({ key: 'paste' })).toBeUndefined()
+  expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
   await pane.unmount()
 })
 

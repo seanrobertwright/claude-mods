@@ -77,9 +77,10 @@ flowchart LR
 | `/whats-next` | Bring the pane to the front |
 | `/whats-next refresh` | Ask the skill again |
 | `r` | Refresh |
-| `1` to `9` | Open that step's prompt |
+| `1` to `9` | Show that step's prompt in the pane |
+| `p`, `n`, `c` | Paste the shown prompt, paste it after `/clear`, or copy it |
+| `b` | Back to the list |
 | `d` | Mark the active step done |
-| `p`, `n`, `c` | In a step's prompt: paste, `/clear` + paste, copy |
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
