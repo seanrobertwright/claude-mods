@@ -1,4 +1,4 @@
-import type { Git, HudView } from '../types'
+import type { Git, HudView, Limit } from '../types'
 
 export const SEGMENTS = ['model', 'effort', 'context', 'limits', 'turn', 'tools', 'agents', 'git', 'cost', 'session', 'folder'] as const
 export type SegmentId = (typeof SEGMENTS)[number]
@@ -23,6 +23,9 @@ const PALETTES: Readonly<Record<Theme, readonly string[]>> = {
   mono: [],
 }
 const LIMIT_NAMES: Readonly<Record<string, string>> = { five_hour: '5h limit', seven_day: '7d limit', spend_limit: 'spend limit' }
+/** The share of a rate limit at which its figure turns yellow, and red. */
+const LIMIT_WARN_AT = 75
+const LIMIT_DANGER_AT = 90
 /** The figures of the first line; the rest go on the second. */
 const FIRST_LINE: ReadonlySet<SegmentId> = new Set(['model', 'effort', 'context', 'limits'])
 
@@ -98,10 +101,40 @@ function gitText(git: Git): string {
   return [git.branch, ...marks.filter(mark => mark !== '')].join(' · ')
 }
 
+/**
+ * When a rate-limit window resets, in milliseconds since the epoch; NaN when the engine gave no time or one
+ * that cannot be read. A time without a zone is read as UTC, never as the machine's local time.
+ */
+export function resetTime(resetsAt: string | null): number {
+  if (resetsAt === null) return Number.NaN
+  return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(resetsAt) ? resetsAt : `${resetsAt}Z`)
+}
+
 function limitText(percent: number, resetsAt: string | null, now: number): string {
-  const at = resetsAt === null ? Number.NaN : Date.parse(resetsAt)
+  const at = resetTime(resetsAt)
   const left = Number.isFinite(at) && at > now ? ` · resets in ${coarse(at - now)}` : ''
   return `${Math.round(percent)}%${left}`
+}
+
+/**
+ * The limits to warn about now: each at the red level, unless already warned about in its window. `warned`
+ * holds, by limit, the reset time of the window it was last warned in (null for a limit with none). A limit
+ * is warned about again only in a new window: a reset time other than the warned one, once the warned one
+ * has passed. A limit with no reset time is warned about once.
+ */
+export function limitsToWarn(limits: readonly Limit[], warned: Readonly<Record<string, string | null>>, now: number): Limit[] {
+  return limits.filter(limit => {
+    if (level(limit.percent, LIMIT_WARN_AT, LIMIT_DANGER_AT) !== 'danger') return false
+    if (!Object.hasOwn(warned, limit.kind)) return true
+    const last = warned[limit.kind] ?? null
+    const lastReset = resetTime(last)
+    return limit.resetsAt !== last && Number.isFinite(lastReset) && now >= lastReset
+  })
+}
+
+/** What the toast for a limit at the red level says: `5h limit at 91% · resets in 2h 5m`. */
+export function limitWarning(limit: Limit, now: number): string {
+  return `${LIMIT_NAMES[limit.kind] ?? limit.kind} at ${limitText(limit.percent, limit.resetsAt, now)}`
 }
 
 type Figure = { kind: SegmentId; id: string; label: string; text: string; level?: Level }
@@ -121,7 +154,7 @@ function figures(view: HudView, now: number): Figure[] {
       id: `limit-${limit.kind}`,
       label: LIMIT_NAMES[limit.kind] ?? limit.kind,
       text: limitText(limit.percent, limit.resetsAt, now),
-      level: level(limit.percent, 75, 90),
+      level: level(limit.percent, LIMIT_WARN_AT, LIMIT_DANGER_AT),
     })
   }
   if (view.isWorking) out.push({ kind: 'turn', id: 'turn', label: 'turn', text: duration(now - view.turnStartedAt) })

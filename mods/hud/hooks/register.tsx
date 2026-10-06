@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Git, HudView } from '../types'
-import { parseConfig, parseGit, rows } from './hud'
+import type { Git, HudView, Limit } from '../types'
+import { limitsToWarn, limitWarning, parseConfig, parseGit, rows } from './hud'
 import type { Config } from './hud'
 
 /** How often the colours move while a turn runs. */
@@ -31,6 +31,7 @@ const EMPTY: HudView = {
 }
 const view = atom({ plugin: 'hud', key: 'view' } as const, EMPTY)
 const frame = atom({ plugin: 'hud', key: 'frame' } as const, 0)
+const warned = atom({ plugin: 'hud', key: 'warned' } as const, {} as Record<string, string | null>)
 
 // Die with the module on a reload; session.start, the next attach or the next turn starts them again.
 let moving: Timer | undefined
@@ -49,7 +50,21 @@ async function readGit($: EngineInterface): Promise<Git | null> {
   return run === undefined || run.exitCode !== 0 ? null : parseGit(run.stdout)
 }
 
-/** Reads the figures again. Git costs a process, so it is read only when asked for. */
+/**
+ * Toasts each rate limit that has reached the red level, once in its window. The limits due are worked out
+ * inside the update, so two refreshes at once cannot both toast the same one.
+ */
+async function warnLimits($: EngineInterface, limits: readonly Limit[]): Promise<void> {
+  const now = await $.clock.now()
+  let due: Limit[] = []
+  await update($, warned, held => {
+    due = limitsToWarn(limits, held, now)
+    return due.length === 0 ? held : { ...held, ...Object.fromEntries(due.map(limit => [limit.kind, limit.resetsAt])) }
+  })
+  for (const limit of due) $.ui.toast(limitWarning(limit, now))
+}
+
+/** Reads the figures again, and warns of a rate limit in the red. Git costs a process, so it is read only when asked for. */
 async function refresh($: EngineInterface, withGit: boolean): Promise<void> {
   const [usage, model, folder, agents] = await Promise.all([
     $.session.usage(),
@@ -58,17 +73,19 @@ async function refresh($: EngineInterface, withGit: boolean): Promise<void> {
     $.agent.list().catch(() => []),
   ])
   const git = withGit ? await readGit($) : undefined
+  const limits = usage.rateLimits.map((limit): Limit => ({ kind: limit.kind, percent: limit.percentUsed, resetsAt: limit.resetsAt ?? null }))
   await update($, view, (current): HudView => ({
     ...current,
     model,
     folder,
     contextPercent: usage.context.percent ?? null,
-    limits: usage.rateLimits.map(limit => ({ kind: limit.kind, percent: limit.percentUsed, resetsAt: limit.resetsAt ?? null })),
+    limits,
     costUsd: usage.cost?.usd ?? null,
     startedAt: usage.startedAt,
     agents: agents.filter(agent => agent.status === 'running').length,
     git: git === undefined ? current.git : git,
   }))
+  await warnLimits($, limits)
 }
 
 function stopMoving(): void {

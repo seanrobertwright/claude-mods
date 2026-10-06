@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On, RenderSurface } from 'claude-code'
 
 import type { HudView } from '../types'
-import { coarse, duration, folderName, gauge, level, parseConfig, parseGit, rows, rowWidth, shortModel } from '../hooks/hud'
+import { coarse, duration, folderName, gauge, level, limitsToWarn, limitWarning, parseConfig, parseGit, resetTime, rows, rowWidth, shortModel } from '../hooks/hud'
 
 const START = 1_800_000_000_000
 const MINUTE = 60_000
@@ -28,11 +28,21 @@ const VIEW: HudView = {
   turnStartedAt: START - 192_000,
 }
 
-/** The engine beneath the mod: the figures it reports, and the processes the mod started. */
-type World = { contextPercent: number; limitPercent: number; agents: number; isRepo: boolean; runs: (readonly string[])[]; usageReads: number }
+/** The engine beneath the mod: the figures it reports, and the processes the mod started and the toasts it showed. */
+type World = {
+  contextPercent: number
+  limitPercent: number
+  /** When the 5h window resets, as the engine reports it; undefined when it reports none. */
+  resetsAt: string | undefined
+  agents: number
+  isRepo: boolean
+  runs: (readonly string[])[]
+  usageReads: number
+  toasts: string[]
+}
 
 function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']) {
-  const world: World = { contextPercent: 42, limitPercent: 31, agents: 0, isRepo: true, runs: [], usageReads: 0 }
+  const world: World = { contextPercent: 42, limitPercent: 31, resetsAt: undefined, agents: 0, isRepo: true, runs: [], usageReads: 0, toasts: [] }
   const clock = mock.clock(on, { now: START })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.attach', () => ({ clientId: 'c1' }))
@@ -45,7 +55,7 @@ function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']
       value: {
         startedAt: START - 72 * MINUTE,
         context: { window: 1_000_000, percent: world.contextPercent },
-        rateLimits: [{ kind: 'five_hour', percentUsed: world.limitPercent }],
+        rateLimits: [{ kind: 'five_hour', percentUsed: world.limitPercent, ...(world.resetsAt === undefined ? {} : { resetsAt: world.resetsAt }) }],
         cost: { usd: 1.239 },
       },
     }
@@ -56,6 +66,10 @@ function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']
   on('process.run', (_$, e) => {
     world.runs.push(e.argv)
     return { value: { exitCode: world.isRepo ? 0 : 128, stdout: world.isRepo ? GIT_STATUS : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.toast', (_$, e) => {
+    world.toasts.push(e.text)
+    return { value: undefined }
   })
   on('ui.render', { component: 'PromptHint' }, () => ({ type: 'Text', props: {}, children: ['? for shortcuts'] }))
   on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] }))
@@ -217,8 +231,73 @@ test('placed above, the row is drawn in the band and the hint line is left alone
   await hint.unmount()
 })
 
+test('resetTime reads a reset time, a time without a zone as UTC, and nothing usable as no time', () => {
+  expect(resetTime('2027-01-15T08:00:00Z')).toBe(Date.UTC(2027, 0, 15, 8))
+  expect(resetTime('2027-01-15T08:00:00+02:00')).toBe(Date.UTC(2027, 0, 15, 6))
+  expect(resetTime('2027-01-15T08:00:00')).toBe(Date.UTC(2027, 0, 15, 8))
+  expect(resetTime(null)).toBeNaN()
+  expect(resetTime('soon')).toBeNaN()
+})
+
+test('limitsToWarn picks a limit at the red level once in each window', () => {
+  const resets = new Date(START + 125 * MINUTE).toISOString()
+  const later = new Date(START + 425 * MINUTE).toISOString()
+  const five = (percent: number, resetsAt: string | null = resets) => ({ kind: 'five_hour', percent, resetsAt })
+  const seven = { kind: 'seven_day', percent: 93, resetsAt: null }
+  expect(limitsToWarn([five(89)], {}, START)).toEqual([])
+  expect(limitsToWarn([five(90)], {}, START)).toEqual([five(90)])
+  expect(limitsToWarn([five(91), seven], {}, START)).toEqual([five(91), seven])
+  // Warned in this window: not again, however high it goes.
+  expect(limitsToWarn([five(99)], { five_hour: resets }, START + 60 * MINUTE)).toEqual([])
+  // The engine still reporting the old window after its reset is not a new one.
+  expect(limitsToWarn([five(95)], { five_hour: resets }, START + 130 * MINUTE)).toEqual([])
+  // A new window, once the warned one has reset.
+  expect(limitsToWarn([five(92, later)], { five_hour: resets }, START + 130 * MINUTE)).toEqual([five(92, later)])
+  expect(limitsToWarn([five(92, later)], { five_hour: resets }, START + 60 * MINUTE)).toEqual([])
+  // A limit with no reset time is warned about once in the session.
+  expect(limitsToWarn([seven], { seven_day: null }, START + 9_999 * MINUTE)).toEqual([])
+})
+
+test('limitWarning names the limit, its share and the time to its reset', () => {
+  expect(limitWarning({ kind: 'five_hour', percent: 91.4, resetsAt: new Date(START + 125 * MINUTE).toISOString() }, START)).toBe('5h limit at 91% · resets in 2h 5m')
+  expect(limitWarning({ kind: 'seven_day', percent: 93, resetsAt: null }, START)).toBe('7d limit at 93%')
+  expect(limitWarning({ kind: 'mystery', percent: 90, resetsAt: null }, START)).toBe('mystery at 90%')
+})
+
+test('a rate limit reaching the red level toasts once in its window, and again in the next', async ($, on) => {
+  const { world, clock } = engineBeneath(on)
+  world.limitPercent = 89
+  world.resetsAt = new Date(START + 125 * MINUTE).toISOString()
+  await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
+  expect(world.toasts).toEqual([])
+
+  world.limitPercent = 91
+  await $.turn.complete(DONE)
+  expect(world.toasts).toEqual(['5h limit at 91% · resets in 2h 5m'])
+  world.limitPercent = 95
+  await $.turn.complete(DONE)
+  await clock.advance(MINUTE)
+  expect(world.toasts).toHaveLength(1)
+
+  // The window resets and the next one reaches red too.
+  await clock.advance(125 * MINUTE)
+  world.resetsAt = new Date(START + 426 * MINUTE).toISOString()
+  world.limitPercent = 90
+  await $.turn.complete(DONE)
+  expect(world.toasts).toEqual(['5h limit at 91% · resets in 2h 5m', '5h limit at 90% · resets in 5h 0m'])
+})
+
+test('a rate limit already at the red level when the session starts toasts once', async ($, on) => {
+  const { world } = engineBeneath(on)
+  world.limitPercent = 97
+  await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(DONE)
+  expect(world.toasts).toEqual(['5h limit at 97%'])
+})
+
 test('in a headless session the mod reads nothing, runs no timer and starts no process', async ($, on) => {
   const { world, clock } = engineBeneath(on, [])
+  world.limitPercent = 97
   await $.session.start({ cwd: '/work/claude-mods', surface: null, isInteractive: false })
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call({ tool: 'Read', file_path: 'a.md' })
@@ -226,4 +305,5 @@ test('in a headless session the mod reads nothing, runs no timer and starts no p
   await $.turn.complete(DONE)
   expect(world.runs).toEqual([])
   expect(world.usageReads).toBe(0)
+  expect(world.toasts).toEqual([])
 })
