@@ -37,7 +37,7 @@ _Avoid_: Registry, store, package
 **System One model**:
 A model outside Claude that answers a typed question about text (one of several choices, yes or no, or a place on a scale) in a single quick step, without writing text: Jev, which TypeSafe hosts, or Laya, which runs on the person's own machine.
 A mod may use one to make a judgment better, but never needs one to work, so it is not a **Requirement**.
-The one exception is a key the person set that the model rejects: the mod names it as it would a missing requirement.
+The one exception is a **Model choice** that allows the hosted model with no key that model accepts, whether none is set, the one set is malformed, or the model rejects it: the mod names it as it would a missing requirement.
 Which of the two a mod asks is the person's **Model choice**.
 _Avoid_: Classifier, judge, small model (when a System One model is meant)
 
@@ -62,7 +62,7 @@ A mod asks one model for a judgment: when that model gives no answer it can act 
 _Avoid_: Backend, provider, mode
 
 **Local-only folder**:
-A project folder the person has marked so that no mod sends anything to the hosted model from it, whatever the mod's model choice.
+A folder the person has marked so that no mod sends anything to the hosted model from it or from any folder beneath it, whatever the mod's model choice.
 _Avoid_: Private repo, offline folder
 
 **Fallback**:
