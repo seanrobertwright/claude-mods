@@ -29,6 +29,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
 | 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser |
+| 🏛️ [archon-panel](#️-archon-panel) | Pane in the side panel | Archon workflow runs and the progress of their nodes, live |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
@@ -176,6 +177,41 @@ Issues 2                               all
 | Refresh every (minutes) | `5` | `0` refreshes only on open, after turns and on `r` |
 
 **Needs:** the [GitHub CLI](https://cli.github.com), logged in, and a folder with a GitHub remote.
+
+### 🏛️ archon-panel
+
+An Archon pane beside the conversation listing recent workflow runs.
+A running run shows its nodes as they start and finish; click any run to show or hide its nodes.
+
+```text
+Archon · 1 running                 refresh
+updated just now
+
+● archon-plan  1m 12s
+  Plan the thing
+  ✓ research
+  ● write
+
+✓ archon-assist  23s
+  Fix the footer
+```
+
+- Runs come from `archon workflow runs --json`; nodes come from the run's transcript (`archon workflow logs`).
+- The pane refreshes on a timer while a surface shows the session, after a turn, and on `r`.
+- The pane opens by itself at start-up only when a run is already going.
+
+| Command or key | What it does |
+| --- | --- |
+| `/archon` | Bring the pane to the front and refresh it |
+| `r` | Refresh |
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Archon command | `archon` | The CLI to run, if it is not on your PATH |
+| Most runs listed | `10` | How many recent runs to list (1-50) |
+| Refresh every (seconds) | `5` | `0` refreshes only on open, after turns and on `r` |
+
+**Needs:** the Archon CLI. Runs are those of the folder Claude Code was started in.
 
 ### 📚 shelf
 

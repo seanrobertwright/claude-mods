@@ -28,6 +28,11 @@
       "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser."
     },
     {
+      "name": "archon-panel",
+      "source": "./mods/archon-panel",
+      "description": "An Archon pane in the side panel: workflow runs and the progress of their nodes, refreshed while a run is going."
+    },
+    {
       "name": "shelf",
       "source": "./mods/shelf",
       "description": "Named folders and files above the prompt: click one to drop its path into what you are typing."

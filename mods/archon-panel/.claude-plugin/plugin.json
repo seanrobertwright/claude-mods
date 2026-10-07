@@ -1,0 +1,26 @@
+{
+  "name": "archon-panel",
+  "version": "0.1.0",
+  "description": "An Archon pane in the side panel: workflow runs and the progress of their nodes, refreshed while a run is going.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "archonPath": {
+      "type": "string",
+      "title": "Archon command",
+      "description": "The Archon CLI to run; the default finds it on your PATH.",
+      "default": "archon"
+    },
+    "limit": {
+      "type": "number",
+      "title": "Most runs listed",
+      "description": "How many recent runs to list (1-50).",
+      "default": 10
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "title": "Refresh every (seconds)",
+      "description": "How often to refresh while the pane is shown (2-300); 0 refreshes only on open, after turns and on r.",
+      "default": 5
+    }
+  }
+}
