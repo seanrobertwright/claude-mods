@@ -82,16 +82,27 @@ flowchart LR
 | `b` | Back to the list |
 | `d` | Mark the active step done |
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| Skill | `/ask-sean` | The skill that answers "what's next" |
-| Most steps | `5` | How many steps to ask for (1-9) |
-| Refresh on start | on | Ask for a fresh list when a session starts in a git repository |
-| Tools the headless run may use | read-only set | Comma-separated permission rules for the headless run |
-| Model | your default | Model for the headless run |
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Skill | `skill` | `/ask-sean` | The skill that answers "what's next", written as you would run it: `/` followed by letters, digits, `_`, `:`, `.` or `-` |
+| Most steps | `maxSteps` | `5` | How many steps to ask for (1-9) |
+| Refresh on start | `refreshOnStart` | on | Ask for a fresh list when a session starts in a git repository |
+| Tools the headless run may use | `allowedTools` | empty: the read-only set | Comma-separated permission rules for the headless run |
+| Model | `model` | empty: your default | Model for the headless run, as an alias (`haiku`) or a full id |
+
+`/ask-sean` is the author's own skill, so point the Skill setting at a skill of yours that answers "what should I do next?" ([how to set it](#configure-the-mods)):
+
+```sh
+echo '{"skill": "/next-steps", "maxSteps": "3", "model": "haiku"}' | claude plugin configure whats-next@claude-mods --values-stdin
+```
+
+The read-only set, used while Tools is empty, is `Bash(git status:*)`, `Bash(git log:*)`, `Bash(git diff:*)`, `Bash(git show:*)`, `Bash(git rev-parse:*)`, `Bash(git branch --show-current)`, `Bash(git branch -vv)`, `Bash(git remote -v)`, `Bash(gh issue list:*)`, `Bash(gh issue view:*)`, `Bash(gh pr list:*)`, `Bash(gh pr view:*)`, `Bash(gh pr checks:*)`, `Bash(gh run list:*)`, `Read`, `Glob` and `Grep`.
+
+- A list you write replaces that set; it does not add to it. To widen the set, write all of it plus your additions.
+- Each rule is a tool name, optionally followed by `(...)`. One rule that is not, such as one starting with `-`, discards your whole list and the read-only set is used.
+- The run can always call `Skill`, so a skill that calls another still works. MCP servers load only when a rule names an `mcp__` tool.
 
 **Needs:** the `claude` CLI on the PATH, and the skill named in the Skill setting.
-`/ask-sean` is the author's own skill, so point the setting at a skill of yours that answers "what should I do next?".
 
 ### ⚡ quick-reply
 
@@ -107,10 +118,17 @@ Reply:  [a: Keep the copies]  [b: Add a sync script]  [Yes]  [Go with your recom
 - When the answer recommends something, the "recommend" reply is the highlighted one. Advice against something does not count.
 - The band stays out of the way while Claude is working, and after a subagent's turn.
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| Replies to a question | `Yes\|Go with your recommendation\|No` | Shown after Claude asks something, separated by `\|` |
-| Replies otherwise | `Continue\|Commit and push` | Shown after any other answer; empty hides the band then |
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Replies to a question | `questionReplies` | `Yes\|Go with your recommendation\|No` | Shown after Claude asks something, separated by `\|`; empty shows only the choices Claude offered |
+| Replies otherwise | `idleReplies` | `Continue\|Commit and push` | Shown after any other answer; empty hides the band then |
+
+Each list holds up to six replies. A reply longer than 120 characters is cut short, and a repeat is dropped.
+For example, to answer questions with your own three replies and hide the band after other answers ([how to set it](#configure-the-mods)):
+
+```sh
+echo '{"questionReplies": "Yes|No|Explain that first", "idleReplies": ""}' | claude plugin configure quick-reply@claude-mods --values-stdin
+```
 
 ### ⏳ auto-resume
 
@@ -132,12 +150,18 @@ Go to lunch, and come back to finished work.
 | `/auto-resume cancel` | Cancel the wait |
 | `/auto-resume in <minutes>` | Schedule a resume yourself (1 to 1440) |
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| Resume prompt | `continue` | What is sent when the wait is over |
-| Grace after reset (s) | `60` | Extra seconds to wait past the limit's reset time (0-900) |
-| Retry overloaded/server errors | on | Also resume after an overloaded or server error, backing off from one minute |
-| Most retries in a row | `5` | Give up after this many resumes without a successful answer (1-20) |
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Resume prompt | `text` | `continue` | What is sent when the wait is over; empty sends `continue` |
+| Grace after reset (s) | `graceSeconds` | `60` | Extra seconds to wait past the limit's reset time (0-900) |
+| Retry overloaded/server errors | `retryOverloaded` | on | Also resume after an overloaded or server error, backing off from one minute |
+| Most retries in a row | `maxRetries` | `5` | Give up after this many resumes without a successful answer (1-20) |
+
+For example, to send a longer prompt and wait two minutes past the reset ([how to set it](#configure-the-mods)):
+
+```sh
+echo '{"text": "continue where you left off", "graceSeconds": "120"}' | claude plugin configure auto-resume@claude-mods --values-stdin
+```
 
 ### 🐙 github-panel
 
@@ -170,10 +194,16 @@ Issues 2                               all
 | `r` | Refresh |
 | `all` | Open the whole list on GitHub |
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| Most items per list | `30` | How many open pull requests and issues to list each (1-100) |
-| Refresh every (minutes) | `5` | `0` refreshes only on open, after turns and on `r` |
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Most items per list | `limit` | `30` | How many open pull requests and issues to list each (1-100) |
+| Refresh every (minutes) | `refreshMinutes` | `5` | How often to refresh (0-120); `0` refreshes only on open, after turns and on `r` |
+
+For example, to list fifty of each and stop the timer ([how to set it](#configure-the-mods)):
+
+```sh
+echo '{"limit": "50", "refreshMinutes": "0"}' | claude plugin configure github-panel@claude-mods --values-stdin
+```
 
 **Needs:** the [GitHub CLI](https://cli.github.com), logged in, and a folder with a GitHub remote.
 
@@ -196,6 +226,19 @@ Shelf:  [brand]  [records]  [kb]
 | `/shelf add <name> [path]` | Put a path on the shelf; with no path, the project folder |
 | `/shelf remove <name>` | Take one off |
 
+The shelf has no settings: you fill it with `/shelf add`.
+
+```text
+/shelf add brand "N:/Marketing/Brand Kit"
+/shelf add records N:/RECORDS
+/shelf add kb
+/shelf remove brand
+```
+
+- A name is one word of up to 24 characters. Adding a name already on the shelf, whatever its capitals, replaces that entry where it stands.
+- The path is kept exactly as you type it, so give a full path. Quote a path that has a space.
+- With no path, the shelf keeps the project folder you are in, as a full path.
+
 ### 🔔 turn-chime
 
 A short sound and a toast when Claude has finished something you have been waiting on.
@@ -210,9 +253,15 @@ Turn finished after 4m 12s.
 - It chimes once when Claude stops to ask you something that far in.
 - A turn you stopped yourself stays silent, and so does a subagent's turn.
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| Long turn (minutes) | `3` | How long counts as long |
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Long turn (minutes) | `thresholdMinutes` | `3` | How long counts as long; any number above 0, so `0.5` is thirty seconds |
+
+For example, to chime only after ten minutes ([how to set it](#configure-the-mods)):
+
+```sh
+echo '{"thresholdMinutes": "10"}' | claude plugin configure turn-chime@claude-mods --values-stdin
+```
 
 The sound plays on macOS and Windows. A Linux terminal has no player, so only the toast shows there.
 
@@ -234,6 +283,8 @@ Close it so a write to it can go through?
 
 It sees a file named in a Write or Edit call or in the text of a shell command.
 It does not see one a script works out as it runs, nor one on a network location.
+
+There is nothing to set: once installed, it guards every session.
 
 ### 📂 outputs
 
@@ -260,6 +311,8 @@ EG 2026 Review.docx
 | `r` | Refresh |
 | `c` | Copy the newest document's path |
 | `o` | Show or hide the other files |
+
+There is nothing to set: the pane lists what the session made, with no list to keep.
 
 ### 🔎 sources
 
@@ -289,6 +342,15 @@ N:/RECORDS/Permits  2
 | `/sources allow` | List the allowed folders |
 | `l` | Turn the lock on or off |
 
+There are no settings to keep: the lock and the allowed folders are set in each session, from the pane and with `/sources allow`.
+
+```text
+/sources
+/sources allow N:/RECORDS/Permits
+```
+
+Press `l` in the pane to turn the lock on.
+
 ### 📊 hud
 
 Two coloured lines under the prompt with the figures you keep checking, each one named, so you never have to ask for them.
@@ -306,12 +368,18 @@ turn 3m 12s  tools 4 this turn · 19 total  agents 2 running  git main · 3 chan
 - **It fits.** On a narrow terminal whole figures are left out of each line, the least important first, and the context window goes last.
 - A figure with nothing to show is absent: no git state outside a repository, no agents when none run, no effort until the first request has gone out.
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| Colour theme | `neon` | `neon`, `ocean`, `ember` or `mono` |
-| Animate while working | on | Move the colours during a turn and blink a figure in the red |
-| Where the row is drawn | `below` | `below` the prompt, or `above` it in the band |
-| Segments to hide | none | Comma-separated, from: model, effort, context, limits, turn, tools, agents, git, cost, session, folder |
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Colour theme | `theme` | `neon` | `neon`, `ocean`, `ember` or `mono` |
+| Animate while working | `animate` | on | Move the colours during a turn and blink a figure in the red |
+| Where the row is drawn | `placement` | `below` | `below` the prompt, or `above` it in the band |
+| Segments to hide | `hide` | empty: none | Comma-separated, from: model, effort, context, limits, turn, tools, agents, git, cost, session, folder; any other name is ignored |
+
+For example, a still row in the `ember` colours without the cost and the folder ([how to set it](#configure-the-mods)):
+
+```sh
+echo '{"theme": "ember", "animate": "false", "hide": "cost,folder"}' | claude plugin configure hud@claude-mods --values-stdin
+```
 
 **Needs:** nothing. Git state shows when `git` is on the PATH and the folder is a repository.
 
@@ -356,6 +424,71 @@ claude --plugin-dir mods/quick-reply
 
 In the terminal, Claude Code reads an installed mod from this folder, so an edit takes effect at the next session start or after `/reload-plugins`.
 Claude Desktop runs a copy kept in Claude Code's plugin cache instead: `claude plugin update` leaves that copy alone while the mod's version is unchanged, so only a reinstall or a version bump brings an edit there.
+
+Every mod works on its defaults. To change them, see [Configure the mods](#configure-the-mods).
+
+## Configure the mods
+
+whats-next, quick-reply, auto-resume, github-panel, turn-chime and hud have settings, listed in each mod's section above with the key each one is stored under.
+shelf and sources are set up with their own commands, in the session; outputs and open-file-guard have nothing to set.
+
+A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
+
+### In a session
+
+```text
+/plugin configure hud@claude-mods
+```
+
+This opens a form with the mod's settings. Change the ones you want and save.
+
+### From a terminal
+
+See a mod's settings, and which you have set:
+
+```sh
+claude plugin configure hud@claude-mods
+```
+
+Set them by piping in a JSON object. Every value is a JSON string, numbers and on or off (`"true"`, `"false"`) included. Settings you leave out keep their values.
+
+```sh
+echo '{"theme": "ember", "animate": "false", "hide": "cost,folder"}' | claude plugin configure hud@claude-mods --values-stdin
+```
+
+The same line works in bash, zsh and PowerShell. Or set values as you install, one `--config` per setting:
+
+```sh
+claude plugin install github-panel@claude-mods --config limit=50 --config refreshMinutes=0
+```
+
+A change made from a terminal applies from the next Claude Code session.
+
+### In settings.json
+
+The values live in your user settings, `~/.claude/settings.json`, under `pluginConfigs`. Here numbers and on or off are plain JSON numbers and booleans:
+
+```json
+{
+  "pluginConfigs": {
+    "hud@claude-mods": {
+      "options": { "theme": "ember", "animate": false, "hide": "cost,folder" }
+    },
+    "turn-chime@claude-mods": {
+      "options": { "thresholdMinutes": 10 }
+    }
+  }
+}
+```
+
+- Delete a key to put that setting back to its default.
+- Claude Code reads `pluginConfigs` from your user settings, from managed settings and from a `--settings` file. A project's `.claude/settings.json` is not read, so one value holds in every folder.
+- An edit here applies from the next Claude Code session.
+
+### A value that does not fit
+
+- `claude plugin configure` and `--config` refuse a value of the wrong type, and a choice that is not on the list, naming the setting: `Failed to save configuration: Colour theme must be one of: neon, ocean, ember, mono`.
+- A number outside the range in the mod's table, a fraction in any number setting but Grace after reset and Long turn, or a text setting in a shape the mod does not take, is passed over and the mod uses that setting's default. Nothing tells you, so check the table when a change seems to do nothing.
 
 ## Good manners, built in
 
