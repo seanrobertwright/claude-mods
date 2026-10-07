@@ -4,5 +4,10 @@
     // Prose is wrapped by sentence, not at 80 columns.
     "MD013": false
   },
-  "ignores": ["node_modules/**"]
+  "ignores": [
+    "node_modules/**",
+    // Archon's archon-cli skill, kept as Archon writes it; .agents/ is a gitignored copy.
+    ".agents/**",
+    ".claude/skills/archon-cli/**"
+  ]
 }

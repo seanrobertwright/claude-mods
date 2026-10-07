@@ -113,6 +113,32 @@ _Avoid_: Task, item, action
 Said of a next-steps list when the repo has moved since it was made: a new commit or a different branch.
 A stale list is still shown until a fresh one replaces it.
 
+### Archon
+
+**Run**:
+One execution of an Archon workflow, started from the CLI, the web UI or a chat platform, kept in Archon's one store for the whole machine.
+A run belongs to the project it was started in; archon-panel lists the session's project's runs and only counts the others' live runs.
+_Avoid_: Job, execution, task
+
+**Node**:
+One step of a workflow, which may wait on other nodes; a run's nodes and the waits between them form its graph.
+_Avoid_: Step (a Step is a whats-next entry), stage, task
+
+**Live run**:
+A run still going: running, or paused on an approval.
+
+**Approval**:
+A point where a run pauses until a person answers it: approve, reject, or another decision its workflow declared, with an optional comment.
+It is an approval node, or a loop that stops between rounds for the person's say.
+A run paused on a wait node is waiting on an outside event or a time, not on the person, so it is not on an approval.
+Answering an approval is the only action archon-panel takes on a run.
+_Avoid_: Gate (Archon's gates include checks a script or another agent decides)
+
+**Run log**:
+What a run has said and done so far: the running node's model output and tool calls, each node's output or error, and the files it wrote.
+Archon's own process log is not a run log.
+_Avoid_: Transcript, output (when the whole log is meant)
+
 ### What a mod shows
 
 **Pane**:
