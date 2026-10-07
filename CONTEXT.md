@@ -154,8 +154,10 @@ _Avoid_: Bar, toolbar, AbovePrompt
 
 **Status line**:
 The one line of text a mod shows in Claude Code's status area until it clears it.
+Each session keeps its own, and it is not the status line the person configures in their settings.
 _Avoid_: Statusbar, indicator
 
 **Toast**:
 A short message that appears and dismisses itself.
+It shows only in the session that raised it, so with several sessions open, each raises its own unless the mod checks what another already raised.
 _Avoid_: Notification, alert
