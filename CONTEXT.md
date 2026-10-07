@@ -61,10 +61,13 @@ The person's setting, one per mod, for which System One models that mod may ask:
 It starts at local only, so a key alone never sends anything to the hosted model.
 Under local first the mod asks the local model, and the hosted model only while the local one is unavailable; hosted first is the reverse.
 A mod asks one model for a judgment: when that model gives no answer it can act on, the mod uses its **Fallback** and does not ask the other.
+A model is unavailable for a while after it fails, and the hosted model for the rest of the session once it rejects the key.
+A model still busy with another ask is not unavailable: the new ask takes the **Fallback**.
 _Avoid_: Backend, provider, mode
 
 **Local-only folder**:
 A folder the person has marked so that no mod sends anything to the hosted model from it or from any folder beneath it, whatever the mod's model choice.
+The mark takes effect at once, for the next thing a mod would send.
 _Avoid_: Private repo, offline folder
 
 **Fallback**:
@@ -86,7 +89,7 @@ A session started without a surface becomes interactive when one is attached.
 
 **Headless session**:
 A session shown on no surface: a `claude -p` process, or an SDK session nobody has opened.
-A mod stays quiet in a headless session: it draws nothing, polls nothing and starts nothing new, so no prompt and no headless run of its own.
+A mod stays quiet in a headless session: it draws nothing, polls nothing, asks no System One model and starts nothing new, so no prompt and no headless run of its own.
 Work set going while the session was shown, such as a resume after a rate limit, still finishes.
 _Avoid_: Background session, child session
 
