@@ -1,0 +1,6 @@
+{
+  "name": "archon-graph-proto",
+  "version": "0.1.1",
+  "description": "PROTOTYPE for claude-mods #165, throwaway: how archon-panel's Graph sub-tab copes with a pane narrower than the graph",
+  "types": "./types/index.d.ts"
+}
