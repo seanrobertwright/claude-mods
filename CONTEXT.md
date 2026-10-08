@@ -24,6 +24,8 @@ _Avoid_: Command, prompt (when a skill is meant)
 
 **Requirement**:
 Something outside the mod that it needs to work, such as a skill, a CLI tool or a logged-in account.
+A tool too old to do what the mod needs counts as missing.
+Something the mod prefers but works without, such as a faster source of the same data, is not a requirement.
 A mod detects a missing requirement and names it, with how to meet it, instead of failing obscurely.
 It says so where the person looks for the mod, such as its pane, and never opens anything on its own just to report it.
 _Avoid_: Dependency, prerequisite
@@ -125,7 +127,8 @@ One step of a workflow, which may wait on other nodes; a run's nodes and the wai
 _Avoid_: Step (a Step is a whats-next entry), stage, task
 
 **Live run**:
-A run still going: running, or paused on an approval.
+A run that has not ended: waiting to start, running, or paused, whether on an approval or on a wait node.
+A run ends when it completes, fails or is cancelled.
 
 **Approval**:
 A point where a run pauses until a person answers it: approve, reject, or another decision its workflow declared, with an optional comment.
