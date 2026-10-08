@@ -65,6 +65,20 @@ test('gitCallsIn reads where a push goes from its refspecs, past its options', (
     { action: 'push', dirs: [], destinations: ['main', 'v1.0'] },
   ])
   expect(gitCallsIn('git push origin HEAD')).toEqual([{ action: 'push', dirs: [], destinations: ['HEAD'] }])
+  expect(gitCallsIn('git push origin :main')).toEqual([{ action: 'push', dirs: [], destinations: ['main'] }])
+  expect(gitCallsIn('git push origin \\\nmain')).toEqual([{ action: 'push', dirs: [], destinations: ['main'] }])
+})
+
+test('gitCallsIn takes no redirection for a refspec, nor a 2>&1 for the end of a command', () => {
+  const push = [{ action: 'push', dirs: [], destinations: [] }]
+  expect(gitCallsIn('git push origin 2>&1')).toEqual(push)
+  expect(gitCallsIn('git push -u origin &> push.log')).toEqual(push)
+  expect(gitCallsIn('git push origin > /dev/null 2>&1')).toEqual(push)
+  expect(gitCallsIn('git push origin *>$null')).toEqual(push)
+  expect(gitCallsIn('git push origin 2>&1 | tail -3')).toEqual(push)
+  expect(gitCallsIn('git push origin main 2>&1')).toEqual([{ action: 'push', dirs: [], destinations: ['main'] }])
+  expect(gitCallsIn('git commit -F - <<\'EOF\'\nfix: one\nEOF')).toEqual([{ action: 'commit', dirs: [] }])
+  expect(gitCallsIn('git commit -m "$(cat <<\'EOF\'\nfix: one; git push\nEOF\n)"')).toEqual([{ action: 'commit', dirs: [] }])
 })
 
 test('gitCallsIn passes over other git commands and a commit that is only text', () => {
@@ -142,6 +156,13 @@ test('on a feature branch a commit and a push run unasked, and a push to the def
 
   const ran = await $.tool.call({ tool: 'Bash', command: 'git push origin main' })
   expect(world.asked).toEqual(['Claude is about to push to main, the default branch. Create a branch first?'])
+  expect(ran.deny).toContain('main is the default branch')
+})
+
+test('on the default branch a push with its output redirected is still asked about', async ($, on) => {
+  const world = engineBeneath(on)
+  const ran = await $.tool.call({ tool: 'Bash', command: 'git push origin 2>&1' })
+  expect(world.asked.length).toBe(1)
   expect(ran.deny).toContain('main is the default branch')
 })
 

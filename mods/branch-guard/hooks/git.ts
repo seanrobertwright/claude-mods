@@ -9,26 +9,32 @@ export type GitCall =
 const SEPARATORS = new Set(['&&', '||', '&', '|', ';', '\n', '(', ')'])
 const GIT = /(?:^|[\\/])git(?:\.exe)?$/i
 const ASSIGNMENT = /^[A-Za-z_]\w*=/
+/** What may stand before a redirection: the stream it redirects, as in `2>&1` or PowerShell's `*>`. */
+const STREAM = /^(\d*|\*)$/
+const REDIRECTION = new Set(['<', '>', '&', '|'])
 /** Options of git itself, before the command, that take the next word as their value. */
 const GIT_VALUED = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--super-prefix'])
 /** Options of `git push` that take the next word as their value. */
 const PUSH_VALUED = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec'])
 const REMOTE_DEFAULT = 'refs/remotes/origin/'
 
-/** The simple commands a shell command runs, each as its words with their quotes taken off. */
+/** The simple commands a shell command runs, each as its words with their quotes and redirections taken off. */
 function commands(shell: string): string[][] {
   const found: string[][] = []
   let command: string[] = []
   let word = ''
   let isWord = false
+  let isTarget = false
   let quote: string | undefined
   const endWord = (): void => {
-    if (isWord) command.push(word)
+    if (isWord && isTarget) isTarget = false
+    else if (isWord) command.push(word)
     word = ''
     isWord = false
   }
   const endCommand = (): void => {
     endWord()
+    isTarget = false
     found.push(command)
     command = []
   }
@@ -47,8 +53,18 @@ function commands(shell: string): string[][] {
     } else if (char === "'" || char === '"') {
       quote = char
       isWord = true
+    } else if (char === '\\' && (next === '\n' || (next === '\r' && shell[at + 2] === '\n'))) {
+      at += next === '\r' ? 2 : 1
     } else if (char === ' ' || char === '\t' || char === '\r') {
       endWord()
+    } else if (char === '<' || char === '>' || (char === '&' && next === '>')) {
+      if (STREAM.test(word)) {
+        word = ''
+        isWord = false
+      }
+      endWord()
+      while (REDIRECTION.has(shell[at + 1] ?? '')) at += 1
+      isTarget = true
     } else if (SEPARATORS.has(char)) {
       endCommand()
       if (SEPARATORS.has(char + next)) at += 1
