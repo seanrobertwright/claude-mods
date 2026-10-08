@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, Timer, TurnCompleteReason } from 'claude-code'
 
 import type { NextList, NextStep } from '../types'
 import {
@@ -21,7 +21,7 @@ import {
   toolFlags,
   withIds,
 } from './parse'
-import type { Config } from './parse'
+import type { Config, Prime } from './parse'
 
 const PANE = 'whats-next'
 const TITLE = "What's next"
@@ -45,6 +45,9 @@ let glow: Timer | undefined
 // Counts attaches, so a surfaces check answered before an attach cannot stop
 // the glow that attach kept going.
 let attaches = 0
+// Set while a /clear + prime + paste waits for its prime turn to end. It
+// outlives the /clear, which starts a new session without reloading the mod.
+let primeEnded: ((reason: TurnCompleteReason) => void) | undefined
 
 const storeKey = (cwd: string) => `list:${cwd}`
 
@@ -309,18 +312,46 @@ async function showStep($: EngineInterface, step: NextStep): Promise<void> {
   await $.ui.focus({ requestId: PANE, key: 'paste' }).catch(() => undefined)
 }
 
+/** The label of the button that starts a fresh session for the step. */
+function freshLabel(prime: Prime): string {
+  return prime.status === 'set' ? '/clear + prime + paste' : '/clear + paste'
+}
+
 /**
- * Puts a step's prompt in the prompt box, after `/clear` when `isFresh`, and
- * goes back to the list. The person types there next, so the prompt box needs
- * the keyboard, and closing the pane is the one way a mod hands it back: the
- * pane is closed, then opened again without asking for the keyboard, whatever
- * became of the paste.
+ * Runs the prime command and waits for the turn it started to end. The wait
+ * is armed before the run, which may resolve only once that turn has started;
+ * the session is idle after /clear, so the next main-loop turn to end is it.
+ * A prime that does not finish is said, and the paste goes on.
  */
-async function pasteStep($: EngineInterface, step: NextStep, isFresh: boolean): Promise<void> {
+async function runPrime($: EngineInterface, prime: Extract<Prime, { status: 'set' }>): Promise<void> {
+  const ended = new Promise<TurnCompleteReason>(resolve => {
+    primeEnded = resolve
+  })
+  try {
+    await $.command.run({ command: prime.command, args: prime.args })
+  } catch (error) {
+    primeEnded = undefined
+    $.ui.toast(`What's next: the prime command ${prime.text} did not run: ${error instanceof Error ? error.message : String(error)}`)
+    return
+  }
+  if ((await ended) !== 'answer') $.ui.toast(`What's next: the prime command ${prime.text} did not finish.`)
+}
+
+/**
+ * Puts a step's prompt in the prompt box, after `/clear` and any prime command
+ * when `fresh` is given, and goes back to the list. The person types there
+ * next, so the prompt box needs the keyboard, and closing the pane is the one
+ * way a mod hands it back: the pane is closed, then opened again without
+ * asking for the keyboard, whatever became of the paste.
+ */
+async function pasteStep($: EngineInterface, step: NextStep, fresh?: Prime): Promise<void> {
   await update($, shownId, () => null)
   await $.ui.close({ id: PANE })
   try {
-    if (isFresh) await $.command.run({ command: 'clear' })
+    if (fresh !== undefined) {
+      await $.command.run({ command: 'clear' })
+      if (fresh.status === 'set') await runPrime($, fresh)
+    }
     const filled = await $.prompt.fill({ text: step.prompt })
     if (!filled.isFilled) $.ui.toast("What's next: the prompt box could not take the prompt.")
   } finally {
@@ -398,9 +429,17 @@ export const register: Register = (on, options) => {
 
   // After each answered turn of the main loop, ask whether it finished the active step.
   // A headless session asks nothing: the step stays active until a surface shows it again.
+  // A prime turn only readies the session, so it ends a /clear + prime + paste's wait instead.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    if (e.agentId !== undefined || e.reason !== 'answer' || !(await isShown($))) return done
+    if (e.agentId !== undefined) return done
+    const waiting = primeEnded
+    if (waiting !== undefined) {
+      primeEnded = undefined
+      waiting(e.reason)
+      return done
+    }
+    if (e.reason !== 'answer' || !(await isShown($))) return done
     const step = activeStep(await read($, list))
     if (step !== null) void judge($, step, e.answer).catch(report($))
     return done
@@ -465,13 +504,13 @@ export const register: Register = (on, options) => {
               hotkey="p"
               autoFocus
               label="Paste into prompt"
-              onPress={() => void pasteStep($, shown, false).catch(report($))}
+              onPress={() => void pasteStep($, shown).catch(report($))}
             />
             <Button
               key="fresh"
               hotkey="n"
-              label="/clear + paste"
-              onPress={() => void pasteStep($, shown, true).catch(report($))}
+              label={freshLabel(config.prime)}
+              onPress={() => void pasteStep($, shown, config.prime).catch(report($))}
             />
             <Button
               key="copy"
@@ -480,7 +519,8 @@ export const register: Register = (on, options) => {
               onPress={press => void copy(press.surface).catch(report($))}
             />
           </Box>
-          <Text dimColor wrap="wrap">Written for a fresh session: /clear + paste starts one. b goes back.</Text>
+          <Text dimColor wrap="wrap">Written for a fresh session: {freshLabel(config.prime)} starts one. b goes back.</Text>
+          {config.prime.status === 'invalid' && <Text color="red" wrap="wrap">{config.prime.message}</Text>}
         </Box>
       )
     }

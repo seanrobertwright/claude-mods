@@ -69,7 +69,7 @@ flowchart LR
     E -- yes --> F[Step leaves the list]
 ```
 
-- **You stay in charge.** A step's prompt reaches the model only when you read it and send it yourself. Click a step to see its prompt, then paste it, paste it into a fresh session, or copy it.
+- **You stay in charge.** A step's prompt reaches the model only when you read it and send it yourself. Click a step to see its prompt, then paste it, paste it into a fresh session (after your prime command, if you name one), or copy it.
 - **It notices when you are done.** After each answered turn, Haiku is asked whether the step is finished, and a finished step leaves the list. Press `d` to drop it yourself.
 - **The run that asks is read-only.** By default it gets only read commands of git and gh plus Read, Glob and Grep. `git push`, `git config`, `git -c`, `gh api` and `--output` are always denied.
 
@@ -79,7 +79,7 @@ flowchart LR
 | `/whats-next refresh` | Ask the skill again |
 | `r` | Refresh |
 | `1` to `9` | Show that step's prompt in the pane |
-| `p`, `n`, `c` | Paste the shown prompt, paste it after `/clear`, or copy it |
+| `p`, `n`, `c` | Paste the shown prompt, paste it after `/clear` (and the prime command, once its turn ends), or copy it |
 | `b` | Back to the list |
 | `d` | Mark the active step done |
 
@@ -90,6 +90,7 @@ flowchart LR
 | Refresh on start | `refreshOnStart` | on | Ask for a fresh list when a session starts in a git repository |
 | Tools the headless run may use | `allowedTools` | empty: the read-only set | Comma-separated permission rules for the headless run |
 | Model | `model` | empty: your default | Model for the headless run, as an alias (`haiku`) or a full id |
+| Prime command | `primeCommand` | empty: none | A slash command, with any arguments, run after `/clear` and before the paste (`/lril:prime`); the prompt is filled once the turn it starts ends, finished or not. A value that is not one slash command on one line is never run, and the step view says so |
 
 `/ask-sean` is the author's own skill, so point the Skill setting at a skill of yours that answers "what should I do next?" ([how to set it](#configure-the-mods)):
 
@@ -407,7 +408,7 @@ github-panel  2 settings
 hud  4 settings
 quick-reply  2 settings
 turn-chime  1 setting
-whats-next  5 settings
+whats-next  6 settings
 Mods with no settings are not listed.
 ```
 

@@ -33,6 +33,12 @@
       "title": "Model",
       "description": "Model for the headless run (alias or id); empty uses your default.",
       "default": ""
+    },
+    "primeCommand": {
+      "type": "string",
+      "title": "Prime command",
+      "description": "A slash command, with any arguments, that /clear + paste runs after the clear (such as /lril:prime). The step's prompt is filled once the turn it starts ends. Empty runs none.",
+      "default": ""
     }
   }
 }
