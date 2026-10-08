@@ -79,10 +79,6 @@ hud already shows git state, so only the warning before a commit or push is new.
 A tool-call hook that blocks Read, Grep and `cat` on `.env*` and key files, and points the model to keypick instead.
 One of the three "small ones" offered and not chosen.
 
-### bash-quoting-rescue (rank 19, issue #64)
-
-A tool-call hook that rejects a shell command with unbalanced quotes or a broken heredoc, with a hint on how to fix it.
-
 ### pre-pr-claims-check (rank 22, issue #65)
 
 Blocks `gh pr create` while the diff holds `file:line` citations, "(PR #NN)" placeholders, "TODO fill in" or counts typed by hand: the bans in your global rules.
@@ -148,3 +144,4 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **quick-reply**: rank 3, picked by you.
 - **auto-resume**: rank 5, picked by you.
 - **github-panel**: your own request in `e2d3b04d`, close to rank 18 above.
+- **bash-quoting-rescue**: rank 19 (issue #64). It asks the shell's own parser, bash or PowerShell, whether a command parses, instead of counting quotes.
