@@ -10,6 +10,10 @@ export type Reading = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'quick-reply': { reading: Reading | null }
+    'quick-reply': {
+      reading: Reading | null
+      /** The wayfinder map the band offers to take the next ticket of, or null. */
+      offer: number | null
+    }
   }
 }

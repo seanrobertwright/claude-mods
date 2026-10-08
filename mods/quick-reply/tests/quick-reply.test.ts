@@ -1,7 +1,9 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import type { Engine } from 'claude-code/testing'
 
 import { findOptions, optionReply, parseReplies, readAnswer } from '../hooks/detect'
+import { mapFromArgs, nextMap, readBash, skillArgs } from '../hooks/wayfinder'
 
 /** Stand-ins for what the engine does beneath the plugins: its own band (a node, as core answers), a status line, toasts. */
 function engineBeneath(on: On): void {
@@ -255,4 +257,180 @@ test('in a headless session a question submits no prompt and starts no process',
   await clock.advance(600_000)
   expect(sent).toEqual([])
   expect(runs).toEqual([])
+})
+
+// Next ticket: the wayfinder loop.
+
+const URL_135 = 'https://github.com/owner/repo/issues/135'
+
+test('skillArgs reads the arguments the skill was run with, and mapFromArgs the map in them', () => {
+  expect(skillArgs('# Wayfinder\n\nWork the map.\n\nARGUMENTS: 135')).toBe('135')
+  expect(skillArgs('# Wayfinder\n\nNo arguments here.')).toBeUndefined()
+  expect(mapFromArgs('135')).toBe(135)
+  expect(mapFromArgs('#135 next ticket')).toBe(135)
+  expect(mapFromArgs(URL_135)).toBe(135)
+  expect(mapFromArgs('chart the ship pipeline idea')).toBeUndefined()
+  expect(mapFromArgs('')).toBeUndefined()
+})
+
+test('readBash finds each issue closed, past flags, quotes and chained commands', () => {
+  expect(readBash('gh issue close 136 --reason completed', '').closed).toEqual([136])
+  expect(readBash(`gh issue close ${URL_135}`, '').closed).toEqual([135])
+  expect(readBash('gh issue close -R owner/repo #137 -c "Done in 4 steps"', '').closed).toEqual([137])
+  expect(readBash('gh issue comment 136 --body "x && gh issue close 9" && gh issue close 136 --reason completed', '').closed).toEqual([136])
+  expect(readBash('gh issue close 138; gh issue close 139', '').closed).toEqual([138, 139])
+  // A close of a variable, a view, or a PR close is not read.
+  expect(readBash('for n in 1 2; do gh issue close $n; done', '').closed).toEqual([])
+  expect(readBash('gh issue view 136 --comments', '').closed).toEqual([])
+  expect(readBash('gh pr close 136', '').closed).toEqual([])
+})
+
+test('readBash finds the map a create made, by its order among the creates', () => {
+  expect(readBash('gh issue create --title "Wayfinder: x" --label "wayfinder:map" --body-file map.md', `${URL_135}\n`).created).toBe(135)
+  expect(readBash('gh issue create -l enhancement,wayfinder:map -t x -F b.md', URL_135).created).toBe(135)
+  expect(readBash('gh issue create --label=wayfinder:map --title x', URL_135).created).toBe(135)
+  const both = 'gh issue create --label wayfinder:research --title a && gh issue create --label wayfinder:map --title b'
+  expect(readBash(both, 'https://github.com/o/r/issues/140\nhttps://github.com/o/r/issues/141\n').created).toBe(141)
+  // A ticket's create, or a map create whose URL is not in the output, makes no map.
+  expect(readBash('gh issue create --label wayfinder:grilling --title x', URL_135).created).toBeUndefined()
+  expect(readBash('gh issue create --label wayfinder:map --title x', 'error: label not found').created).toBeUndefined()
+})
+
+test('nextMap offers the map after a ticket closes or a map is made, never after the map closes', () => {
+  expect(nextMap({ map: 135, closed: [136] })).toBe(135)
+  expect(nextMap({ map: 55, closed: [], created: 135 })).toBe(135)
+  expect(nextMap({ map: 135, closed: [] })).toBeUndefined()
+  expect(nextMap({ map: 135, closed: [139, 142, 135] })).toBeUndefined()
+  expect(nextMap({ closed: [136] })).toBeUndefined()
+})
+
+/**
+ * The engine beneath the band for the Next ticket tests: Bash answers what `bash` holds, and each
+ * command run or prompt sent is logged. A test hook can't answer as an errored tool does, so an
+ * Error stands for the failed command as a refusal, which the mod reads the same way.
+ */
+function wayfinderDesk(on: On, bash: Record<string, string | Error>): string[] {
+  const log: string[] = []
+  engineBeneath(on)
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
+  on('tool.call', { tool: 'Bash' }, (_$, e) => {
+    const out = bash[e.command] ?? ''
+    if (out instanceof Error) return { deny: out.message }
+    return { result: { stdout: out, stderr: '', interrupted: false } }
+  })
+  on('command.run', (_$, e) => {
+    log.push(`/${e.command}${e.args === '' ? '' : ` ${e.args}`}`)
+    return {}
+  })
+  on('prompt.submit', (_$, e) => {
+    log.push(`sent ${e.text}`)
+    return { text: e.text }
+  })
+  return log
+}
+
+const WAYFINDER = (args: string) => ({ skill: 'wayfinder', text: `# Wayfinder\n\nWork the map.\n\nARGUMENTS: ${args}` })
+const CLOSE_136 = 'gh issue close 136 --reason completed'
+const CREATE_MAP = 'gh issue create --title "Wayfinder: x" --label "wayfinder:map" --body-file map.md'
+const NEXT = { key: 'next-ticket' }
+
+/** One main-loop turn (or a subagent's, with `agentId`) that runs each Bash command, then ends with `answer`. */
+async function wayfinderTurn($: Engine, turnId: string, commands: string[], options: { agentId?: string; answer?: string } = {}): Promise<void> {
+  await $.turn.start({ text: '', turnId })
+  for (const command of commands) {
+    await $.tool.call({ tool: 'Bash', command, ...(options.agentId === undefined ? {} : { agentId: options.agentId }) }).catch(() => undefined)
+  }
+  await $.turn.complete({ answer: options.answer ?? 'Closed the ticket.', durationMs: 10, isAborted: false, turnId, reason: 'answer' })
+}
+
+/** The Next ticket button's text in a freshly mounted band, or undefined when there is none. */
+async function nextLabel($: Engine): Promise<string | undefined> {
+  const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const found = await band.find(NEXT)
+  await band.unmount()
+  return found?.text
+}
+
+test('after a wayfinder turn closes a ticket the band leads with Next ticket', async ($, on) => {
+  wayfinderDesk(on, { [CLOSE_136]: '✓ Closed issue owner/repo#136' })
+  await $.skill.prompt(WAYFINDER('135'))
+  await wayfinderTurn($, 't1', [CLOSE_136])
+
+  const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect((await band.find(NEXT))?.text).toContain('Next ticket: /wayfinder 135')
+  expect((await band.findAll({ type: 'Button' }))[0]?.key).toBe('next-ticket')
+  expect(await band.find({ key: 'reply-Continue' })).toBeDefined()
+  await band.unmount()
+})
+
+test('after charting, the button names the map the turn created', async ($, on) => {
+  wayfinderDesk(on, { [CREATE_MAP]: `${URL_135}\n` })
+  await $.skill.prompt(WAYFINDER('55'))
+  await wayfinderTurn($, 't1', [CREATE_MAP])
+  expect(await nextLabel($)).toContain('/wayfinder 135')
+})
+
+test('no Next ticket after a map close, a failed close, a subagent close, or without wayfinder', async ($, on) => {
+  const CLOSE_MAP_TOO = 'gh issue close 139 && gh issue close 135'
+  wayfinderDesk(on, { [CLOSE_136]: new Error('Exit code 1\nGraphQL: Could not resolve to an issue'), [CLOSE_MAP_TOO]: '' })
+
+  // A session that never ran wayfinder.
+  await wayfinderTurn($, 't0', ['gh issue close 137'])
+  expect(await nextLabel($)).toBeUndefined()
+
+  await $.skill.prompt(WAYFINDER('135'))
+  await wayfinderTurn($, 't1', [CLOSE_136])
+  expect(await nextLabel($)).toBeUndefined()
+
+  await wayfinderTurn($, 't2', ['gh issue close 140'], { agentId: 'agent-1' })
+  expect(await nextLabel($)).toBeUndefined()
+
+  await wayfinderTurn($, 't3', [CLOSE_MAP_TOO])
+  expect(await nextLabel($)).toBeUndefined()
+
+  // The map is done: a later close is not offered either.
+  await wayfinderTurn($, 't4', ['gh issue close 141'])
+  expect(await nextLabel($)).toBeUndefined()
+})
+
+test('with wayfinderNext off the band offers no Next ticket', { options: { wayfinderNext: false } }, async ($, on) => {
+  wayfinderDesk(on, { [CLOSE_136]: '' })
+  await $.skill.prompt(WAYFINDER('135'))
+  await wayfinderTurn($, 't1', [CLOSE_136])
+  expect(await nextLabel($)).toBeUndefined()
+})
+
+test('the press runs /clear then /wayfinder, the button goes, and the map outlives the /clear', async ($, on) => {
+  const log = wayfinderDesk(on, { [CLOSE_136]: '' })
+  await $.skill.prompt(WAYFINDER('135'))
+  await wayfinderTurn($, 't1', [CLOSE_136])
+
+  const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await band.press(NEXT)
+  expect(log).toEqual(['/clear', '/wayfinder 135'])
+  expect(await band.find(NEXT)).toBeUndefined()
+  await band.unmount()
+
+  // The cleared session's turn closes a ticket with no fresh skill prompt seen: the map is remembered.
+  await wayfinderTurn($, 't2', ['gh issue close 137'])
+  expect(await nextLabel($)).toContain('/wayfinder 135')
+
+  // Any send takes the button down.
+  await $.prompt.submit({ text: 'something else', wait: false, origin: { kind: 'composer' } })
+  expect(await nextLabel($)).toBeUndefined()
+})
+
+test('Next ticket shows with the idle replies off, and beside a question\'s choices', { options: { idleReplies: '' } }, async ($, on) => {
+  wayfinderDesk(on, { [CLOSE_136]: '' })
+  await $.skill.prompt(WAYFINDER('135'))
+  await wayfinderTurn($, 't1', [CLOSE_136])
+  expect(await nextLabel($)).toContain('/wayfinder 135')
+
+  await wayfinderTurn($, 't2', [CLOSE_136], { answer: CHOICE })
+  const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find(NEXT)).toBeDefined()
+  expect(await band.find({ key: 'option-a' })).toBeDefined()
+  await band.unmount()
 })
