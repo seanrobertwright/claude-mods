@@ -162,9 +162,10 @@ Acting on a run that needs you is the only thing archon-panel does to a run: it 
 _Avoid_: Attention (Archon's word), blocked, stuck
 
 **Run log**:
-What a run has said and done so far: each node's model output and the tools it called, each node's output or error, and the files it wrote.
+What a run has said and done so far: each node's model output and the tools it called, each node's output or error, and the files it kept.
 What a tool returned is not kept, so it is not part of the run log.
-_Avoid_: Transcript, output (when the whole log is meant)
+The code a run changed in its working copy is not one of the files it kept; that is git's to show.
+_Avoid_: Transcript, output (when the whole log is meant), artifacts (Archon's word for the files a run kept)
 
 **Archon's log**:
 What Archon's server writes about its own work, for every project on the machine, kept wherever the person's setup sends it.
