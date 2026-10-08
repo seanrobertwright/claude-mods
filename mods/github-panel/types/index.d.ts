@@ -20,6 +20,8 @@ export type Blocker = {
 export type Issue = {
   number: number
   title: string
+  /** The issue's page on GitHub; '' when gh gives none. */
+  url: string
   author: string
   labels: string[]
   /** The open issues this one is blocked by; empty when nothing open blocks it. */

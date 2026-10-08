@@ -28,7 +28,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🧭 [whats-next](#-whats-next) | Pane in the side panel | Lists the next steps of your workflow, each with a prompt ready to paste |
 | ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered and the next wayfinder ticket |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
-| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser |
+| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
@@ -180,6 +180,7 @@ echo '{"text": "continue where you left off", "graceSeconds": "120"}' | claude p
 
 A GitHub pane beside What's next listing the repo's open pull requests and issues.
 Click one to open it in the browser.
+Under each issue, `implement` and `wayfinder` put `/implement` or `/wayfinder` and the issue's URL in the prompt. Nothing is sent.
 
 ```text
 octocat/hello-world                refresh
@@ -193,12 +194,13 @@ Pull requests 2                        all
 
 Issues 2                               all
 #39 Share the headless-session check
-  blocked by #12 · ready-for-agent · @octocat
+  blocked by #12 · ready… implement wayfinder
 #12 Decide how shared code is copied
-  needs-triage · @hubot
+  needs-triage · @hubot implement wayfinder
 ```
 
 - An issue blocked by an open issue has a red line under it. Hover it to see what blocks it.
+- In a narrow pane the `implement` and `wayfinder` buttons take a line of their own.
 - The lists refresh on a timer, after a turn once they are a minute old, and on `r`.
 
 | Command or key | What it does |
@@ -206,11 +208,16 @@ Issues 2                               all
 | `/github` | Bring the pane to the front and refresh it |
 | `r` | Refresh |
 | `all` | Open the whole list on GitHub |
+| `implement`, `wayfinder` | Fill the command and the issue's URL into the prompt, without sending it |
 
 | Setting | Key | Default | Meaning |
 | --- | --- | --- | --- |
 | Most items per list | `limit` | `30` | How many open pull requests and issues to list each (1-100) |
 | Refresh every (minutes) | `refreshMinutes` | `5` | How often to refresh (0-120); `0` refreshes only on open, after turns and on `r` |
+| Implement button fills | `implementCommand` | `/implement` | The slash command the `implement` button fills before the issue's URL; empty hides the button |
+| Wayfinder button fills | `wayfinderCommand` | `/wayfinder` | The slash command the `wayfinder` button fills before the issue's URL; empty hides the button |
+
+A command must start with `/` and hold no spaces. Any other value falls back to the default, and a message says so when the session starts. A button is labelled with its command, without the `/`.
 
 For example, to list fifty of each and stop the timer ([how to set it](#configure-the-mods)):
 
@@ -432,7 +439,7 @@ Press ⚙ at the top right of a mod's pane, or run `/mod-settings`.
 ```text
 Mod settings                         close
 auto-resume  4 settings
-github-panel  2 settings
+github-panel  4 settings
 hud  4 settings
 quick-reply  2 settings
 turn-chime  1 setting
