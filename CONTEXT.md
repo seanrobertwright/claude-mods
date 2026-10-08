@@ -159,3 +159,8 @@ _Avoid_: Statusbar, indicator
 **Toast**:
 A short message that appears and dismisses itself.
 _Avoid_: Notification, alert
+
+**Settings dialog**:
+The pane mod-settings opens, from the gear at the top right of a mod's pane or from its command, where the person changes and saves the settings of the installed mods that have any.
+A saved value is kept where Claude Code keeps that mod's settings, and the mod reloads with it.
+_Avoid_: Settings pane, config menu
