@@ -8,6 +8,7 @@ A stream would buy a toast up to one poll interval sooner, at the cost of a new 
 
 The Archon CLI stays a Requirement even while the server answers.
 A run's model text and tool calls exist only in its transcript, which the mod follows with `archon workflow logs <id> --follow` (Archon v0.11.0 and later), and the server's approve leaves a CLI-started run paused (`docs/research/archon-api.md`).
+That last reason was wrong: the server's approve resumes a CLI-started run inside the server process, and ADR-0006 sends such answers through the CLI anyway.
 
 ## Considered Options
 

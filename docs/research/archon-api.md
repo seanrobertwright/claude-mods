@@ -18,7 +18,7 @@ How sources are cited:
 - **Runs started from the CLI reach the stream, a little late and with less detail.** The server tails the events table every **1.5 s** on SQLite (Postgres has LISTEN/NOTIFY with a 10 s backstop) and replays only lifecycle and approval rows. Tool calls and model text from a CLI run never reach any stream [src: `server/src/adapters/web/dashboard-event-poller.ts`, `server/src/index.ts`].
 - **A run's model text and tool calls are not in its events.** They live in the run's **JSONL transcript**, `<output_root>/logs/<runId>.jsonl`, written by whichever process runs it. It is readable as a file or with `archon workflow logs <id> [--follow]`, and **no server route serves it** [src: `cli/src/commands/workflow.ts` `resolveRunTranscriptPath`] [probe].
   Runs the server executes also keep their messages in their conversation (`GET /api/conversations/{platformId}/messages`) [probe].
-- **Approving a run started from the CLI does not resume it through the server.** `POST .../approve` records the approval, but it auto-resumes only runs that the web UI started. A CLI-started run stays paused until someone runs `archon workflow resume` [src: `server/src/routes/api.ts` approve handler].
+- **Approving a run started from the CLI resumes it inside the server.** _Corrected for #113; this bullet first said the server leaves a CLI-started run paused._ `POST .../approve` records the approval, then resumes a run with no parent conversation (every CLI-started run) inside the server process, and a web-started run through its web chat. It records without resuming a container-isolated run, a run with no working path, and one started from Slack, Telegram or GitHub, and says which happened only in its message text [src: `server/src/routes/api.ts` `tryAutoResumeAfterGate`, `server/src/services/workflow-resume-service.ts`].
   `archon workflow approve <id> --detach` records it **and** resumes it in a detached process. Without a flag, approve resumes the run **inline and blocks for the rest of it**, and with `--json` it records only [src: `cli/src/commands/workflow.ts` `workflowApproveCommand`].
 - **A paused run is not always waiting on the person.** `paused` covers three things:
   - an `approval` node;
@@ -40,7 +40,7 @@ All take and return JSON. Ids are strings (UUIDs).
 | A run's files | `GET /api/runs/{runId}/artifacts` → `GET /api/artifacts/{runId}/{path}` | `{files:[{path,size,modifiedAt}]}`. 404 when the location can't be resolved |
 | Model text of a server-run | `GET /api/conversations/{platformId}/messages` | `[{role, content, metadata(JSON string with toolCalls)}]` [probe] |
 | Projects | `GET /api/codebases` | `[{id, name, repository_url, default_cwd, ...}]`. Matching a session's folder to these is a question for the run-data ticket |
-| Approve | `POST /api/workflows/runs/{runId}/approve` body `{comment?}` | 400 unless `status == 'paused'`, or when the gate belongs to a child run. A malformed body is a 400, never coerced. **Auto-resumes only web-started runs** |
+| Approve | `POST /api/workflows/runs/{runId}/approve` body `{comment?}` | 400 unless `status == 'paused'`, or when the gate belongs to a child run. A malformed body is a 400, never coerced. **Resumes web-started runs through their chat and CLI-started runs inside the server**, but not container-isolated or chat-platform runs (corrected for #113) |
 | Reject | `POST /api/workflows/runs/{runId}/reject` body `{reason?}` | same checks |
 | Any declared decision | `POST /api/workflows/runs/{runId}/respond` body `{decision, text?}` | `approve` and `reject` are sugar for the routes above |
 | (fog) Cancel / resume / abandon | `POST .../cancel`, `.../resume`, `.../abandon` | `resume` dispatches only on the parent web conversation |
@@ -111,6 +111,7 @@ The probe's run made 61 lines and 54 KB in eight minutes [probe].
 - **Approvals** ([#113](https://github.com/seanrobertwright/claude-mods/issues/113)):
   - The pane has to tell an approval from a `wait` node and show any declared decisions.
   - The answer has to go through `archon workflow approve|reject|respond --detach` for CLI-started runs. The server route alone would leave those paused.
+    _Corrected for #113:_ the server route resumes them, but inside the server process; #113 sends CLI-started runs through the CLI for that reason (ADR-0006).
   - Both surfaces take a comment or reason.
 - **Run data** ([#109](https://github.com/seanrobertwright/claude-mods/issues/109)):
   - The CLI failed to match this repo's folder to its registered codebase.
