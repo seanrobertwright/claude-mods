@@ -117,6 +117,11 @@ A stale list is still shown until a fresh one replaces it.
 
 ### Archon
 
+**Project**:
+A folder registered with Archon, together with every Git worktree of the same repository, wherever that worktree lives.
+A run belongs to the project it was started in, and a session belongs to the project its folder falls in, so a session opened in a run's worktree lists the whole project's runs with that worktree's runs first.
+_Avoid_: Codebase (Archon's word), repo, workspace
+
 **Run**:
 One execution of an Archon workflow, started from the CLI, the web UI or a chat platform, kept in Archon's one store for the whole machine.
 A run belongs to the project it was started in; archon-panel lists the session's project's runs and only counts the others' live runs.
