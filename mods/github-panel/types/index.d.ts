@@ -1,6 +1,13 @@
 /** How a PR's checks stand, folded from its status check rollup. */
 export type Checks = 'none' | 'pending' | 'passing' | 'failing'
 
+/** A check that failed: a check run or a commit status. */
+export type FailedCheck = {
+  name: string
+  /** The GitHub Actions run of a check run, whose log gh fetches; '' for a commit status or another app's check. */
+  runId: string
+}
+
 export type PullRequest = {
   number: number
   title: string
@@ -8,6 +15,18 @@ export type PullRequest = {
   isDraft: boolean
   /** `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or '' when GitHub gives none. */
   review: string
+  checks: Checks
+  /** The checks that failed; empty unless `checks` is `failing`. */
+  failed: FailedCheck[]
+  /** The PR's head branch. */
+  branch: string
+}
+
+/** Where the current branch's PR's checks stood at the last poll, to tell when they turn. */
+export type Watch = {
+  branch: string
+  /** The PR whose head branch is `branch`; 0 when it has none. */
+  number: number
   checks: Checks
 }
 
@@ -30,6 +49,8 @@ export type GitHubView = {
   status: 'idle' | 'loading' | 'error' | 'unavailable'
   /** `owner/name` of the repo listed; '' before the first load. */
   repo: string
+  /** The branch the session's folder is on; '' before the first load and on a detached HEAD. */
+  branch: string
   prs: PullRequest[]
   issues: Issue[]
   /** Why the lists could not load (status `error` or `unavailable`). */
@@ -46,6 +67,8 @@ declare module 'claude-code' {
       view: GitHubView
       /** True once this session's start-up load has run: at start, or at the first attach. */
       hasStartedUp: boolean
+      /** The current branch's PR's checks as the last load found them; null before the first load. */
+      watched: Watch | null
     }
   }
 }

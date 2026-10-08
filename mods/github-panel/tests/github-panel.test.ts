@@ -1,7 +1,21 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { blockerLines, fit, foldChecks, issueDetail, missingRequirement, parseConfig, parseIssues, parsePrs, prDetail } from '../hooks/parse'
+import {
+  blockerLines,
+  fit,
+  fixPrompt,
+  foldChecks,
+  issueDetail,
+  LOG_LINES,
+  logTail,
+  missingRequirement,
+  parseConfig,
+  parseIssues,
+  parsePrs,
+  prDetail,
+  watchChecks,
+} from '../hooks/parse'
 
 const PRS = JSON.stringify([
   {
@@ -161,8 +175,13 @@ function fakeSession(on: On, surfaces: string[], opened: string[]): void {
 
 const isLoad = (argv: readonly string[]) => argv[1] === 'repo' && argv[2] === 'view'
 
-test('a headless session runs no gh, starts no polling and opens no pane', async ($, on) => {
+test('a headless session runs no gh, starts no polling, opens no pane and toasts nothing', async ($, on) => {
   const clock = mock.clock(on, { now: 1_000 })
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
   const runs: (readonly string[])[] = []
   const opened: string[] = []
   fakeGh(on, runs)
@@ -172,6 +191,7 @@ test('a headless session runs no gh, starts no polling and opens no pane', async
   await clock.advance(3 * FIVE_MINUTES)
   expect(runs).toEqual([])
   expect(opened).toEqual([])
+  expect(toasts).toEqual([])
 })
 
 test('the first attach to a headless session loads once and opens the pane where it docks', async ($, on) => {
@@ -444,5 +464,215 @@ test('the header draws the settings gear only while mod-settings is installed, a
   commands = []
   await pane.redraw()
   expect(await pane.find({ key: 'mod-settings' })).toBeUndefined()
+  await pane.unmount()
+})
+
+const RUNNING = [{ __typename: 'CheckRun', name: 'test', status: 'IN_PROGRESS', conclusion: '' }]
+const PASSING = [{ __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }]
+const FAILING = [
+  {
+    __typename: 'CheckRun',
+    name: 'test',
+    status: 'COMPLETED',
+    conclusion: 'FAILURE',
+    detailsUrl: 'https://github.com/octo/widgets/actions/runs/4242/job/77',
+  },
+  { __typename: 'StatusContext', context: 'lint', state: 'FAILURE', targetUrl: 'https://ci.example/9' },
+  { __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+]
+
+type Ci = {
+  /** What `git branch --show-current` answers. */
+  branch: string
+  /** Each open PR's head branch and status check rollup. */
+  prs: { number: number; branch: string; rollup: unknown[] }[]
+  /** What `gh run view --log-failed` answers. */
+  log: { exitCode: number; stdout: string }
+}
+
+/** gh and git beneath the mod, answering from `ci`, which the test changes between loads; records every argv. */
+function fakeCi(on: On, ci: Ci, runs: (readonly string[])[]): void {
+  on('process.run', (_$, e) => {
+    runs.push(e.argv)
+    if (e.argv[0] === 'git') return ok(`${ci.branch}\n`)
+    const [, noun, verb] = e.argv
+    if (noun === 'repo') return ok('octo/widgets\n')
+    if (noun === 'pr' && verb === 'list') {
+      return ok(JSON.stringify(ci.prs.map(pr => ({
+        number: pr.number,
+        title: `PR ${pr.number}`,
+        author: { login: 'octocat' },
+        isDraft: false,
+        reviewDecision: '',
+        headRefName: pr.branch,
+        statusCheckRollup: pr.rollup,
+      }))))
+    }
+    if (noun === 'issue') return ok('[]')
+    if (noun === 'run') {
+      return { value: { exitCode: ci.log.exitCode, stdout: ci.log.stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    return ok('')
+  })
+}
+
+function onePr(number: number, branch: string, rollup: unknown[]) {
+  return parsePrs(JSON.stringify([{ number, title: 'a PR', headRefName: branch, statusCheckRollup: rollup }]))[0]!
+}
+
+test('parsePrs reads the head branch and the failed checks, with the Actions run of each check run', () => {
+  const failing = onePr(12, 'feat/x', FAILING)
+  expect(failing.branch).toBe('feat/x')
+  expect(failing.checks).toBe('failing')
+  expect(failing.failed).toEqual([{ name: 'test', runId: '4242' }, { name: 'lint', runId: '' }])
+  expect(onePr(12, 'feat/x', PASSING).failed).toEqual([])
+})
+
+test('watchChecks toasts a turn of the same PR to passing or failing, and only sets the start otherwise', () => {
+  const prsWith = (rollup: unknown[]) => [onePr(12, 'feat/x', rollup), onePr(13, 'other', FAILING)]
+  const first = watchChecks(null, 'feat/x', prsWith(RUNNING))
+  expect(first).toEqual({ watch: { branch: 'feat/x', number: 12, checks: 'pending' } })
+  expect(watchChecks(first.watch, 'feat/x', prsWith(PASSING)).toast).toBe('Checks passed on #12')
+  expect(watchChecks(first.watch, 'feat/x', prsWith(FAILING)).toast).toBe('Checks failed on #12')
+  expect(watchChecks(first.watch, 'feat/x', prsWith(RUNNING)).toast).toBeUndefined()
+  const passed = watchChecks(first.watch, 'feat/x', prsWith(PASSING)).watch
+  expect(watchChecks(passed, 'feat/x', prsWith(RUNNING)).toast).toBeUndefined()
+  expect(watchChecks(first.watch, 'other', prsWith(RUNNING))).toEqual({ watch: { branch: 'other', number: 13, checks: 'failing' } })
+  const none = watchChecks(null, 'feat/x', []).watch
+  expect(none).toEqual({ branch: 'feat/x', number: 0, checks: 'none' })
+  expect(watchChecks(none, 'feat/x', prsWith(FAILING)).toast).toBeUndefined()
+  expect(watchChecks(first.watch, '', prsWith(FAILING)).watch.number).toBe(0)
+})
+
+test('logTail keeps the last LOG_LINES non-blank lines, without colour codes, each cut short', () => {
+  const lines = Array.from({ length: LOG_LINES + 10 }, (_, index) => `test\tRun tests\tline ${index}`)
+  const tail = logTail(`${lines.join('\r\n')}\n\n`)
+  expect(tail.length).toBe(LOG_LINES)
+  expect(tail[0]).toBe('test Run tests line 10')
+  expect(tail[LOG_LINES - 1]).toBe(`test Run tests line ${LOG_LINES + 9}`)
+  expect(logTail('\u001b[31mError:\u001b[0m expected 2 [INFO]')).toEqual(['Error: expected 2 [INFO]'])
+  expect(Array.from(logTail('x'.repeat(5_000))[0]!).length).toBe(300)
+})
+
+test('fixPrompt names the failed checks, carries the log tail when there is one, then asks for the fix', () => {
+  const failing = onePr(12, 'feat/x', FAILING)
+  expect(fixPrompt(failing, ['Error: expected 2'])).toBe('CI failed on #12: test, lint.\n\n```\nError: expected 2\n```\n\nFix it.')
+  expect(fixPrompt(failing, [])).toBe('CI failed on #12: test, lint.\n\nFix it.')
+})
+
+test("the current branch's PR toasts once when its checks turn passing or failing, and never for another PR", async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  const ci: Ci = {
+    branch: 'feat/x',
+    prs: [{ number: 12, branch: 'feat/x', rollup: FAILING }, { number: 13, branch: 'other', rollup: RUNNING }],
+    log: { exitCode: 0, stdout: '' },
+  }
+  fakeCi(on, ci, [])
+  fakeSession(on, ['terminal'], [])
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  expect(toasts).toEqual([])
+
+  ci.prs[0]!.rollup = RUNNING
+  await clock.advance(FIVE_MINUTES)
+  ci.prs[0]!.rollup = PASSING
+  await clock.advance(FIVE_MINUTES)
+  await clock.advance(FIVE_MINUTES)
+  expect(toasts).toEqual(['Checks passed on #12'])
+
+  ci.prs[0]!.rollup = FAILING
+  await clock.advance(FIVE_MINUTES)
+  await clock.advance(FIVE_MINUTES)
+  expect(toasts).toEqual(['Checks passed on #12', 'Checks failed on #12'])
+
+  ci.prs[1]!.rollup = FAILING
+  await clock.advance(FIVE_MINUTES)
+  ci.prs[1]!.rollup = PASSING
+  await clock.advance(FIVE_MINUTES)
+  expect(toasts).toEqual(['Checks passed on #12', 'Checks failed on #12'])
+
+  // On another branch its own PR's checks start where they stand: #13 passing is no news.
+  ci.branch = 'other'
+  await clock.advance(FIVE_MINUTES)
+  expect(toasts).toEqual(['Checks passed on #12', 'Checks failed on #12'])
+  ci.prs[1]!.rollup = FAILING
+  await clock.advance(FIVE_MINUTES)
+  expect(toasts).toEqual(['Checks passed on #12', 'Checks failed on #12', 'Checks failed on #13'])
+})
+
+type Desk = { filled: string[]; sent: string[]; panes: string[] }
+
+/** The prompt box and the panes beneath the mod: every fill, every send, and each pane closed or opened. */
+function fakeDesk(on: On, desk: Desk): void {
+  on('prompt.fill', (_$, e) => {
+    desk.filled.push(e.text)
+    return { isFilled: true, text: e.text, cursor: e.text.length }
+  })
+  on('prompt.submit', (_$, e) => {
+    desk.sent.push(e.text)
+    return { text: e.text }
+  })
+  on('ui.close', (_$, e) => {
+    desk.panes.push(`close ${e.id}`)
+    return { value: undefined }
+  })
+  on('ui.open', (_$, e) => {
+    desk.panes.push(`open ${e.id}${e.focus === true ? '+focus' : ''}`)
+    return { value: { isPlaced: true } }
+  })
+}
+
+test("a failing PR of the current branch has a fix button that fills the failed checks and the log's tail, and sends nothing", async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const ci: Ci = {
+    branch: 'feat/x',
+    prs: [{ number: 12, branch: 'feat/x', rollup: FAILING }, { number: 13, branch: 'other', rollup: FAILING }],
+    log: { exitCode: 0, stdout: 'test\tRun tests\tFAIL parse.test.ts\ntest\tRun tests\tError: expected 2, got 3\n' },
+  }
+  const runs: (readonly string[])[] = []
+  fakeCi(on, ci, runs)
+  const desk: Desk = { filled: [], sent: [], panes: [] }
+  fakeDesk(on, desk)
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  await pane.press({ key: 'refresh' })
+  expect((await pane.find({ key: 'fix-12' }))?.props.label).toBe('fix')
+  expect(await pane.find({ key: 'fix-13' })).toBeUndefined()
+  expect(runs.some(argv => argv[1] === 'run')).toBe(false)
+
+  await pane.press({ key: 'fix-12' })
+  expect(runs[runs.length - 1]).toEqual(['gh', 'run', 'view', '4242', '--log-failed'])
+  expect(desk.filled).toEqual([
+    'CI failed on #12: test, lint.\n\n```\ntest Run tests FAIL parse.test.ts\ntest Run tests Error: expected 2, got 3\n```\n\nFix it.',
+  ])
+  expect(desk.sent).toEqual([])
+  expect(desk.panes).toEqual(['close github', 'open github'])
+
+  ci.prs[0]!.rollup = PASSING
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ key: 'fix-12' })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('when the log cannot be fetched, the fix button fills the failed checks alone', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const ci: Ci = { branch: 'feat/x', prs: [{ number: 12, branch: 'feat/x', rollup: FAILING }], log: { exitCode: 1, stdout: '' } }
+  fakeCi(on, ci, [])
+  const desk: Desk = { filled: [], sent: [], panes: [] }
+  fakeDesk(on, desk)
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  await pane.press({ key: 'refresh' })
+  await pane.press({ key: 'fix-12' })
+  expect(desk.filled).toEqual(['CI failed on #12: test, lint.\n\nFix it.'])
+  expect(desk.sent).toEqual([])
   await pane.unmount()
 })

@@ -1,7 +1,7 @@
-import type { Blocker, Checks, Issue, PullRequest } from '../types'
+import type { Blocker, Checks, FailedCheck, Issue, PullRequest, Watch } from '../types'
 
 /** The fields asked of `gh pr list` and `gh issue list`; parsePrs and parseIssues read these. */
-export const PR_FIELDS = 'number,title,author,isDraft,reviewDecision,statusCheckRollup'
+export const PR_FIELDS = 'number,title,author,isDraft,reviewDecision,statusCheckRollup,headRefName'
 export const ISSUE_FIELDS = 'number,title,author,labels,blockedBy'
 
 export type Config = { limit: number; refreshMs: number }
@@ -35,6 +35,13 @@ function login(author: unknown): string {
   return isRecord(author) ? text(author.login) : ''
 }
 
+const FAILED = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE']
+
+/** How a check ended: check runs report `conclusion`, commit statuses `state`. */
+function outcomeOf(check: Record<string, unknown>): string {
+  return text(check.conclusion || check.state).toUpperCase()
+}
+
 /**
  * Folds a status check rollup to one word: any failure fails, then anything
  * still running is pending, then any success passes. Check runs report
@@ -46,11 +53,9 @@ export function foldChecks(rollup: unknown): Checks {
   let isPassing = false
   for (const check of rollup) {
     if (!isRecord(check)) continue
-    const outcome = text(check.conclusion || check.state).toUpperCase()
+    const outcome = outcomeOf(check)
     const status = text(check.status).toUpperCase()
-    if (['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(outcome)) {
-      return 'failing'
-    }
+    if (FAILED.includes(outcome)) return 'failing'
     if (outcome === '' || outcome === 'PENDING' || outcome === 'EXPECTED' || (status !== '' && status !== 'COMPLETED')) {
       isPending = true
     } else if (outcome === 'SUCCESS') {
@@ -59,6 +64,20 @@ export function foldChecks(rollup: unknown): Checks {
   }
   if (isPending) return 'pending'
   return isPassing ? 'passing' : 'none'
+}
+
+/**
+ * The failed checks of a rollup: a check run named by `name`, a commit status
+ * by `context`. A check run of GitHub Actions links to its run, whose log gh
+ * can fetch.
+ */
+export function failedChecks(rollup: unknown): FailedCheck[] {
+  if (!Array.isArray(rollup)) return []
+  return rollup.filter(isRecord).flatMap(check => {
+    if (!FAILED.includes(outcomeOf(check))) return []
+    const runId = /\/actions\/runs\/(\d+)/.exec(text(check.detailsUrl))?.[1] ?? ''
+    return [{ name: text(check.name) || text(check.context), runId }]
+  })
 }
 
 /** Reads `gh pr list --json` output; entries without a number and title are dropped. */
@@ -74,6 +93,8 @@ export function parsePrs(json: string): PullRequest[] {
       isDraft: row.isDraft === true,
       review: text(row.reviewDecision),
       checks: foldChecks(row.statusCheckRollup),
+      failed: failedChecks(row.statusCheckRollup),
+      branch: text(row.headRefName),
     }]
   })
 }
@@ -103,6 +124,55 @@ export function parseIssues(json: string): Issue[] {
       blockedBy: openBlockers(row.blockedBy),
     }]
   })
+}
+
+/** The open PR whose head branch is `branch`; none on a detached HEAD, where `branch` is ''. */
+export function branchPr(prs: readonly PullRequest[], branch: string): PullRequest | undefined {
+  return branch === '' ? undefined : prs.find(pr => pr.branch === branch)
+}
+
+const TURNED: Partial<Record<Checks, string>> = { passing: 'Checks passed', failing: 'Checks failed' }
+
+/**
+ * Compares this poll's checks of the current branch's PR with the last
+ * poll's. A toast says when that PR's checks turned passing or failing; the
+ * first poll, another branch or another PR only sets where they start.
+ */
+export function watchChecks(before: Watch | null, branch: string, prs: readonly PullRequest[]): { watch: Watch; toast?: string } {
+  const pr = branchPr(prs, branch)
+  const watch: Watch = { branch, number: pr?.number ?? 0, checks: pr?.checks ?? 'none' }
+  const isSamePr = before !== null && before.branch === branch && before.number === watch.number && watch.number !== 0
+  const turned = isSamePr && before.checks !== watch.checks ? TURNED[watch.checks] : undefined
+  return turned === undefined ? { watch } : { watch, toast: `${turned} on #${watch.number}` }
+}
+
+/**
+ * How many lines from the end of the failed run's log the fix request
+ * carries: the end is where a run stops on its error, and forty lines show the
+ * error with its lead-up while leaving the prompt box readable.
+ */
+export const LOG_LINES = 40
+/** The most code points kept of one log line; a minified or encoded line is cut. */
+const LOG_LINE_CHARS = 300
+/** The colour codes GitHub keeps in its logs: ESC, then a control sequence. */
+const COLOUR_CODES = new RegExp(`${String.fromCharCode(0x1b)}\\[[0-9;?]*[ -/]*[@-~]`, 'g')
+
+/** The last LOG_LINES non-blank lines of `gh run view --log-failed` output, without colour codes. */
+export function logTail(log: string): string[] {
+  return log
+    .replace(COLOUR_CODES, '')
+    .split(/\r?\n/)
+    .map(line => fit(text(line).trimEnd(), LOG_LINE_CHARS))
+    .filter(line => line.trim() !== '')
+    .slice(-LOG_LINES)
+}
+
+/** The fix request filled into the prompt box: the failed checks, the log's tail when there is one, then the ask. */
+export function fixPrompt(pr: PullRequest, log: readonly string[]): string {
+  const names = pr.failed.map(check => check.name).filter(name => name !== '')
+  const head = `CI failed on #${pr.number}${names.length === 0 ? '' : `: ${names.join(', ')}`}.`
+  const fence = '```'
+  return [head, ...(log.length === 0 ? [] : [[fence, ...log, fence].join('\n')]), 'Fix it.'].join('\n\n')
 }
 
 const REVIEW_WORDS: Readonly<Record<string, string>> = {

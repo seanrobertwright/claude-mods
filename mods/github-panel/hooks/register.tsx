@@ -1,13 +1,16 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { GitHubView } from '../types'
+import type { GitHubView, PullRequest } from '../types'
 import {
   ago,
   blockerLines,
+  branchPr,
   fit,
+  fixPrompt,
   ISSUE_FIELDS,
   issueDetail,
+  logTail,
   missingRequirement,
   NEEDS_GH,
   parseConfig,
@@ -15,6 +18,7 @@ import {
   parsePrs,
   PR_FIELDS,
   prDetail,
+  watchChecks,
 } from './parse'
 import type { Config } from './parse'
 
@@ -25,9 +29,10 @@ const SETTINGS = 'mod-settings'
 /** After a turn, refresh only when the lists are older than this. */
 const AFTER_TURN_MS = 60_000
 
-const EMPTY: GitHubView = { status: 'idle', repo: '', prs: [], issues: [], error: '', updatedAt: 0, runId: 0 }
+const EMPTY: GitHubView = { status: 'idle', repo: '', branch: '', prs: [], issues: [], error: '', updatedAt: 0, runId: 0 }
 const view = atom({ plugin: 'github-panel', key: 'view' } as const, EMPTY)
 const hasStartedUp = atom({ plugin: 'github-panel', key: 'hasStartedUp' } as const, false)
+const watched = atom({ plugin: 'github-panel', key: 'watched' } as const, null)
 
 // Dies with the module on a reload; session.start or the next attach starts it again.
 let every: Timer | undefined
@@ -93,6 +98,23 @@ async function canStartGh($: EngineInterface): Promise<boolean> {
   }
 }
 
+/** The branch the session's folder is on; '' on a detached HEAD or where git cannot say. */
+async function currentBranch($: EngineInterface): Promise<string> {
+  const run = await $.process.run(['git', 'branch', '--show-current']).catch(() => undefined)
+  return run?.exitCode === 0 ? run.stdout.trim() : ''
+}
+
+/** Toasts when the current branch's PR's checks turn passing or failing since the last load. */
+async function noticeChecks($: EngineInterface, branch: string, prs: readonly PullRequest[]): Promise<void> {
+  let toast: string | undefined
+  await update($, watched, before => {
+    const seen = watchChecks(before, branch, prs)
+    toast = seen.toast
+    return seen.watch
+  })
+  if (toast !== undefined) $.ui.toast(toast)
+}
+
 /**
  * Loads the open PRs and issues of the session's repo. One load at a time;
  * a load superseded by a reload of the module is dropped by its runId.
@@ -115,7 +137,7 @@ async function load($: EngineInterface, config: Config): Promise<void> {
     update($, view, current => (current.runId === runId ? change(current) : current))
 
   const unavailable = (reason: string) =>
-    finish(current => ({ ...current, status: 'unavailable', error: reason, repo: '', prs: [], issues: [], updatedAt: 0 }))
+    finish(current => ({ ...current, status: 'unavailable', error: reason, repo: '', branch: '', prs: [], issues: [], updatedAt: 0 }))
 
   try {
     let repo
@@ -132,15 +154,21 @@ async function load($: EngineInterface, config: Config): Promise<void> {
       return
     }
     const limit = String(config.limit)
-    const [prs, issues] = await Promise.all([
+    const [prs, issues, branch] = await Promise.all([
       gh($, ['pr', 'list', '--state', 'open', '--limit', limit, '--json', PR_FIELDS]),
       gh($, ['issue', 'list', '--state', 'open', '--limit', limit, '--json', ISSUE_FIELDS]),
+      currentBranch($),
     ])
     const failed = [prs, issues].find(run => run.exitCode !== 0)
     if (failed !== undefined) throw new Error(lastLine(failed.stderr) || `gh exited with ${failed.exitCode}`)
     const updatedAt = await $.clock.now()
-    const next = { repo: repo.stdout.trim(), prs: parsePrs(prs.stdout), issues: parseIssues(issues.stdout), updatedAt }
-    await finish(current => ({ ...current, ...next, status: 'idle', error: '' }))
+    const next = { repo: repo.stdout.trim(), branch, prs: parsePrs(prs.stdout), issues: parseIssues(issues.stdout), updatedAt }
+    let isCurrent = false
+    await finish(current => {
+      isCurrent = true
+      return { ...current, ...next, status: 'idle', error: '' }
+    })
+    if (isCurrent) await noticeChecks($, branch, next.prs)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     await finish(current => ({ ...current, status: 'error', error: reason }))
@@ -163,6 +191,31 @@ async function startUp($: EngineInterface, config: Config, isPaneWanted: boolean
 async function openOnGitHub($: EngineInterface, args: readonly string[]): Promise<void> {
   const run = await gh($, [...args, '--web'])
   if (run.exitCode !== 0) $.ui.toast(`GitHub: ${lastLine(run.stderr) || 'could not open the browser'}`)
+}
+
+/** The failed run's log, cut to its last lines; none when the checks name no Actions run or gh cannot fetch it. */
+async function failedLog($: EngineInterface, pr: PullRequest): Promise<string[]> {
+  const runId = pr.failed.find(check => check.runId !== '')?.runId
+  if (runId === undefined) return []
+  // A run still going, or whose logs expired, answers with an error: the request goes without its log.
+  const run = await gh($, ['run', 'view', runId, '--log-failed']).catch(() => undefined)
+  return run?.exitCode === 0 ? logTail(run.stdout) : []
+}
+
+/**
+ * Fills a request to fix `pr`'s failing checks into the prompt box; nothing is
+ * sent. The person types there next, so as whats-next does, the pane is closed
+ * to hand the keyboard back, then opened again without asking for it.
+ */
+async function fillFix($: EngineInterface, pr: PullRequest): Promise<void> {
+  const log = await failedLog($, pr)
+  await $.ui.close({ id: PANE })
+  try {
+    const filled = await $.prompt.fill({ text: fixPrompt(pr, log) })
+    if (!filled.isFilled) $.ui.toast('GitHub: the prompt box could not take the fix request.')
+  } finally {
+    await $.ui.open({ id: PANE, title: TITLE })
+  }
 }
 
 /** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
@@ -240,6 +293,7 @@ export const register: Register = (on, options) => {
     const width = Math.max(16, e.props.bodyColumns)
     const room = width - 1
     const isFull = (count: number) => count >= config.limit
+    const mine = branchPr(current.prs, current.branch)
 
     return (
       <Box flexDirection="column" width={width}>
@@ -271,7 +325,14 @@ export const register: Register = (on, options) => {
               label={fit(`#${pr.number} ${pr.title}`, room)}
               onPress={() => void openOnGitHub($, ['pr', 'view', String(pr.number)]).catch(report($))}
             />
-            {prDetail(pr) !== '' && <Text dimColor wrap="truncate-end">  {prDetail(pr)}</Text>}
+            {prDetail(pr) !== '' && (
+              <Box flexDirection="row" justifyContent="space-between">
+                <Text dimColor wrap="truncate-end">  {prDetail(pr)}</Text>
+                {pr.number === mine?.number && pr.checks === 'failing' && (
+                  <Button key={`fix-${pr.number}`} plain label="fix" onPress={() => void fillFix($, pr).catch(report($))} />
+                )}
+              </Box>
+            )}
           </Box>
         ))}
 
