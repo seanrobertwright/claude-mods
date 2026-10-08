@@ -72,7 +72,7 @@ function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']
     return { value: undefined }
   })
   on('ui.render', { component: 'PromptHint' }, () => ({ type: 'Text', props: {}, children: ['? for shortcuts'] }))
-  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] }))
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'engine', ref: 0 }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   // eslint-disable-next-line require-yield -- the stand-in sends no chunks, only the step's result
   on('turn.step', async function* (_$, e) {

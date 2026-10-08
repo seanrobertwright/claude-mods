@@ -57,9 +57,10 @@ export const register: Register = on => {
     const shown = held.slice(0, fitCount(held, e.props.bodyColumns, LABEL.length + 1))
     const hidden = held.length - shown.length
 
+    // The outer Box takes no width: the engine refuses its own band under a Box that sets one.
     return (
-      <Box flexDirection="column" width={e.props.bodyColumns}>
-        <Box flexDirection="row" columnGap={1}>
+      <Box flexDirection="column">
+        <Box flexDirection="row" columnGap={1} width={e.props.bodyColumns}>
           <Text dimColor>{LABEL}</Text>
           {shown.map(entry => (
             <Button key={`entry-${entry.name}`} label={entry.name} onPress={() => void drop($, entry).catch(report($))} />

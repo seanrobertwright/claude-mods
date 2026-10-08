@@ -230,8 +230,9 @@ export const register: Register = (on, options) => {
     if (lines.length === 0) return beneath
     const { Box, Text } = $.ui.resolve(e)
 
+    // No width here: the engine refuses its own band under a Box that sets one, and each line is cut to bodyColumns.
     return (
-      <Box flexDirection="column" width={e.props.bodyColumns}>
+      <Box flexDirection="column">
         {lines.map((line, at) => (
           <Box key={`line-${at}`} flexDirection="row" columnGap={2}>
             {line.map(segment => (
