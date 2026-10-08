@@ -72,6 +72,7 @@ test('gitCallsIn passes over other git commands and a commit that is only text',
   expect(gitCallsIn('git -C ../repo diff')).toEqual([])
   expect(gitCallsIn('echo "git commit -m x"')).toEqual([])
   expect(gitCallsIn('echo git push')).toEqual([])
+  expect(gitCallsIn('echo ";" git commit -m x')).toEqual([])
   expect(gitCallsIn('npm run commit')).toEqual([])
 })
 

@@ -15,20 +15,26 @@ const GIT_VALUED = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace
 const PUSH_VALUED = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec'])
 const REMOTE_DEFAULT = 'refs/remotes/origin/'
 
-/** The command's words, with its quotes taken off, and each mark that ends a command as a word of its own. */
-function words(command: string): string[] {
-  const found: string[] = []
+/** The simple commands a shell command runs, each as its words with their quotes taken off. */
+function commands(shell: string): string[][] {
+  const found: string[][] = []
+  let command: string[] = []
   let word = ''
   let isWord = false
   let quote: string | undefined
-  const end = (): void => {
-    if (isWord) found.push(word)
+  const endWord = (): void => {
+    if (isWord) command.push(word)
     word = ''
     isWord = false
   }
-  for (let at = 0; at < command.length; at += 1) {
-    const char = command[at] ?? ''
-    const next = command[at + 1] ?? ''
+  const endCommand = (): void => {
+    endWord()
+    found.push(command)
+    command = []
+  }
+  for (let at = 0; at < shell.length; at += 1) {
+    const char = shell[at] ?? ''
+    const next = shell[at + 1] ?? ''
     if (quote !== undefined) {
       if (char === quote) {
         quote = undefined
@@ -42,18 +48,16 @@ function words(command: string): string[] {
       quote = char
       isWord = true
     } else if (char === ' ' || char === '\t' || char === '\r') {
-      end()
+      endWord()
     } else if (SEPARATORS.has(char)) {
-      end()
-      const mark = SEPARATORS.has(char + next) ? char + next : char
-      found.push(mark)
-      at += mark.length - 1
+      endCommand()
+      if (SEPARATORS.has(char + next)) at += 1
     } else {
       word += char
       isWord = true
     }
   }
-  end()
+  endCommand()
   return found
 }
 
@@ -98,18 +102,9 @@ function gitCall(command: readonly string[]): GitCall | undefined {
 
 /** Every `git commit` and `git push` a shell command runs, in order. */
 export function gitCallsIn(shell: string): GitCall[] {
-  const calls: GitCall[] = []
-  let command: string[] = []
-  for (const word of [...words(shell), ';']) {
-    if (!SEPARATORS.has(word)) {
-      command.push(word)
-      continue
-    }
-    const call = gitCall(command)
-    if (call !== undefined) calls.push(call)
-    command = []
-  }
-  return calls
+  return commands(shell)
+    .map(gitCall)
+    .filter(call => call !== undefined)
 }
 
 /**
