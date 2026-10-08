@@ -15,7 +15,7 @@
     {
       "name": "quick-reply",
       "source": "./mods/quick-reply",
-      "description": "One-click replies above the prompt: the options Claude just offered, Yes, Go with your recommendation, Continue."
+      "description": "One-click replies above the prompt: the options Claude just offered, Yes, Go with your recommendation, Continue, and the next wayfinder ticket."
     },
     {
       "name": "auto-resume",

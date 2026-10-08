@@ -1,7 +1,7 @@
 {
   "name": "quick-reply",
   "version": "0.1.0",
-  "description": "One-click replies above the prompt: the options Claude just offered, Yes, Go with your recommendation, Continue.",
+  "description": "One-click replies above the prompt: the options Claude just offered, Yes, Go with your recommendation, Continue, and the next wayfinder ticket.",
   "types": "./types/index.d.ts",
   "userConfig": {
     "questionReplies": {
@@ -15,6 +15,12 @@
       "title": "Replies otherwise",
       "description": "Shown after any other answer, separated by |; empty hides the band then.",
       "default": "Continue|Commit and push"
+    },
+    "wayfinderNext": {
+      "type": "boolean",
+      "title": "Offer the next wayfinder ticket",
+      "description": "After a wayfinder turn closes a ticket or charts a map, the band offers Next ticket: one press runs /clear, then /wayfinder with the map.",
+      "default": true
     }
   }
 }

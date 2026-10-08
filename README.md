@@ -26,7 +26,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | Mod | Where it shows | What it does |
 | --- | --- | --- |
 | 🧭 [whats-next](#-whats-next) | Pane in the side panel | Lists the next steps of your workflow, each with a prompt ready to paste |
-| ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered |
+| ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered and the next wayfinder ticket |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
 | 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
@@ -119,10 +119,21 @@ Reply:  [a: Keep the copies]  [b: Add a sync script]  [Yes]  [Go with your recom
 - When the answer recommends something, the "recommend" reply is the highlighted one. Advice against something does not count.
 - The band stays out of the way while Claude is working, and after a subagent's turn.
 
+**Next ticket.** When you work a map with the `wayfinder` skill, the band leads with the next ticket after each turn that closes one or charts the map:
+
+```text
+Reply:  [Next ticket: /wayfinder 135]  [Continue]  [Commit and push]
+```
+
+One press runs `/clear` and then `/wayfinder 135`, the loop you would otherwise type.
+It is offered only in a session that ran the `wayfinder` skill, after a turn whose `gh issue close` worked; after charting it names the map the turn created.
+A close made some other way (`gh api`, the web) is not seen, so no button shows, and once a turn closes the map itself the loop ends.
+
 | Setting | Key | Default | Meaning |
 | --- | --- | --- | --- |
 | Replies to a question | `questionReplies` | `Yes\|Go with your recommendation\|No` | Shown after Claude asks something, separated by `\|`; empty shows only the choices Claude offered |
-| Replies otherwise | `idleReplies` | `Continue\|Commit and push` | Shown after any other answer; empty hides the band then |
+| Replies otherwise | `idleReplies` | `Continue\|Commit and push` | Shown after any other answer; empty hides the band then, except for Next ticket |
+| Offer the next wayfinder ticket | `wayfinderNext` | `true` | After a wayfinder turn closes a ticket or charts a map, offer Next ticket |
 
 Each list holds up to six replies. A reply longer than 120 characters is cut short, and a repeat is dropped.
 For example, to answer questions with your own three replies and hide the band after other answers ([how to set it](#configure-the-mods)):
