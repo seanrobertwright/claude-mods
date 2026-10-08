@@ -155,7 +155,7 @@ export const register: Register = on => {
           <Text bold>{TITLE}</Text>
           <Box flexDirection="row" columnGap={1}>
             <Button key="refresh" plain dimColor hotkey="r" label="refresh" onPress={() => void scan($).catch(report($))} />
-            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙️" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
           </Box>
         </Box>
         {current.error !== '' && <Text color="red" wrap="wrap">{current.error}</Text>}

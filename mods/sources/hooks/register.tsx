@@ -120,7 +120,7 @@ export const register: Register = on => {
               label={current.isLocked ? 'unlock' : 'lock'}
               onPress={() => void update($, view, (held): SourcesView => ({ ...held, isLocked: !held.isLocked })).catch(report($))}
             />
-            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙️" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
           </Box>
         </Box>
         {current.isLocked && current.allowed.map((folder, index) => (

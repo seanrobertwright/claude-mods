@@ -185,7 +185,7 @@ test(
         register(on) {
           on('ui.render', { component: 'Pane', requestId: 'outputs' }, async ($, e) => {
             const { Button } = $.ui.resolve(e)
-            return <Button key="mod-settings" plain dimColor label="⚙" onPress={() => $.ui.toast('the gear ran its own press')} />
+            return <Button key="mod-settings" plain dimColor label="⚙️" onPress={() => $.ui.toast('the gear ran its own press')} />
           })
         },
       },

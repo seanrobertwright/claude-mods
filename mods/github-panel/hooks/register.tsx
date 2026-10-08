@@ -247,7 +247,7 @@ export const register: Register = (on, options) => {
           <Text bold wrap="truncate-end">{current.repo === '' ? TITLE : current.repo}</Text>
           <Box flexDirection="row" columnGap={1}>
             <Button key="refresh" plain dimColor hotkey="r" label="refresh" onPress={() => void load($, config).catch(report($))} />
-            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙️" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
           </Box>
         </Box>
         {current.status === 'loading' && <Text dimColor>Loading{'…'}</Text>}
