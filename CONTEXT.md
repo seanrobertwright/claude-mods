@@ -132,10 +132,16 @@ A run ends when it completes, fails or is cancelled.
 
 **Approval**:
 A point where a run pauses until a person answers it: approve, reject, or another decision its workflow declared, with an optional comment.
-It is an approval node, or a loop that stops between rounds for the person's say.
-A run paused on a wait node is waiting on an outside event or a time, not on the person, so it is not on an approval.
+It is an approval node, a loop that stops between rounds for the person's say, or a run's finished changes waiting to be kept or thrown away.
+A run paused on a wait node for a time or an outside event is not waiting on the person, so it is not on an approval; nor is a run whose approval was answered and is waiting to go on.
+A run whose sub-run is on an approval is not on one itself; the sub-run is.
 Answering an approval is the only action archon-panel takes on a run.
 _Avoid_: Gate (Archon's gates include checks a script or another agent decides)
+
+**Action needed**:
+A run paused until a person does something outside Archon that its workflow names, and then resumes it.
+It waits on the person, as an approval does, but it is not answered with a decision, so archon-panel shows it and does not act on it.
+_Avoid_: Approval, attention (Archon's word in a workflow)
 
 **Run log**:
 What a run has said and done so far: the running node's model output and tool calls, each node's output or error, and the files it wrote.
