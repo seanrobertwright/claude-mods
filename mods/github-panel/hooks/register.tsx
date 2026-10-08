@@ -20,6 +20,8 @@ import type { Config } from './parse'
 
 const PANE = 'github'
 const TITLE = 'GitHub'
+/** The settings dialog's command and its gear's key (ADR-0005). mod-settings takes the press; the gear's onPress is the fallback. */
+const SETTINGS = 'mod-settings'
 /** After a turn, refresh only when the lists are older than this. */
 const AFTER_TURN_MS = 60_000
 
@@ -163,6 +165,11 @@ async function openOnGitHub($: EngineInterface, args: readonly string[]): Promis
   if (run.exitCode !== 0) $.ui.toast(`GitHub: ${lastLine(run.stderr) || 'could not open the browser'}`)
 }
 
+/** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
+async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
+  return (await $.command.list().catch(() => [])).some(command => command.name === SETTINGS)
+}
+
 export const register: Register = (on, options) => {
   const config = parseConfig(options)
 
@@ -227,6 +234,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
+    const hasSettings = await isSettingsInstalled($)
     const current = await read($, view)
     const now = await $.clock.now()
     const width = Math.max(16, e.props.bodyColumns)
@@ -237,7 +245,10 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" width={width}>
         <Box flexDirection="row" justifyContent="space-between">
           <Text bold wrap="truncate-end">{current.repo === '' ? TITLE : current.repo}</Text>
-          <Button key="refresh" plain dimColor hotkey="r" label="refresh" onPress={() => void load($, config).catch(report($))} />
+          <Box flexDirection="row" columnGap={1}>
+            <Button key="refresh" plain dimColor hotkey="r" label="refresh" onPress={() => void load($, config).catch(report($))} />
+            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+          </Box>
         </Box>
         {current.status === 'loading' && <Text dimColor>Loading{'…'}</Text>}
         {(current.status === 'error' || current.status === 'unavailable') && (

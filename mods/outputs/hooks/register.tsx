@@ -6,6 +6,8 @@ import { ago, fit, isOutput, isScanned, joined, MOST_DEPTH, MOST_FOLDERS, native
 
 const PANE = 'outputs'
 const TITLE = 'Outputs'
+/** The settings dialog's command and its gear's key (ADR-0005). mod-settings takes the press; the gear's onPress is the fallback. */
+const SETTINGS = 'mod-settings'
 /** A scan after a tool call is skipped when the last one was this recent. */
 const SCAN_GAP_MS = 2_000
 /** The most rows of each kind the pane draws. */
@@ -82,6 +84,11 @@ async function copyPath($: EngineInterface, file: OutputFile): Promise<void> {
   $.ui.toast(copied.isCopied ? `Copied the path of ${file.name}.` : `Could not copy: ${copied.reason}`)
 }
 
+/** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
+async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
+  return (await $.command.list().catch(() => [])).some(command => command.name === SETTINGS)
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -116,6 +123,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
+    const hasSettings = await isSettingsInstalled($)
     const current = await read($, view)
     const now = await $.clock.now()
     const width = Math.max(16, e.props.bodyColumns)
@@ -145,7 +153,10 @@ export const register: Register = on => {
       <Box flexDirection="column" width={width}>
         <Box flexDirection="row" justifyContent="space-between">
           <Text bold>{TITLE}</Text>
-          <Button key="refresh" plain dimColor hotkey="r" label="refresh" onPress={() => void scan($).catch(report($))} />
+          <Box flexDirection="row" columnGap={1}>
+            <Button key="refresh" plain dimColor hotkey="r" label="refresh" onPress={() => void scan($).catch(report($))} />
+            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+          </Box>
         </Box>
         {current.error !== '' && <Text color="red" wrap="wrap">{current.error}</Text>}
         {current.files.length === 0 && current.error === '' && (

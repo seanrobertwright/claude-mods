@@ -25,6 +25,8 @@ import type { Config } from './parse'
 
 const PANE = 'whats-next'
 const TITLE = "What's next"
+/** The settings dialog's command and its gear's key (ADR-0005). mod-settings takes the press; the gear's onPress is the fallback. */
+const SETTINGS = 'mod-settings'
 const TEN_MINUTES = 600_000
 /** Room for a cold start of the `claude` CLI before the probe calls it missing. */
 const PROBE_MS = 60_000
@@ -326,6 +328,11 @@ async function pasteStep($: EngineInterface, step: NextStep, isFresh: boolean): 
   }
 }
 
+/** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
+async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
+  return (await $.command.list().catch(() => [])).some(command => command.name === SETTINGS)
+}
+
 export const register: Register = (on, options) => {
   const config = parseConfig(options)
 
@@ -416,6 +423,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
+    const hasSettings = await isSettingsInstalled($)
     const current = await read($, list)
     const working = activeStep(current)
     const beat = await read($, tick)
@@ -438,7 +446,10 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" width={width}>
           <Box flexDirection="row" justifyContent="space-between">
             <Text bold>{TITLE}</Text>
-            <Button key="back" plain dimColor hotkey="b" label="back" onPress={() => void back().catch(report($))} />
+            <Box flexDirection="row" columnGap={1}>
+              <Button key="back" plain dimColor hotkey="b" label="back" onPress={() => void back().catch(report($))} />
+              {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+            </Box>
           </Box>
           <Box marginTop={1} flexDirection="column">
             <Text bold wrap="wrap">{shown.title}</Text>
@@ -478,14 +489,17 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" width={width}>
         <Box flexDirection="row" justifyContent="space-between">
           <Text bold>{TITLE}</Text>
-          <Button
-            key="refresh"
-            plain
-            dimColor
-            hotkey="r"
-            label="refresh"
-            onPress={() => void refresh($, config).catch(report($))}
-          />
+          <Box flexDirection="row" columnGap={1}>
+            <Button
+              key="refresh"
+              plain
+              dimColor
+              hotkey="r"
+              label="refresh"
+              onPress={() => void refresh($, config).catch(report($))}
+            />
+            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+          </Box>
         </Box>
         {current.status === 'loading' && (
           <Text dimColor wrap="wrap">Asking {config.skill}… this takes a minute or two.</Text>

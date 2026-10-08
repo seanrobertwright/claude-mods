@@ -19,6 +19,9 @@ const PANE = {
 
 const COMPOSER = { origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 60 } } as const
 
+/** mod-settings' command as the session's command list shows it. */
+const MOD_SETTINGS = { name: 'mod-settings', description: 'Open the mod settings dialog', source: 'plugin' } as const
+
 function file(name: string, mtimeMs: number): Entry & { size: number } {
   return { name, kind: 'file', size: 10, mtimeMs, isLink: false }
 }
@@ -256,4 +259,25 @@ test('in a headless session nothing is listed, opened or shown', async ($, on) =
   expect(world.opened).toEqual([])
   expect(world.runs).toEqual([])
   expect(world.toasts).toEqual([])
+})
+
+test('the header draws the settings gear only while mod-settings is installed, and the gear runs /mod-settings', async ($, on) => {
+  engineBeneath(on)
+  let commands: (typeof MOD_SETTINGS)[] = [MOD_SETTINGS]
+  on('command.list', () => ({ value: commands }))
+  const ran: string[] = []
+  on('command.run', { command: 'mod-settings' }, (_$, e) => {
+    ran.push(e.command)
+    return { text: 'Mod settings opened.' }
+  })
+
+  const pane = await $.ui.mount({ plugin: 'outputs', surface: 'terminal', component: 'Pane', requestId: 'outputs', props: PANE })
+  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙')
+  await pane.press({ key: 'mod-settings' })
+  expect(ran).toEqual(['mod-settings'])
+
+  commands = []
+  await pane.redraw()
+  expect(await pane.find({ key: 'mod-settings' })).toBeUndefined()
+  await pane.unmount()
 })

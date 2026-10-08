@@ -45,6 +45,9 @@ const PANE = {
   view: {},
 } as const
 
+/** mod-settings' command as the session's command list shows it. */
+const MOD_SETTINGS = { name: 'mod-settings', description: 'Open the mod settings dialog', source: 'plugin' } as const
+
 function ok(stdout: string) {
   return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
 }
@@ -419,4 +422,27 @@ test('polling runs no gh while a requirement is missing', async ($, on) => {
   const before = runs.length
   await clock.advance(3 * FIVE_MINUTES)
   expect(runs.length).toBe(before)
+})
+
+test('the header draws the settings gear only while mod-settings is installed, and the gear runs /mod-settings', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  fakeGh(on, [])
+  let commands: (typeof MOD_SETTINGS)[] = [MOD_SETTINGS]
+  on('command.list', () => ({ value: commands }))
+  const ran: string[] = []
+  on('command.run', { command: 'mod-settings' }, (_$, e) => {
+    ran.push(e.command)
+    return { text: 'Mod settings opened.' }
+  })
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙')
+  await pane.press({ key: 'mod-settings' })
+  expect(ran).toEqual(['mod-settings'])
+
+  commands = []
+  await pane.redraw()
+  expect(await pane.find({ key: 'mod-settings' })).toBeUndefined()
+  await pane.unmount()
 })
