@@ -1,6 +1,6 @@
 import type { Git, HudView, Limit } from '../types'
 
-export const SEGMENTS = ['model', 'effort', 'context', 'limits', 'turn', 'tools', 'agents', 'git', 'cost', 'session', 'folder'] as const
+export const SEGMENTS = ['model', 'effort', 'context', 'limits', 'turn', 'tools', 'agents', 'git', 'worktree', 'cost', 'session', 'folder'] as const
 export type SegmentId = (typeof SEGMENTS)[number]
 
 export type Theme = 'neon' | 'ocean' | 'ember' | 'mono'
@@ -12,7 +12,7 @@ export type Segment = { id: string; kind: SegmentId; label: string; text: string
 type Level = 'ok' | 'warn' | 'danger'
 
 /** Left out first when the row is too wide; what is not named here goes last. */
-const DROP_ORDER: readonly SegmentId[] = ['folder', 'session', 'cost', 'tools', 'git', 'agents', 'effort', 'model', 'turn', 'limits', 'context']
+const DROP_ORDER: readonly SegmentId[] = ['folder', 'session', 'cost', 'tools', 'worktree', 'git', 'agents', 'effort', 'model', 'turn', 'limits', 'context']
 const GAP = 2
 const GAUGE_CELLS = 8
 const LEVEL_COLORS: Readonly<Record<Level, string>> = { ok: '#5fff87', warn: '#ffd75f', danger: '#ff5f5f' }
@@ -22,6 +22,8 @@ const PALETTES: Readonly<Record<Theme, readonly string[]>> = {
   ember: ['#ffd75f', '#ffaf5f', '#ff875f', '#ff5f5f', '#ff5f87', '#ffaf87'],
   mono: [],
 }
+/** The worktree figure's label: the leafless tree, then its name. */
+const WORKTREE_LABEL = '\u{1FABE} worktree'
 const LIMIT_NAMES: Readonly<Record<string, string>> = { five_hour: '5h limit', seven_day: '7d limit', spend_limit: 'spend limit' }
 /** The share of a rate limit at which its figure turns yellow, and red. */
 const LIMIT_WARN_AT = 75
@@ -96,6 +98,22 @@ export function parseGit(output: string): Git | null {
   return { branch: head.slice('# branch.head '.length).trim(), changed, ahead: Number(ahead), behind: Number(behind) }
 }
 
+/** Whether two paths name one folder: one kind of slash, no trailing one, either case. */
+function samePath(a: string, b: string): boolean {
+  const norm = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  return norm(a) === norm(b)
+}
+
+/**
+ * Reads `git rev-parse --path-format=absolute --git-dir --git-common-dir --show-toplevel`: the top folder of a
+ * linked worktree, whose own git directory is not the one its repository shares; null for the main checkout.
+ */
+export function parseWorktree(output: string): string | null {
+  const [gitDir = '', commonDir = '', top = ''] = output.split(/\r?\n/).map(line => line.trim())
+  if (gitDir === '' || commonDir === '' || top === '') return null
+  return samePath(gitDir, commonDir) ? null : top
+}
+
 function gitText(git: Git): string {
   const marks = [git.changed > 0 ? `${git.changed} changed` : '', git.ahead > 0 ? `${git.ahead} ahead` : '', git.behind > 0 ? `${git.behind} behind` : '']
   return [git.branch, ...marks.filter(mark => mark !== '')].join(' · ')
@@ -161,15 +179,24 @@ function figures(view: HudView, now: number): Figure[] {
   if (view.toolsSession > 0) out.push({ kind: 'tools', id: 'tools', label: 'tools', text: `${view.toolsTurn} this turn · ${view.toolsSession} total` })
   if (view.agents > 0) out.push({ kind: 'agents', id: 'agents', label: 'agents', text: `${view.agents} running` })
   if (view.git !== null) out.push({ kind: 'git', id: 'git', label: 'git', text: gitText(view.git) })
+  if (view.worktree !== null) out.push({ kind: 'worktree', id: 'worktree', label: WORKTREE_LABEL, text: folderName(view.worktree) })
   if (view.costUsd !== null) out.push({ kind: 'cost', id: 'cost', label: 'cost', text: `$${view.costUsd.toFixed(2)}` })
   if (view.startedAt > 0) out.push({ kind: 'session', id: 'session', label: 'session', text: coarse(now - view.startedAt) })
   if (view.folder !== '') out.push({ kind: 'folder', id: 'folder', label: 'folder', text: folderName(view.folder) })
   return out
 }
 
+/** Cells a text takes on a terminal: an emoji from the pictograph planes two, a variation selector none, the rest one. */
+export function cells(text: string): number {
+  return Array.from(text).reduce((sum, char) => {
+    const code = char.codePointAt(0) ?? 0
+    return sum + (code === 0xfe0f ? 0 : code >= 0x1f000 ? 2 : 1)
+  }, 0)
+}
+
 /** A line's width as drawn: each figure's label, a space and its text, with the gap between figures. */
 export function rowWidth(segments: readonly { label: string; text: string }[]): number {
-  return segments.reduce((sum, segment) => sum + Array.from(segment.label).length + 1 + Array.from(segment.text).length, 0) + GAP * Math.max(0, segments.length - 1)
+  return segments.reduce((sum, segment) => sum + cells(segment.label) + 1 + cells(segment.text), 0) + GAP * Math.max(0, segments.length - 1)
 }
 
 /**

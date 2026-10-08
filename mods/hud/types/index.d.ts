@@ -17,6 +17,8 @@ export type HudView = {
   startedAt: number
   /** Null outside a git repository. */
   git: Git | null
+  /** The top folder of the linked worktree the session is in; null in a repository's main checkout or outside one. */
+  worktree: string | null
   folder: string
   /** Subagents running now. */
   agents: number
