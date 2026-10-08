@@ -148,6 +148,11 @@ Elsewhere, such as on a phone, it waits to be asked.
 Asked, through the mod's own command, the pane comes in front of the others and takes the keyboard, which Esc hands back; an unasked open never takes the keyboard.
 _Avoid_: Sidebar, tab, panel
 
+**Sub-tab**:
+One part of a single pane, picked from a row of buttons the mod draws at the top of that pane; archon-panel's are Runs, Graph, Log and Archon's log.
+A pane's sub-tabs open and close with it and share its one scroll window; the tabs Claude Code shows are panes, each opened and closed on its own.
+_Avoid_: Tab (Claude Code's tabs are panes), page, section
+
 **Band**:
 The single row of buttons a mod draws directly above the prompt.
 _Avoid_: Bar, toolbar, AbovePrompt
