@@ -50,6 +50,8 @@ Effort counts what the mod must add beyond the client itself, which #82 and #88 
 W1 ranks first though Q1 is worth as much: it swaps an existing call for another in a hook that already waits on nothing, so it proves the client contract at the lowest cost.
 Q1 needs a new path from `turn.complete` to the band, with a guard against a reading that arrives after the next prompt.
 
+The verdicts on this shortlist are in #91: W1 and then Q1 are integrated, W2, W3, G1, O1 and T1 wait, and W4 is not worth a model.
+
 ## How fit was judged
 
 - **One snap judgment per question.**
