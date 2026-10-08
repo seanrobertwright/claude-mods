@@ -317,6 +317,7 @@ It sees `git commit` and `git push` in the text of a shell command, `git -C <fol
 It asks on the default branch, and from any branch before a push to it, such as `git push origin main` or `git push origin HEAD:main`.
 The default branch is the one the remote's HEAD names (`origin/HEAD`), else `main`, else `master`.
 Outside a repository, or where git cannot say the branch, the call goes on as it would without the mod.
+It reads the branch before the command runs, so a command that switches branch or folder before it commits, such as `git switch -c fix && git commit`, is judged by where it starts.
 
 There is nothing to set: once installed, it guards every session.
 
