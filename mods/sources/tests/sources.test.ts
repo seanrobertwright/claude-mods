@@ -18,6 +18,9 @@ const PANE = {
 
 const COMPOSER = { origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 60 } } as const
 
+/** mod-settings' command as the session's command list shows it. */
+const MOD_SETTINGS = { name: 'mod-settings', description: 'Open the mod settings dialog', source: 'plugin' } as const
+
 /**
  * The engine beneath the mod: the reads that got through, and the panes it opened.
  * `landing` is the file system: each path that exists and where it lands; any other path is missing.
@@ -269,5 +272,26 @@ test('in a headless session a read goes through, nothing is kept and nothing ope
   expect(opened).toEqual([])
   const pane = await $.ui.mount({ plugin: 'sources', surface: 'terminal', component: 'Pane', requestId: 'sources', props: PANE })
   expect(await pane.find({ type: 'Text', text: 'Nothing read yet this session.' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('the header draws the settings gear only while mod-settings is installed, and the gear runs /mod-settings', async ($, on) => {
+  engineBeneath(on)
+  let commands: (typeof MOD_SETTINGS)[] = [MOD_SETTINGS]
+  on('command.list', () => ({ value: commands }))
+  const ran: string[] = []
+  on('command.run', { command: 'mod-settings' }, (_$, e) => {
+    ran.push(e.command)
+    return { text: 'Mod settings opened.' }
+  })
+
+  const pane = await $.ui.mount({ plugin: 'sources', surface: 'terminal', component: 'Pane', requestId: 'sources', props: PANE })
+  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙')
+  await pane.press({ key: 'mod-settings' })
+  expect(ran).toEqual(['mod-settings'])
+
+  commands = []
+  await pane.redraw()
+  expect(await pane.find({ key: 'mod-settings' })).toBeUndefined()
   await pane.unmount()
 })

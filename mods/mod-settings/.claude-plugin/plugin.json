@@ -1,0 +1,6 @@
+{
+  "name": "mod-settings",
+  "version": "0.1.0",
+  "description": "A gear at the top right of each mod's pane opens one dialog for every claude-mods setting: pick a mod, change its settings, save.",
+  "types": "./types/index.d.ts"
+}

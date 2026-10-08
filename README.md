@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, and a list of the ones it read.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![10 mods](https://img.shields.io/badge/mods-10-6b5bd2)
+![11 mods](https://img.shields.io/badge/mods-11-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all ten, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all eleven, or read the source and write your own.
 
 ## What is a mod?
 
@@ -35,6 +35,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, cost, session length and folder, each named and in colour |
+| ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
 
@@ -383,6 +384,61 @@ echo '{"theme": "ember", "animate": "false", "hide": "cost,folder"}' | claude pl
 
 **Needs:** nothing. Git state shows when `git` is on the PATH and the folder is a repository.
 
+### ⚙ mod-settings
+
+One dialog for the settings of every installed mod: pick a mod, change its settings, save.
+Press ⚙ at the top right of a mod's pane, or run `/mod-settings`.
+
+```text
+Mod settings                         close
+auto-resume  4 settings
+github-panel  2 settings
+hud  4 settings
+quick-reply  2 settings
+turn-chime  1 setting
+whats-next  5 settings
+Mods with no settings are not listed.
+```
+
+```text
+hud                             back close
+
+Colour theme
+The colours the row moves through.
+[ neon ] [ ocean ] [ ember ] [ mono ]
+
+Animate while working
+Move the colours across the row while ...
+[ on ]
+
+Where the row is drawn
+Below the prompt, above Claude Code's ...
+[ below ] [ above ]
+
+Segments to hide
+Comma-separated, from: model, effort, ...
+cost,folder
+
+[ Save ]  Saved 2 settings.
+```
+
+- The gear shows on the panes of whats-next, github-panel, outputs and sources while mod-settings is installed.
+- Mods with no settings are not listed.
+- Each setting shows its current value. Change the ones you want and press Save, or Enter in a text field: only the settings you changed are saved, and the mod reloads with them at once.
+- A value Claude Code refuses is shown in red under its setting, with what you typed kept so you can fix it. The other settings still save.
+- A setting that managed settings own is shown as locked.
+- A text or number setting is changed on the terminal, desktop or editor; the phone shows its value.
+
+| Command or key | What it does |
+| --- | --- |
+| `/mod-settings` | Open the dialog in front |
+| ⚙ | Open the dialog from a mod's pane |
+| Esc | Close the dialog |
+
+There is nothing to set: the dialog reads every mod's settings from Claude Code.
+
+**Needs:** nothing.
+
 ## Quick start
 
 The fastest way is to let Claude do it. Paste this prompt into Claude Code:
@@ -414,6 +470,7 @@ claude plugin install open-file-guard@claude-mods
 claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
 claude plugin install hud@claude-mods
+claude plugin install mod-settings@claude-mods
 ```
 
 To try a mod for one session only, with nothing installed:
@@ -433,6 +490,13 @@ whats-next, quick-reply, auto-resume, github-panel, turn-chime and hud have sett
 shelf and sources are set up with their own commands, in the session; outputs and open-file-guard have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
+
+### In the side panel
+
+With [mod-settings](#-mod-settings) installed, press ⚙ at the top right of a mod's pane, or run `/mod-settings`.
+Pick a mod, change its settings and save.
+It writes where `/plugin configure` and `/config` write, and the mod reloads with the new values at once.
+A refused value is shown in red under its setting.
 
 ### In a session
 
@@ -488,6 +552,7 @@ The values live in your user settings, `~/.claude/settings.json`, under `pluginC
 ### A value that does not fit
 
 - `claude plugin configure` and `--config` refuse a value of the wrong type, and a choice that is not on the list, naming the setting: `Failed to save configuration: Colour theme must be one of: neon, ocean, ember, mono`.
+- The settings dialog refuses the same values, with the reason under the setting. Like `claude plugin configure`, it also refuses a text with a line break or over 64 KB. A number setting left blank is refused rather than cleared: delete its key in `settings.json` to put it back to its default.
 - A number outside the range in the mod's table, a fraction in any number setting but Grace after reset and Long turn, or a text setting in a shape the mod does not take, is passed over and the mod uses that setting's default. Nothing tells you, so check the table when a change seems to do nothing.
 
 ## Good manners, built in

@@ -7,6 +7,8 @@ import type { Reach } from './paths'
 
 const PANE = 'sources'
 const TITLE = 'Sources'
+/** The settings dialog's command and its gear's key (ADR-0005). mod-settings takes the press; the gear's onPress is the fallback. */
+const SETTINGS = 'mod-settings'
 /** The most files a group lists before it counts the rest. */
 const MOST_ROWS = 8
 
@@ -41,6 +43,11 @@ async function outside($: EngineInterface, reach: Reach, folders: readonly strin
     if (!isAllowed(real, bounds)) return real
   }
   return undefined
+}
+
+/** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
+async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
+  return (await $.command.list().catch(() => [])).some(command => command.name === SETTINGS)
 }
 
 export const register: Register = on => {
@@ -91,6 +98,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
+    const hasSettings = await isSettingsInstalled($)
     const current = await read($, view)
     const cwd = normal(await $.session.cwd())
     const width = Math.max(16, e.props.bodyColumns)
@@ -103,14 +111,17 @@ export const register: Register = on => {
           <Text bold={current.isLocked} color={current.isLocked ? 'yellow' : undefined}>
             {current.isLocked ? 'Reads: this folder only' : 'Reads: anywhere'}
           </Text>
-          <Button
-            key="lock"
-            plain
-            dimColor
-            hotkey="l"
-            label={current.isLocked ? 'unlock' : 'lock'}
-            onPress={() => void update($, view, (held): SourcesView => ({ ...held, isLocked: !held.isLocked })).catch(report($))}
-          />
+          <Box flexDirection="row" columnGap={1}>
+            <Button
+              key="lock"
+              plain
+              dimColor
+              hotkey="l"
+              label={current.isLocked ? 'unlock' : 'lock'}
+              onPress={() => void update($, view, (held): SourcesView => ({ ...held, isLocked: !held.isLocked })).catch(report($))}
+            />
+            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+          </Box>
         </Box>
         {current.isLocked && current.allowed.map((folder, index) => (
           <Text key={`allowed-${index}`} dimColor wrap="truncate-start">{`  also ${folder}`}</Text>

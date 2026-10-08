@@ -40,6 +40,9 @@ const REPLY = [
 /** The configured skill as the session's command list shows a user skill. */
 const ASK_SEAN = { name: 'ask-sean', description: "What's next?", source: 'user' } as const
 
+/** mod-settings' command as the session's command list shows it. */
+const MOD_SETTINGS = { name: 'mod-settings', description: 'Open the mod settings dialog', source: 'plugin' } as const
+
 /** A headless run of the skill, as opposed to a quick `claude --version` probe. */
 const isHeadlessRun = (argv: readonly string[]) => argv[0] === 'claude' && argv[1] === '-p'
 
@@ -929,5 +932,32 @@ test('an attach while a glow beat is still checking the surfaces keeps the glow 
   const before = await shine()
   await clock.advance(240)
   expect(await shine()).not.toBe(before)
+  await pane.unmount()
+})
+
+test('both headers draw the settings gear only while mod-settings is installed, and the gear runs /mod-settings', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const needs: Needs = { skills: [ASK_SEAN, MOD_SETTINGS], hasClaude: true, reply: REPLY, opened: [], runs: [], toasts: [] }
+  fakeNeeds(on, needs)
+  const ran: string[] = []
+  on('command.run', { command: 'mod-settings' }, (_$, e) => {
+    ran.push(e.command)
+    return { text: 'Mod settings opened.' }
+  })
+
+  const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
+  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙')
+  await pane.press({ key: 'refresh' })
+  await pressStep(pane, 1)
+  expect(await pane.find({ key: 'paste' })).toBeDefined()
+  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙')
+  await pane.press({ key: 'mod-settings' })
+  expect(ran).toEqual(['mod-settings'])
+
+  needs.skills = [ASK_SEAN]
+  await pane.redraw()
+  expect(await pane.find({ key: 'mod-settings' })).toBeUndefined()
+  await pane.press({ key: 'back' })
+  expect(await pane.find({ key: 'mod-settings' })).toBeUndefined()
   await pane.unmount()
 })
