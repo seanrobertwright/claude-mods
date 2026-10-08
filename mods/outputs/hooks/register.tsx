@@ -6,7 +6,7 @@ import { ago, fit, isOutput, isScanned, joined, MOST_DEPTH, MOST_FOLDERS, native
 
 const PANE = 'outputs'
 const TITLE = 'Outputs'
-/** The settings dialog's command and its gear's key (ADR-0005). mod-settings takes the press; the gear's onPress is the fallback. */
+/** The settings dialog's command and its gear's key (ADR-0007). mod-settings takes the press; the gear's onPress is the fallback. */
 const SETTINGS = 'mod-settings'
 /** A scan after a tool call is skipped when the last one was this recent. */
 const SCAN_GAP_MS = 2_000

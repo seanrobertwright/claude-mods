@@ -7,7 +7,7 @@ import type { Reach } from './paths'
 
 const PANE = 'sources'
 const TITLE = 'Sources'
-/** The settings dialog's command and its gear's key (ADR-0005). mod-settings takes the press; the gear's onPress is the fallback. */
+/** The settings dialog's command and its gear's key (ADR-0007). mod-settings takes the press; the gear's onPress is the fallback. */
 const SETTINGS = 'mod-settings'
 /** The most files a group lists before it counts the rest. */
 const MOST_ROWS = 8
