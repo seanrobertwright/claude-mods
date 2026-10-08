@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, a list of the ones it read, a gate that runs your checks and hands back only the failures, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![11 mods](https://img.shields.io/badge/mods-11-6b5bd2)
+![13 mods](https://img.shields.io/badge/mods-13-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all eleven, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all thirteen, or read the source and write your own.
 
 ## What is a mod?
 
@@ -36,6 +36,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
 | 🧹 [post-merge-cleanup](#-post-merge-cleanup) | Question dialog and toast | After a PR merges, `/cleanup` switches to the default branch, pulls and deletes the branch |
+| 🚦 [lint-test-gate](#-lint-test-gate) | Band above the prompt | Runs your checks on a press and before Claude's `git commit`, and hands back only the failures |
 | ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
@@ -431,6 +432,40 @@ There is nothing to set.
 
 **Needs:** `git`, and the [GitHub CLI](https://cli.github.com) (`gh`) logged in (`gh auth login`), in a folder with a GitHub remote. `/cleanup` names whichever is missing.
 
+### 🚦 lint-test-gate
+
+A gate button above the prompt runs your project's checks, one after another, in the project folder.
+Claude's `git commit` runs them first. Only the failures come back, never the whole output.
+
+```text
+[gate: 2 failing]  [fill failures]
+```
+
+- **gate** runs the checks. Its label says where they stand: `gate`, `gate: running`, `gate: passed` or `gate: N failing`.
+- **fill failures** shows after a failed run. It puts each failing check's name and the end of its output in the prompt, after anything you typed. Nothing is sent: you read it and send it yourself.
+- **Before a commit.** When Claude runs a shell command with `git commit` in it, the checks run first. A failure refuses the command, and Claude reads the failures as the reason. When every check passes, the commit runs. The command is found by pattern, so a `git commit` inside a quoted string counts too.
+- **Which checks.** The Checks setting, or else the `lint`, `typecheck`, `check` and `test` scripts that package.json has, in that order, each run as `npm run <name>`. With neither, the band says `gate: nothing to run`.
+- **What comes back.** For each failing check: its name, why it failed (`exit 1`, `timed out after 10 min` or `could not start: ...`), and the end of its output. That is the last 40 lines of its standard output followed by its standard error, at most 4,000 characters of them, with colour codes removed. A check that timed out has no output to show.
+- **One run at a time.** A commit made while the gate is running waits for that run, then runs the checks again.
+- **A headless session** draws no band, and lets every commit through unchecked.
+
+On Windows, npm is a `.cmd` shim, which cannot start without a shell. So the scripts run as `node <npm-cli.js> run <name>`, with npm's own `npm-cli.js` found beside `node.exe`, and no cmd.exe or other shell in between.
+The programs in the Checks setting start by name, with no shell, too. On Windows, name a real program such as `node` or `python`, not a `.cmd` shim such as `npx`.
+
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Checks | `checks` | empty: the package.json scripts | The commands to run, as a JSON list of argument lists, such as `[["ruff","check","."],["pytest","-q"]]`. Each command is a list of its arguments, never a shell string. Each is named in the failures by its arguments |
+| Time limit per check (minutes) | `timeoutMinutes` | `10` | How long one check may run before it counts as failing, timed out (1-10). Ten minutes is the longest Claude Code lets a mod's process run |
+
+A Checks value that is not such a list runs nothing. A toast says what is wrong when a session starts, and again when you press gate.
+For example, to run Python's tools with five minutes each ([how to set it](#configure-the-mods)):
+
+```sh
+echo '{"checks": "[[\"ruff\",\"check\",\".\"],[\"pytest\",\"-q\"]]", "timeoutMinutes": "5"}' | claude plugin configure lint-test-gate@claude-mods --values-stdin
+```
+
+**Needs:** npm for the package.json scripts, through `node` on Windows; or the programs the Checks setting names. A check that cannot start counts as failing, with the reason.
+
 ### ⚙ mod-settings
 
 One dialog for the settings of every installed mod: pick a mod, change its settings, save.
@@ -517,6 +552,7 @@ claude plugin install open-file-guard@claude-mods
 claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
 claude plugin install hud@claude-mods
+claude plugin install lint-test-gate@claude-mods
 claude plugin install mod-settings@claude-mods
 ```
 
@@ -533,7 +569,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 
 ## Configure the mods
 
-whats-next, quick-reply, auto-resume, github-panel, turn-chime and hud have settings, listed in each mod's section above with the key each one is stored under.
+whats-next, quick-reply, auto-resume, github-panel, turn-chime, hud and lint-test-gate have settings, listed in each mod's section above with the key each one is stored under.
 shelf and sources are set up with their own commands, in the session; outputs and open-file-guard have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
