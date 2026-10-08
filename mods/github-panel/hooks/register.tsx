@@ -20,7 +20,7 @@ import type { Config } from './parse'
 
 const PANE = 'github'
 const TITLE = 'GitHub'
-/** The settings dialog's command and its gear's key (ADR-0005). mod-settings takes the press; the gear's onPress is the fallback. */
+/** The settings dialog's command and its gear's key (ADR-0007). mod-settings takes the press; the gear's onPress is the fallback. */
 const SETTINGS = 'mod-settings'
 /** After a turn, refresh only when the lists are older than this. */
 const AFTER_TURN_MS = 60_000

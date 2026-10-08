@@ -25,7 +25,7 @@ import type { Config } from './parse'
 
 const PANE = 'whats-next'
 const TITLE = "What's next"
-/** The settings dialog's command and its gear's key (ADR-0005). mod-settings takes the press; the gear's onPress is the fallback. */
+/** The settings dialog's command and its gear's key (ADR-0007). mod-settings takes the press; the gear's onPress is the fallback. */
 const SETTINGS = 'mod-settings'
 const TEN_MINUTES = 600_000
 /** Room for a cold start of the `claude` CLI before the probe calls it missing. */

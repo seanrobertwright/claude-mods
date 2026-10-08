@@ -5,7 +5,7 @@ import type { SettingRow, SettingsView } from '../types'
 import { draftOf, isChanged, modsOf, savedNotice, settingCount, settingRows, shownValue, valueOf } from './settings'
 import type { Draft } from './settings'
 
-/** The command, the dialog's pane id, and the key of the gear the pane mods draw (ADR-0005). */
+/** The command, the dialog's pane id, and the key of the gear the pane mods draw (ADR-0007). */
 const NAME = 'mod-settings'
 const TITLE = 'Mod settings'
 
