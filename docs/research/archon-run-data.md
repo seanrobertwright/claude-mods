@@ -87,7 +87,20 @@ _Added for #120, from the `v0.11.1` source; there are no sub-runs on this machin
   When the child pauses, the parent pauses on `metadata.approval = {type: 'child_workflow', childRunId}` and writes a `node_suspended` event, but no `approval_requested` row, and `runAttention` reports it as `blocked_on_child` [src: `workflows/src/dag-executor.ts` `pauseParentOnChild`, `workflows/src/schemas/workflow-run.ts` `runAttention`].
 - **Answered on the child.** Approving or rejecting the parent is refused with a 400, `Run is paused waiting on sub-run <id>. Approve or reject the child run instead.`, carrying `childRunId` [src: `server/src/routes/api.ts` `pausedGateBlocker`, `core/src/operations/workflow-operations.ts` `assertApprovable`].
   When a child ends by running to completion, failure or cancellation, it resumes its parent in the same process [src: `workflows/src/executor.ts` `maybeResumeParentRun`].
-  A child that ends without running, by abandon or by a reject that cancels it, never reaches that hook, so its parent probably stays paused; Archon warns of this on abandon only (inferred, not traced end to end) [src: `server/src/routes/api.ts`].
+  The hook runs only at the end of the child's own execution, so a child that ends without running never reaches it [src: `workflows/src/executor.ts` `executeWorkflow`].
+- **A reject that cancels a child strands its parent.** _Traced for #149._
+  A reject cancels the child when its gate has no `on_reject` and no authored `reject` decision, or when `on_reject` has reached its attempt cap.
+  That reject flips the child from `paused` to `cancelled` in one atomic write and never reads the parent [src: `core/src/operations/workflow-operations.ts` `rejectWorkflow`, `core/src/db/workflows.ts` `resolveAndCancelApprovalGate`].
+  The CLI (`reject`, `reject --detach`, whose detached child runs the same command) and the server's `POST /api/workflows/runs/:id/reject` all call that one function and stop there on a cancel.
+  Neither one names the parent, though Archon's cancel and abandon paths do (`findParentBlockedOn`) [src: `cli/src/commands/workflow.ts` `workflowRejectCommand`, `server/src/routes/api.ts`].
+  Nothing else rescues the parent: no sweep looks at paused parents, and the server runs no orphan clean-up at start.
+  The parent keeps `status: paused` and its `child_workflow` gate, and `runAttention` still reports it as `blocked_on_child` on the cancelled child, because it never reads the child's status.
+  A tool must read the child itself to see the strand [src: `workflows/src/schemas/workflow-run.ts` `runAttention`, `server/src/index.ts`].
+  `archon workflow resume <parent>` is allowed, since a paused run is resumable, and it re-runs the `workflow:` node.
+  That node finds its child `cancelled` and fails with `Sub-run '<name>' was cancelled` (`failure_kind: cancelled`), then the run goes on as for any failed node [src: `workflows/src/dag-executor.ts` `executeWorkflowNode`, `childOutcomeFromRun`].
+  It never re-drives the child, unlike a `failed` one, so a later resume fails the node the same way.
+  Abandoning the parent ends it outright.
+  The same strand follows an abandon of the child, and a completed or failed child whose hook couldn't resume the parent; then Archon sends a "couldn't auto-resume" message to the conversation.
 - **Failure and cancel.** A failed child fails the parent's node (`failure_kind: child_failed`), and a parent resume re-drives a failed child once.
   Abandoning the parent cancels every descendant, but a cancel handled by the process that owns the parent flips only the parent's row [src: `core/src/operations/workflow-operations.ts` `cascadeCancelChildren`].
 - **Fan-out.** One child per item, `max_parallel` at a time (default 5), with no cap on the total.
