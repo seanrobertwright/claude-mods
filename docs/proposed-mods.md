@@ -68,12 +68,6 @@ On the first session of the day, a band with yesterday's merged PRs, the open PR
 
 ## Guards
 
-### branch-guard (rank 10, issue #62)
-
-The branch, the count of uncommitted changes, ahead and behind, and PR state in the status line, plus a tool-call hook that warns before a commit or push on main.
-One of the three "small ones" offered and not chosen.
-hud already shows git state, so only the warning before a commit or push is new.
-
 ### env-guard (rank 11, issue #63)
 
 A tool-call hook that blocks Read, Grep and `cat` on `.env*` and key files, and points the model to keypick instead.
@@ -148,3 +142,4 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **quick-reply**: rank 3, picked by you.
 - **auto-resume**: rank 5, picked by you.
 - **github-panel**: your own request in `e2d3b04d`, close to rank 18 above.
+- **branch-guard**: rank 10 (issue #62), one of the three "small ones" offered and not chosen. hud already showed the git state, so it adds only the question before a commit or push on the default branch.
