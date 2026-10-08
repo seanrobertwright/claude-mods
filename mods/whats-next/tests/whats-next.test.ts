@@ -946,11 +946,11 @@ test('both headers draw the settings gear only while mod-settings is installed, 
   })
 
   const pane = await $.ui.mount({ plugin: 'whats-next', surface: 'terminal', component: 'Pane', requestId: 'whats-next', props: PANE_PROPS })
-  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙')
+  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙️')
   await pane.press({ key: 'refresh' })
   await pressStep(pane, 1)
   expect(await pane.find({ key: 'paste' })).toBeDefined()
-  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙')
+  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙️')
   await pane.press({ key: 'mod-settings' })
   expect(ran).toEqual(['mod-settings'])
 

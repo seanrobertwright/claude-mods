@@ -272,7 +272,7 @@ test('the header draws the settings gear only while mod-settings is installed, a
   })
 
   const pane = await $.ui.mount({ plugin: 'outputs', surface: 'terminal', component: 'Pane', requestId: 'outputs', props: PANE })
-  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙')
+  expect((await pane.find({ key: 'mod-settings' }))?.props.label).toBe('⚙️')
   await pane.press({ key: 'mod-settings' })
   expect(ran).toEqual(['mod-settings'])
 

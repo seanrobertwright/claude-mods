@@ -448,7 +448,7 @@ export const register: Register = (on, options) => {
             <Text bold>{TITLE}</Text>
             <Box flexDirection="row" columnGap={1}>
               <Button key="back" plain dimColor hotkey="b" label="back" onPress={() => void back().catch(report($))} />
-              {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+              {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙️" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
             </Box>
           </Box>
           <Box marginTop={1} flexDirection="column">
@@ -498,7 +498,7 @@ export const register: Register = (on, options) => {
               label="refresh"
               onPress={() => void refresh($, config).catch(report($))}
             />
-            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
+            {hasSettings && <Button key={SETTINGS} plain dimColor label="⚙️" onPress={() => void $.command.run({ command: SETTINGS }).catch(report($))} />}
           </Box>
         </Box>
         {current.status === 'loading' && (
