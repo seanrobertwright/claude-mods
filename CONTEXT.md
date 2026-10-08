@@ -127,6 +127,12 @@ One execution of an Archon workflow, started from the CLI, the web UI or a chat 
 A run belongs to the project it was started in; archon-panel lists the session's project's runs and only counts the others' live runs.
 _Avoid_: Job, execution, task
 
+**Sub-run**:
+A run that a node of another run started; one node may start several.
+It belongs to the run that started it, so archon-panel shows it under that run and counts it only through it.
+A block of nodes a workflow includes, and a round of a loop, are parts of one run, not sub-runs.
+_Avoid_: Child run, child workflow, nested run
+
 **Node**:
 One step of a workflow, which may wait on other nodes; a run's nodes and the waits between them form its graph.
 _Avoid_: Step (a Step is a whats-next entry), stage, task
@@ -134,6 +140,7 @@ _Avoid_: Step (a Step is a whats-next entry), stage, task
 **Live run**:
 A run that has not ended: waiting to start, running, or paused, whether on an approval or on a wait node.
 A run ends when it completes, fails or is cancelled.
+A run and its sub-runs count as one live run while any of them has not ended.
 
 **Approval**:
 A point where a run pauses until a person answers it: approve, reject, or another decision its workflow declared, with an optional comment.

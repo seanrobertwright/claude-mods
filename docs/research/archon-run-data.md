@@ -51,7 +51,7 @@ How sources are cited:
 | --- | --- | --- |
 | The run's workflow source: `metadata.workflow_source.root` | The YAML the run executes: nodes, `depends_on`, `when`, `trigger_rule`, loops, approvals | `<output_root>/workflow-source/runs/<runId>/`. It holds `manifest.json` (`workflow_name`, `scopes`, `digest`, `file_count`, `byte_count`) and a `bundled/`, `global/` or project folder of workflows and commands [probe] |
 | `metadata.terminal_graph` | `node_ids` (the end nodes) and `returns` | Only the end of the graph [archon-api] [probe] |
-| Node events (`node_started`, `node_completed`, `node_failed`, `node_skipped`) | Each node's state, keyed by `step_name` | Loop iterations are `<node>-iteration-<n>` in the transcript; `loop_iteration_*` rows are in the events table only [skill: `manage-run/troubleshooting.md`] [src: `workflows/src/dag-executor.ts`] |
+| Node events (`node_started`, `node_completed`, `node_failed`, `node_skipped`) | Each node's state, keyed by `step_name` | A `loop_group`'s body nodes are `<groupId>.<nodeId>` with `data.iteration`, and the group writes `loop_iteration_*` rows in the events table only. `<node>-iteration-<n>` is only the transcript id of `until_bash` probes and loop watchdog entries, never an event's `step_name` (_corrected for #120; this cell first said loop iterations are `<node>-iteration-<n>`_) [skill: `manage-run/troubleshooting.md`] [src: `workflows/src/dag-executor.ts`] |
 | `archon workflow get <id> --json --verbose` | `nodes[]`, one per node that has started, with its state | No `depends_on`, and no node that has not started yet [probe] |
 | `GET /api/workflows?cwd=` or `/api/workflows/{name}` | The **live** definition | What the web UI's run graph uses, matched by name [src: `web/src/experiments/console/skills/workflows.ts`] |
 
@@ -69,11 +69,33 @@ How sources are cited:
 - **What changes between the YAML and the run:**
   - **`include:`** nodes are replaced at load time by the target's nodes, as top-level `<includeId>__<nodeId>`.
     The include's own `depends_on` attaches to the block's entry nodes, and a node that depends on the include waits on all the block's end nodes [src: `workflows/src/include-expander.ts`].
-  - **`loop_group`** nodes hold their own child nodes, which run once per iteration under the same `step_name` [src: `workflows/src/dag-executor.ts`, `workflows/src/schemas/dag-node.ts`].
+  - **`loop_group`** nodes hold their own child nodes, which run once per iteration.
+    Their events are named `<groupId>.<nodeId>`, with a dot, and carry `data.iteration`, so every round reuses the same names (_corrected for #120_) [src: `workflows/src/dag-executor.ts`, `workflows/src/schemas/dag-node.ts`].
   - **`include:` with `fan_out:`** is expanded only at run time, once per item, as `<nodeId>__<identity>`, all within the same run.
     Its width is unknown until it runs [src: `workflows/src/schemas/dag-node.ts` `composeFanOutNodeSchema`].
   - **`workflow:`** starts a **child run**: its own run row with `parent_run_id`, and its own artifacts, approvals and cost.
     It shares the parent's checkout or has its own worktree (`isolation`), and with `fan_out` it starts one child per item [src: `workflows/src/schemas/dag-node.ts` `workflowNodeSchema`, `workflows/src/child-isolation.ts`].
+
+### Sub-runs
+
+_Added for #120, from the `v0.11.1` source; there are no sub-runs on this machine to probe._
+
+- **Listed as ordinary rows.** Neither `GET /api/dashboard/runs`, `GET /api/workflows/runs` nor `archon workflow runs --json` filters out a child, and children count toward `limit` [src: `core/src/db/workflows.ts` `listDashboardRuns`, `listWorkflowRuns`].
+  A child is marked by `parent_run_id` and `metadata.parent_node_id`, plus `child_index` and `fan_out_item_hash` for a fan-out.
+  It copies the parent's `codebase_id`, `conversation_id` and `parent_conversation_id`, and its `user_message` is the node's `input:` [src: `workflows/src/executor.ts` `runChildWorkflow`].
+- **Run inside the parent's process.** The parent stays `running` while its child runs.
+  When the child pauses, the parent pauses on `metadata.approval = {type: 'child_workflow', childRunId}` and writes a `node_suspended` event, but no `approval_requested` row, and `runAttention` reports it as `blocked_on_child` [src: `workflows/src/dag-executor.ts` `pauseParentOnChild`, `workflows/src/schemas/workflow-run.ts` `runAttention`].
+- **Answered on the child.** Approving or rejecting the parent is refused with a 400, `Run is paused waiting on sub-run <id>. Approve or reject the child run instead.`, carrying `childRunId` [src: `server/src/routes/api.ts` `pausedGateBlocker`, `core/src/operations/workflow-operations.ts` `assertApprovable`].
+  When a child ends by running to completion, failure or cancellation, it resumes its parent in the same process [src: `workflows/src/executor.ts` `maybeResumeParentRun`].
+  A child that ends without running, by abandon or by a reject that cancels it, never reaches that hook, so its parent probably stays paused; Archon warns of this on abandon only (inferred, not traced end to end) [src: `server/src/routes/api.ts`].
+- **Failure and cancel.** A failed child fails the parent's node (`failure_kind: child_failed`), and a parent resume re-drives a failed child once.
+  Abandoning the parent cancels every descendant, but a cancel handled by the process that owns the parent flips only the parent's row [src: `core/src/operations/workflow-operations.ts` `cascadeCancelChildren`].
+- **Fan-out.** One child per item, `max_parallel` at a time (default 5), with no cap on the total.
+  The parent records one start and one finish for the whole node, and a fan-out child may not pause: a paused one is cancelled and the node fails [src: `workflows/src/dag-executor.ts` `executeFanOutWorkflowNode`].
+- **Its own transcript, cost and source.** A child writes `<output_root>/logs/<childId>.jsonl` and freezes its own workflow source.
+  The parent's cost already includes its children's [src: `workflows/src/logger.ts`, `workflows/src/dag-executor.ts`].
+- **Archon's web UI** lists children flat with a `↳ child` badge and links neither way between parent and child.
+  Its graph draws both a `workflow:` node and a `loop_group` as plain boxes [src: `web/src/experiments/console/`].
 
 ### Shape of the bundled `archon-*` workflows
 
