@@ -155,6 +155,12 @@ A run paused until a person does something outside Archon that its workflow name
 It waits on the person, as an approval does, but it is not answered with a decision, so archon-panel shows it and does not act on it.
 _Avoid_: Approval, attention (Archon's word in a workflow)
 
+**Needs you**:
+A live run that will not go on until a person acts: on an **approval**, on **action needed**, or stopped on a gate Archon cannot read.
+A run paused on a wait node, answered and waiting to resume, or waiting on a sub-run does not need you; a sub-run that does is counted through the run that started it.
+archon-panel names these runs first, in its pane, its status line and its toasts.
+_Avoid_: Attention (Archon's word), blocked, stuck
+
 **Run log**:
 What a run has said and done so far: each node's model output and the tools it called, each node's output or error, and the files it wrote.
 What a tool returned is not kept, so it is not part of the run log.
