@@ -40,7 +40,7 @@ function findingsInLine(line: string, where: string): Finding[] {
   )
 }
 
-/** A fence line opens a fenced code block, or closes the one `open` started. */
+/** The run of backticks or tildes a fence line starts with; undefined for any other line. */
 function fenceOf(line: string): string | undefined {
   return /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
 }
