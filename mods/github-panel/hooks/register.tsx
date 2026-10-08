@@ -5,6 +5,7 @@ import type { GitHubView } from '../types'
 import {
   ago,
   blockerLines,
+  fillsWidth,
   fit,
   ISSUE_FIELDS,
   issueDetail,
@@ -24,6 +25,8 @@ const TITLE = 'GitHub'
 const SETTINGS = 'mod-settings'
 /** After a turn, refresh only when the lists are older than this. */
 const AFTER_TURN_MS = 60_000
+/** The fewest columns an issue's detail line keeps beside the fill buttons; narrower, the buttons take a line of their own. */
+const MIN_DETAIL = 12
 
 const EMPTY: GitHubView = { status: 'idle', repo: '', prs: [], issues: [], error: '', updatedAt: 0, runId: 0 }
 const view = atom({ plugin: 'github-panel', key: 'view' } as const, EMPTY)
@@ -165,6 +168,22 @@ async function openOnGitHub($: EngineInterface, args: readonly string[]): Promis
   if (run.exitCode !== 0) $.ui.toast(`GitHub: ${lastLine(run.stderr) || 'could not open the browser'}`)
 }
 
+/**
+ * Puts `<command> <url>` in the prompt box; nothing is sent. The person types
+ * there next, so the prompt box needs the keyboard, and closing the pane is the
+ * one way a mod hands it back: the pane is closed, then opened again without
+ * asking for the keyboard, as whats-next does.
+ */
+async function fillPrompt($: EngineInterface, text: string): Promise<void> {
+  await $.ui.close({ id: PANE })
+  try {
+    const filled = await $.prompt.fill({ text })
+    if (!filled.isFilled) $.ui.toast('GitHub: the prompt box could not take the command.')
+  } finally {
+    await $.ui.open({ id: PANE, title: TITLE })
+  }
+}
+
 /** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
 async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
   return (await $.command.list().catch(() => [])).some(command => command.name === SETTINGS)
@@ -174,6 +193,7 @@ export const register: Register = (on, options) => {
   const config = parseConfig(options)
 
   on('session.start', async ($, e, next) => {
+    for (const problem of config.problems) $.ui.toast(problem)
     await $.command.register({ name: 'github', description: 'Open the GitHub pane in the side panel: open PRs and issues' })
     // A reload killed any load in flight: drop its loading state and its result.
     await update($, view, (current): GitHubView => ({
@@ -240,6 +260,8 @@ export const register: Register = (on, options) => {
     const width = Math.max(16, e.props.bodyColumns)
     const room = width - 1
     const isFull = (count: number) => count >= config.limit
+    // The fill buttons sit at the right of an issue's detail line, or on a line of their own when that leaves it too little.
+    const isFillBeside = 2 + MIN_DETAIL + 1 + fillsWidth(config.fills) <= width
 
     return (
       <Box flexDirection="column" width={width}>
@@ -286,15 +308,40 @@ export const register: Register = (on, options) => {
           const isBlocked = issue.blockedBy.length > 0
           const label = fit(`#${issue.number} ${issue.title}`, room)
           const open = () => void openOnGitHub($, ['issue', 'view', String(issue.number)]).catch(report($))
+          const detail = issueDetail(issue)
           // A Button's label takes no color at rest, so a blocked issue's detail line is the red one.
+          const detailText = detail !== '' && (isBlocked
+            ? <Text color="red" wrap="truncate-end">  {detail}</Text>
+            : <Text dimColor wrap="truncate-end">  {detail}</Text>)
+          const fills = issue.url === '' ? [] : config.fills.map(fill => (
+            <Button
+              key={`${fill.key}-${issue.number}`}
+              plain
+              dimColor
+              label={fit(fill.label, width - 2)}
+              onPress={() => void fillPrompt($, `${fill.command} ${issue.url}`).catch(report($))}
+            />
+          ))
           return (
             <Box key={`issue-row-${issue.number}`} flexDirection="column">
               {isBlocked
                 ? <Button key={`issue-${issue.number}`} plain label={label} hover={{ color: 'red' }} onPress={open} />
                 : <Button key={`issue-${issue.number}`} plain label={label} onPress={open} />}
-              {issueDetail(issue) !== '' && (isBlocked
-                ? <Text color="red" wrap="truncate-end">  {issueDetail(issue)}</Text>
-                : <Text dimColor wrap="truncate-end">  {issueDetail(issue)}</Text>)}
+              {fills.length === 0
+                ? detailText
+                : isFillBeside
+                  ? (
+                    <Box flexDirection="row" columnGap={1}>
+                      <Box flexGrow={1} flexShrink={1}>{detailText}</Box>
+                      <Box flexDirection="row" columnGap={1} flexShrink={0}>{fills}</Box>
+                    </Box>
+                  )
+                  : (
+                    <Box flexDirection="column">
+                      {detailText}
+                      <Box flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={2}>{fills}</Box>
+                    </Box>
+                  )}
               {isBlocked && (
                 <Box
                   position="absolute"

@@ -1,7 +1,7 @@
 {
   "name": "github-panel",
   "version": "0.1.0",
-  "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser.",
+  "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser, or fill /implement or /wayfinder with an issue.",
   "types": "./types/index.d.ts",
   "userConfig": {
     "limit": {
@@ -15,6 +15,18 @@
       "title": "Refresh every (minutes)",
       "description": "How often to refresh while the session runs (1-120); 0 refreshes only on open, after turns and on r.",
       "default": 5
+    },
+    "implementCommand": {
+      "type": "string",
+      "title": "Implement button fills",
+      "description": "The slash command an issue's implement button puts in the prompt, before the issue's URL; empty hides the button.",
+      "default": "/implement"
+    },
+    "wayfinderCommand": {
+      "type": "string",
+      "title": "Wayfinder button fills",
+      "description": "The slash command an issue's wayfinder button puts in the prompt, before the issue's URL; empty hides the button.",
+      "default": "/wayfinder"
     }
   }
 }
