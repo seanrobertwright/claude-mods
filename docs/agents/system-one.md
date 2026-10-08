@@ -3,7 +3,7 @@
 Every new mod, and every new judgment added to an existing mod, gets a System One verdict before it is built.
 The verdict goes in the mod's issue, or in its PR description when the work has no issue.
 A judgment is a place where a mod decides something from text, such as how an answer ends or whether a step is finished.
-The bold words are defined in `CONTEXT.md`.
+A bold word inside a sentence is defined in `CONTEXT.md`; a bold word that starts a list item is that item's label.
 
 ## The verdict
 
