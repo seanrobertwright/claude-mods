@@ -9,9 +9,9 @@ const MINUTE = 60_000
 
 const GIT_STATUS = ['# branch.oid abc', '# branch.head main', '# branch.upstream origin/main', '# branch.ab +1 -2', '1 .M N... 100644 100644 100644 a b README.md', '? notes.md', ''].join('\n')
 
-/** What `git rev-parse --path-format=absolute --git-dir --git-common-dir --show-toplevel` prints in the main checkout, and in a linked worktree. */
-const MAIN_CHECKOUT = ['/work/claude-mods/.git', '/work/claude-mods/.git', '/work/claude-mods', ''].join('\n')
-const LINKED = ['C:/repos/claude-mods/.git/worktrees/claude-mods-121', 'C:/repos/claude-mods/.git', 'C:/repos/claude-mods-121', ''].join('\n')
+/** What `git rev-parse --show-toplevel` prints in the main checkout, and in a linked worktree. */
+const MAIN_CHECKOUT = '/work/claude-mods\n'
+const LINKED = 'C:/repos/claude-mods-121\n'
 
 const HINT = { isDraft: false, isWorking: false, hint: '? for shortcuts' } as const
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 200, scroll: { offset: 0, bodyRows: 10 }, view: {} } as const
@@ -41,7 +41,7 @@ type World = {
   resetsAt: string | undefined
   agents: number
   isRepo: boolean
-  /** Whether the session's folder is a linked worktree rather than the main checkout. */
+  /** Whether the session's folder is a linked worktree rather than the main checkout, which names another top folder. */
   isLinked: boolean
   runs: (readonly string[])[]
   usageReads: number
@@ -122,11 +122,10 @@ test('parseGit reads the branch, what is ahead and behind, and the changed files
   expect(parseGit('fatal: not a git repository')).toBeNull()
 })
 
-test('parseWorktree names a linked worktree by its top folder, and nothing for the main checkout', () => {
+test('parseWorktree names the top folder, of a linked worktree and of the main checkout alike', () => {
   expect(parseWorktree(LINKED)).toBe('C:/repos/claude-mods-121')
-  expect(parseWorktree(MAIN_CHECKOUT)).toBeNull()
-  // Git spells the two directories alike, but a slash or a case apart is still the main checkout.
-  expect(parseWorktree('D:/repos/x/.git\nd:\\repos\\x\\.git\\\nD:/repos/x\n')).toBeNull()
+  expect(parseWorktree(MAIN_CHECKOUT)).toBe('/work/claude-mods')
+  expect(parseWorktree('C:/repos/x\r\n')).toBe('C:/repos/x')
   expect(parseWorktree('')).toBeNull()
 })
 
@@ -164,7 +163,7 @@ test('a narrow row leaves out whole figures from each line, the least important 
   const kinds = (columns: number) => rows(VIEW, config, START, 0, columns).map(line => line.map(segment => segment.kind))
   expect(kinds(100)).toEqual([
     ['model', 'effort', 'context', 'limits'],
-    ['turn', 'agents', 'git', 'worktree'],
+    ['turn', 'tools', 'agents', 'git'],
   ])
   expect(kinds(50)).toEqual([['context'], ['turn', 'agents']])
   for (const line of rows(VIEW, config, START, 0, 100)) expect(rowWidth(line)).toBeLessThanOrEqual(100)
@@ -189,7 +188,7 @@ test('the row under the prompt names and shows what the engine reports, above it
   await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
   expect(world.runs).toEqual([
     ['git', 'status', '--porcelain=v2', '--branch'],
-    ['git', 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel'],
+    ['git', 'rev-parse', '--show-toplevel'],
   ])
 
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -232,17 +231,18 @@ test('during a turn the effort, the timer and the tool calls show, and the end o
   await hint.unmount()
 })
 
-test('outside a git repository the git figure is absent', async ($, on) => {
+test('outside a git repository the git and worktree figures are absent', async ($, on) => {
   const { world } = engineBeneath(on)
   world.isRepo = false
   await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
   const hint = await $.ui.mount({ plugin: 'hud', surface: 'terminal', component: 'PromptHint', props: HINT })
   expect(await hint.find({ type: 'Text', text: 'git' })).toBeUndefined()
+  expect(await hint.find({ type: 'Text', text: '🪾 worktree' })).toBeUndefined()
   expect(await hint.find({ type: 'Text', text: 'claude-mods' })).toBeDefined()
   await hint.unmount()
 })
 
-test('in a linked worktree the row names it beside git, and in the main checkout it is absent', async ($, on) => {
+test('the row names the worktree beside git, a linked one and the main checkout alike', async ($, on) => {
   const { world } = engineBeneath(on)
   world.isLinked = true
   await $.session.start({ cwd: 'C:/repos/claude-mods-121', surface: 'terminal', isInteractive: true })
@@ -252,7 +252,8 @@ test('in a linked worktree the row names it beside git, and in the main checkout
 
   world.isLinked = false
   await $.turn.complete(DONE)
-  expect(await hint.find({ type: 'Text', text: '🪾 worktree' })).toBeUndefined()
+  expect(await hint.find({ type: 'Text', text: '🪾 worktree' })).toBeDefined()
+  expect(await hint.find({ type: 'Text', text: 'claude-mods-121' })).toBeUndefined()
   await hint.unmount()
 })
 

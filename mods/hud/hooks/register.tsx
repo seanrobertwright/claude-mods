@@ -46,12 +46,12 @@ async function isShown($: EngineInterface): Promise<boolean> {
   return (await $.session.surfaces()).length > 0
 }
 
-/** The working tree's state, and the linked worktree the session is in, if it is in one. */
+/** The working tree's state, and the top folder of the worktree the session is in. */
 async function readGit($: EngineInterface): Promise<{ git: Git | null; worktree: string | null }> {
   const [status, where] = await Promise.all(
     [
       ['git', 'status', '--porcelain=v2', '--branch'],
-      ['git', 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel'],
+      ['git', 'rev-parse', '--show-toplevel'],
     ].map(argv => $.process.run(argv, { timeoutMs: GIT_TIMEOUT_MS }).catch(() => undefined)),
   )
   return {

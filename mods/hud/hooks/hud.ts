@@ -12,7 +12,7 @@ export type Segment = { id: string; kind: SegmentId; label: string; text: string
 type Level = 'ok' | 'warn' | 'danger'
 
 /** Left out first when the row is too wide; what is not named here goes last. */
-const DROP_ORDER: readonly SegmentId[] = ['folder', 'session', 'cost', 'tools', 'worktree', 'git', 'agents', 'effort', 'model', 'turn', 'limits', 'context']
+const DROP_ORDER: readonly SegmentId[] = ['folder', 'session', 'cost', 'worktree', 'tools', 'git', 'agents', 'effort', 'model', 'turn', 'limits', 'context']
 const GAP = 2
 const GAUGE_CELLS = 8
 const LEVEL_COLORS: Readonly<Record<Level, string>> = { ok: '#5fff87', warn: '#ffd75f', danger: '#ff5f5f' }
@@ -98,20 +98,10 @@ export function parseGit(output: string): Git | null {
   return { branch: head.slice('# branch.head '.length).trim(), changed, ahead: Number(ahead), behind: Number(behind) }
 }
 
-/** Whether two paths name one folder: one kind of slash, no trailing one, either case. */
-function samePath(a: string, b: string): boolean {
-  const norm = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  return norm(a) === norm(b)
-}
-
-/**
- * Reads `git rev-parse --path-format=absolute --git-dir --git-common-dir --show-toplevel`: the top folder of a
- * linked worktree, whose own git directory is not the one its repository shares; null for the main checkout.
- */
+/** Reads `git rev-parse --show-toplevel`: the top folder of the worktree, the main checkout's or a linked one's. */
 export function parseWorktree(output: string): string | null {
-  const [gitDir = '', commonDir = '', top = ''] = output.split(/\r?\n/).map(line => line.trim())
-  if (gitDir === '' || commonDir === '' || top === '') return null
-  return samePath(gitDir, commonDir) ? null : top
+  const top = output.split(/\r?\n/)[0]?.trim() ?? ''
+  return top === '' ? null : top
 }
 
 function gitText(git: Git): string {
