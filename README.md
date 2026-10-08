@@ -445,7 +445,7 @@ Claude's `git commit` runs them first. Only the failures come back, never the wh
 - **fill failures** shows after a failed run. It puts each failing check's name and the end of its output in the prompt, after anything you typed. Nothing is sent: you read it and send it yourself.
 - **Before a commit.** When Claude runs a shell command with `git commit` in it, the checks run first. A failure refuses the command, and Claude reads the failures as the reason. When every check passes, the commit runs. The command is found by pattern, so a `git commit` inside a quoted string counts too.
 - **Which checks.** The Checks setting, or else the `lint`, `typecheck`, `check` and `test` scripts that package.json has, in that order, each run as `npm run <name>`. With neither, the band says `gate: nothing to run`.
-- **What comes back.** For each failing check: its name, why it failed (`exit 1`, `timed out after 10 min` or `could not start: ...`), and the end of its output. That is the last 40 lines of its standard output followed by its standard error, at most 4,000 characters of them, with colour codes removed. A check that timed out has no output to show.
+- **What comes back.** For each failing check: its name, why it failed (`exit 1`, `timed out after 10 min` or `could not start: ...`), and the end of its output. That is the last 40 lines of what it wrote, its standard output and then its standard error, at most 4,000 characters of them, with colour codes removed. A check that timed out has no output to show.
 - **One run at a time.** A commit made while the gate is running waits for that run, then runs the checks again.
 - **A headless session** draws no band, and lets every commit through unchecked.
 
