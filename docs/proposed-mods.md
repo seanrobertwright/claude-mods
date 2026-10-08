@@ -74,11 +74,6 @@ The branch, the count of uncommitted changes, ahead and behind, and PR state in 
 One of the three "small ones" offered and not chosen.
 hud already shows git state, so only the warning before a commit or push is new.
 
-### env-guard (rank 11, issue #63)
-
-A tool-call hook that blocks Read, Grep and `cat` on `.env*` and key files, and points the model to keypick instead.
-One of the three "small ones" offered and not chosen.
-
 ### bash-quoting-rescue (rank 19, issue #64)
 
 A tool-call hook that rejects a shell command with unbalanced quotes or a broken heredoc, with a hint on how to fix it.
@@ -148,3 +143,4 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **quick-reply**: rank 3, picked by you.
 - **auto-resume**: rank 5, picked by you.
 - **github-panel**: your own request in `e2d3b04d`, close to rank 18 above.
+- **env-guard**: rank 11 (issue #63), one of the three "small ones" offered and not chosen. It asks before a read rather than blocking it, and names keypick only when that skill is installed.
