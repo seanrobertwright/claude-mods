@@ -149,9 +149,14 @@ It waits on the person, as an approval does, but it is not answered with a decis
 _Avoid_: Approval, attention (Archon's word in a workflow)
 
 **Run log**:
-What a run has said and done so far: the running node's model output and tool calls, each node's output or error, and the files it wrote.
-Archon's own process log is not a run log.
+What a run has said and done so far: each node's model output and the tools it called, each node's output or error, and the files it wrote.
+What a tool returned is not kept, so it is not part of the run log.
 _Avoid_: Transcript, output (when the whole log is meant)
+
+**Archon's log**:
+What Archon's server writes about its own work, for every project on the machine, kept wherever the person's setup sends it.
+It is not a run log, and archon-panel shows it whole rather than cut to the session's project.
+_Avoid_: serve.log, server log, process log
 
 ### What a mod shows
 
