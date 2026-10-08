@@ -147,18 +147,18 @@ A point where a run pauses until a person answers it: approve, reject, or anothe
 It is an approval node, a loop that stops between rounds for the person's say, or a run's finished changes waiting to be kept or thrown away.
 A run paused on a wait node for a time or an outside event is not waiting on the person, so it is not on an approval; nor is a run whose approval was answered and is waiting to go on.
 A run whose sub-run is on an approval is not on one itself; the sub-run is.
-Answering an approval is the only action archon-panel takes on a run.
 _Avoid_: Gate (Archon's gates include checks a script or another agent decides)
 
 **Action needed**:
 A run paused until a person does something outside Archon that its workflow names, and then resumes it.
-It waits on the person, as an approval does, but it is not answered with a decision, so archon-panel shows it and does not act on it.
+It waits on the person, as an approval does, but it is not answered with a decision: it is resumed, or abandoned if it should not go on.
 _Avoid_: Approval, attention (Archon's word in a workflow)
 
 **Needs you**:
-A live run that will not go on until a person acts: on an **approval**, on **action needed**, or stopped on a gate Archon cannot read.
-A run paused on a wait node, answered and waiting to resume, or waiting on a sub-run does not need you; a sub-run that does is counted through the run that started it.
+A live run that will not go on until a person acts: on an **approval**, on **action needed**, stopped on a gate Archon cannot read, or left paused by a sub-run that ended without carrying it on.
+A run paused on a wait node, answered and waiting to resume, or waiting on a sub-run that has not ended does not need you; a sub-run that does is counted through the run that started it.
 archon-panel names these runs first, in its pane, its status line and its toasts.
+Acting on a run that needs you is the only thing archon-panel does to a run: it answers an approval, and resumes or abandons a run on action needed or one its sub-run left paused.
 _Avoid_: Attention (Archon's word), blocked, stuck
 
 **Run log**:
