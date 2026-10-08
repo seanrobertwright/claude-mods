@@ -2,12 +2,16 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On, RenderSurface } from 'claude-code'
 
 import type { HudView } from '../types'
-import { coarse, duration, folderName, gauge, level, limitsToWarn, limitWarning, parseConfig, parseGit, resetTime, rows, rowWidth, shortModel } from '../hooks/hud'
+import { cells, coarse, duration, folderName, gauge, level, limitsToWarn, limitWarning, parseConfig, parseGit, parseWorktree, resetTime, rows, rowWidth, shortModel } from '../hooks/hud'
 
 const START = 1_800_000_000_000
 const MINUTE = 60_000
 
 const GIT_STATUS = ['# branch.oid abc', '# branch.head main', '# branch.upstream origin/main', '# branch.ab +1 -2', '1 .M N... 100644 100644 100644 a b README.md', '? notes.md', ''].join('\n')
+
+/** What `git rev-parse --show-toplevel` prints in the main checkout, and in a linked worktree. */
+const MAIN_CHECKOUT = '/work/claude-mods\n'
+const LINKED = 'C:/repos/claude-mods-121\n'
 
 const HINT = { isDraft: false, isWorking: false, hint: '? for shortcuts' } as const
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 200, scroll: { offset: 0, bodyRows: 10 }, view: {} } as const
@@ -20,6 +24,7 @@ const VIEW: HudView = {
   costUsd: 1.239,
   startedAt: START - 72 * MINUTE,
   git: { branch: 'main', changed: 3, ahead: 1, behind: 0 },
+  worktree: 'C:\\repos\\claude-mods-121',
   folder: 'C:\\repos\\claude-mods',
   agents: 2,
   toolsTurn: 4,
@@ -36,13 +41,15 @@ type World = {
   resetsAt: string | undefined
   agents: number
   isRepo: boolean
+  /** Whether the session's folder is a linked worktree rather than the main checkout, which names another top folder. */
+  isLinked: boolean
   runs: (readonly string[])[]
   usageReads: number
   toasts: string[]
 }
 
 function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']) {
-  const world: World = { contextPercent: 42, limitPercent: 31, resetsAt: undefined, agents: 0, isRepo: true, runs: [], usageReads: 0, toasts: [] }
+  const world: World = { contextPercent: 42, limitPercent: 31, resetsAt: undefined, agents: 0, isRepo: true, isLinked: false, runs: [], usageReads: 0, toasts: [] }
   const clock = mock.clock(on, { now: START })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.attach', () => ({ clientId: 'c1' }))
@@ -65,7 +72,8 @@ function engineBeneath(on: On, surfaces: readonly RenderSurface[] = ['terminal']
   }))
   on('process.run', (_$, e) => {
     world.runs.push(e.argv)
-    return { value: { exitCode: world.isRepo ? 0 : 128, stdout: world.isRepo ? GIT_STATUS : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    const stdout = !world.isRepo ? '' : e.argv[1] === 'rev-parse' ? (world.isLinked ? LINKED : MAIN_CHECKOUT) : GIT_STATUS
+    return { value: { exitCode: world.isRepo ? 0 : 128, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.toast', (_$, e) => {
     world.toasts.push(e.text)
@@ -114,6 +122,18 @@ test('parseGit reads the branch, what is ahead and behind, and the changed files
   expect(parseGit('fatal: not a git repository')).toBeNull()
 })
 
+test('parseWorktree names the top folder, of a linked worktree and of the main checkout alike', () => {
+  expect(parseWorktree(LINKED)).toBe('C:/repos/claude-mods-121')
+  expect(parseWorktree(MAIN_CHECKOUT)).toBe('/work/claude-mods')
+  expect(parseWorktree('C:/repos/x\r\n')).toBe('C:/repos/x')
+  expect(parseWorktree('')).toBeNull()
+})
+
+test('an emoji takes two cells and a variation selector none, so a row with one still fits', () => {
+  expect([cells('worktree'), cells('🪾 worktree'), cells('⚙️')]).toEqual([8, 11, 1])
+  expect(rowWidth([{ label: '🪾 worktree', text: 'x' }])).toBe(13)
+})
+
 test('parseConfig falls back to the defaults and reads the hidden segments', () => {
   const config = parseConfig({ theme: 'ocean', animate: false, placement: 'above', hide: ' Cost, folder ,nonsense' })
   expect([config.theme, config.animate, config.placement, [...config.hidden]]).toEqual(['ocean', false, 'above', ['cost', 'folder']])
@@ -125,7 +145,7 @@ test('every figure carries a label, on two lines, and a figure at its level take
   const lines = rows(VIEW, parseConfig({}), START, 0, 300)
   expect(said(lines)).toEqual([
     ['model fable 5.1', 'effort high', 'context ███░░░░░ 42%', '5h limit 31% · resets in 2h 5m'],
-    ['turn 3m 12s', 'tools 4 this turn · 19 total', 'agents 2 running', 'git main · 3 changed · 1 ahead', 'cost $1.24', 'session 1h 12m', 'folder claude-mods'],
+    ['turn 3m 12s', 'tools 4 this turn · 19 total', 'agents 2 running', 'git main · 3 changed · 1 ahead', '🪾 worktree claude-mods-121', 'cost $1.24', 'session 1h 12m', 'folder claude-mods'],
   ])
   expect(lines[0]?.[2]?.color).toBe('#5fff87')
   const hot = rows({ ...VIEW, contextPercent: 72, limits: [{ kind: 'seven_day', percent: 93, resetsAt: null }] }, parseConfig({}), START, 0, 300)[0]
@@ -133,7 +153,7 @@ test('every figure carries a label, on two lines, and a figure at its level take
 })
 
 test('the empty figures are left out, and so are the hidden ones; a line with nothing is not drawn', () => {
-  const quiet = { ...VIEW, effort: null, git: null, costUsd: null, agents: 0, toolsSession: 0, isWorking: false }
+  const quiet = { ...VIEW, effort: null, git: null, worktree: null, costUsd: null, agents: 0, toolsSession: 0, isWorking: false }
   expect(rows(quiet, parseConfig({ hide: 'model,session' }), START, 0, 300).map(line => line.map(segment => segment.kind))).toEqual([['context', 'limits'], ['folder']])
   expect(rows(quiet, parseConfig({ hide: 'model,session,folder' }), START, 0, 300).length).toBe(1)
 })
@@ -166,7 +186,10 @@ test('while a turn runs the colours move and a figure in danger blinks; idle or 
 test('the row under the prompt names and shows what the engine reports, above its own hint line', async ($, on) => {
   const { world } = engineBeneath(on)
   await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
-  expect(world.runs).toEqual([['git', 'status', '--porcelain=v2', '--branch']])
+  expect(world.runs).toEqual([
+    ['git', 'status', '--porcelain=v2', '--branch'],
+    ['git', 'rev-parse', '--show-toplevel'],
+  ])
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const hint = await $.ui.mount({ plugin: 'hud', surface, component: 'PromptHint', props: HINT })
@@ -208,13 +231,29 @@ test('during a turn the effort, the timer and the tool calls show, and the end o
   await hint.unmount()
 })
 
-test('outside a git repository the git figure is absent', async ($, on) => {
+test('outside a git repository the git and worktree figures are absent', async ($, on) => {
   const { world } = engineBeneath(on)
   world.isRepo = false
   await $.session.start({ cwd: '/work/claude-mods', surface: 'terminal', isInteractive: true })
   const hint = await $.ui.mount({ plugin: 'hud', surface: 'terminal', component: 'PromptHint', props: HINT })
   expect(await hint.find({ type: 'Text', text: 'git' })).toBeUndefined()
+  expect(await hint.find({ type: 'Text', text: '🪾 worktree' })).toBeUndefined()
   expect(await hint.find({ type: 'Text', text: 'claude-mods' })).toBeDefined()
+  await hint.unmount()
+})
+
+test('the row names the worktree beside git, a linked one and the main checkout alike', async ($, on) => {
+  const { world } = engineBeneath(on)
+  world.isLinked = true
+  await $.session.start({ cwd: 'C:/repos/claude-mods-121', surface: 'terminal', isInteractive: true })
+  const hint = await $.ui.mount({ plugin: 'hud', surface: 'terminal', component: 'PromptHint', props: HINT })
+  expect(await hint.find({ type: 'Text', text: '🪾 worktree' })).toBeDefined()
+  expect(await hint.find({ type: 'Text', text: 'claude-mods-121' })).toBeDefined()
+
+  world.isLinked = false
+  await $.turn.complete(DONE)
+  expect(await hint.find({ type: 'Text', text: '🪾 worktree' })).toBeDefined()
+  expect(await hint.find({ type: 'Text', text: 'claude-mods-121' })).toBeUndefined()
   await hint.unmount()
 })
 

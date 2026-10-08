@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Git, HudView, Limit } from '../types'
-import { limitsToWarn, limitWarning, parseConfig, parseGit, rows } from './hud'
+import { limitsToWarn, limitWarning, parseConfig, parseGit, parseWorktree, rows } from './hud'
 import type { Config } from './hud'
 
 /** How often the colours move while a turn runs. */
@@ -22,6 +22,7 @@ const EMPTY: HudView = {
   costUsd: null,
   startedAt: 0,
   git: null,
+  worktree: null,
   folder: '',
   agents: 0,
   toolsTurn: 0,
@@ -45,9 +46,18 @@ async function isShown($: EngineInterface): Promise<boolean> {
   return (await $.session.surfaces()).length > 0
 }
 
-async function readGit($: EngineInterface): Promise<Git | null> {
-  const run = await $.process.run(['git', 'status', '--porcelain=v2', '--branch'], { timeoutMs: GIT_TIMEOUT_MS }).catch(() => undefined)
-  return run === undefined || run.exitCode !== 0 ? null : parseGit(run.stdout)
+/** The working tree's state, and the top folder of the worktree the session is in. */
+async function readGit($: EngineInterface): Promise<{ git: Git | null; worktree: string | null }> {
+  const [status, where] = await Promise.all(
+    [
+      ['git', 'status', '--porcelain=v2', '--branch'],
+      ['git', 'rev-parse', '--show-toplevel'],
+    ].map(argv => $.process.run(argv, { timeoutMs: GIT_TIMEOUT_MS }).catch(() => undefined)),
+  )
+  return {
+    git: status === undefined || status.exitCode !== 0 ? null : parseGit(status.stdout),
+    worktree: where === undefined || where.exitCode !== 0 ? null : parseWorktree(where.stdout),
+  }
 }
 
 /**
@@ -72,7 +82,7 @@ async function refresh($: EngineInterface, withGit: boolean): Promise<void> {
     $.session.cwd().catch(() => ''),
     $.agent.list().catch(() => []),
   ])
-  const git = withGit ? await readGit($) : undefined
+  const repo = withGit ? await readGit($) : undefined
   const limits = usage.rateLimits.map((limit): Limit => ({ kind: limit.kind, percent: limit.percentUsed, resetsAt: limit.resetsAt ?? null }))
   await update($, view, (current): HudView => ({
     ...current,
@@ -83,7 +93,8 @@ async function refresh($: EngineInterface, withGit: boolean): Promise<void> {
     costUsd: usage.cost?.usd ?? null,
     startedAt: usage.startedAt,
     agents: agents.filter(agent => agent.status === 'running').length,
-    git: git === undefined ? current.git : git,
+    git: repo === undefined ? current.git : repo.git,
+    worktree: repo === undefined ? current.worktree : repo.worktree,
   }))
   await warnLimits($, limits)
 }
