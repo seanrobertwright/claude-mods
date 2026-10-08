@@ -52,7 +52,7 @@ From the docs; none of it was probed interactively.
 | background a running command | Ctrl+B (rebindable as `task:background`); the result then carries `backgroundedByUser: true` | [docs: interactive-mode; types: `Bash` result] |
 | turn background shells off | `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` turns off `run_in_background`, auto-backgrounding and Ctrl+B | [docs: env-vars] |
 
-Limits from the docs: output over 5 GB kills the command. Unattended runs (`-p`, CI, cloud) have a 30-minute background limit, at most 2 hours. Local terminal, desktop and VS Code sessions have none. On macOS and Linux, a shell idle for 30 minutes can be stopped under critical memory pressure [docs: tools-reference, headless].
+Limits from the docs: output over 5 GB kills the command. Unattended runs (`-p`, CI, cloud) have a 30-minute background limit, at most 2 hours. Local terminal, desktop and VS Code sessions have none. The docs say that on macOS and Linux a shell idle for 30 minutes can be stopped under critical memory pressure [docs: tools-reference, headless]. It happens on Windows too: during this research, Claude Code stopped one of its own background shells (a transcript scan, about 25 minutes old) "because the system is running low on memory" while the session was idle. The model got a `killed` notification, and `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` turns this off. A dev server left idle in a background shell can therefore be stopped under it [observed in this session].
 
 ## 3. Start, output and stop
 
