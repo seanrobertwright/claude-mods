@@ -35,6 +35,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
+| 🧹 [post-merge-cleanup](#-post-merge-cleanup) | Question dialog and toast | After a PR merges, `/cleanup` switches to the default branch, pulls and deletes the branch |
 | ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
@@ -394,6 +395,34 @@ echo '{"theme": "ember", "animate": "false", "hide": "cost,folder"}' | claude pl
 ```
 
 **Needs:** nothing. Git state shows when `git` is on the PATH and the folder is a repository.
+
+### 🧹 post-merge-cleanup
+
+After your branch's pull request merges, `/cleanup` puts the checkout back on the default branch, up to date, with the merged branch gone. It asks once before it changes anything:
+
+```text
+PR #12 merged. Clean up: switch to main, pull main, delete feat/x (PR #12 merged),
+prune remote-tracking branches?
+
+  Go
+  Cancel
+```
+
+- **Go** runs the steps in order: `git switch`, `git pull --ff-only`, `git worktree remove` when the branch has a worktree of its own, `git branch -D`, then `git fetch --prune`. A failed step stops the rest, and a toast names it. A last toast says what was done.
+- **Cancel**, or closing the question, changes nothing.
+- **`/cleanup <branch>`** cleans up a branch checked out in another worktree. Run it from the main checkout: it removes that worktree, then deletes the branch.
+- **It refuses, and says why,** when:
+  - the branch has no pull request, or its PR is still open or was closed without merging;
+  - the working tree, or the worktree it would remove, has uncommitted or untracked changes;
+  - the branch has a commit that is not in the PR;
+  - the session runs inside the branch's own worktree.
+- **A squash-merged branch is deleted too.** git sees such a branch as unmerged, so the mod deletes it with `-D`. It does so only when gh reports the PR merged and the branch's tip is the commit the PR merged, so no local work is lost.
+- **At session start**, when your branch's PR has merged, a toast suggests `/cleanup`. That is one gh call, made only when a surface shows the session. A headless session makes none. The mod never cleans up on its own, and never polls.
+- It doesn't delete the remote branch: GitHub's "Automatically delete head branches" setting does that.
+
+There is nothing to set.
+
+**Needs:** `git`, and the [GitHub CLI](https://cli.github.com) (`gh`) logged in (`gh auth login`), in a folder with a GitHub remote. `/cleanup` names whichever is missing.
 
 ### ⚙ mod-settings
 
