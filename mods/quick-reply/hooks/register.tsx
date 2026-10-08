@@ -43,8 +43,9 @@ export const register: Register = (on, options) => {
 
     const { Box, Text, Button } = $.ui.resolve(e)
 
+    // The outer Box takes no width: the engine refuses its own band under a Box that sets one.
     return (
-      <Box flexDirection="column" width={e.props.bodyColumns}>
+      <Box flexDirection="column">
         <Box flexDirection="row" flexWrap="wrap" columnGap={1} width={e.props.bodyColumns}>
           <Text dimColor>Reply:</Text>
           {current.options.map(option => (

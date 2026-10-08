@@ -3,9 +3,9 @@ import type { On } from 'claude-code'
 
 import { findOptions, optionReply, parseReplies, readAnswer } from '../hooks/detect'
 
-/** Stand-ins for what the engine does beneath the plugins: an empty band, a status line, toasts. */
+/** Stand-ins for what the engine does beneath the plugins: its own band (a node, as core answers), a status line, toasts. */
 function engineBeneath(on: On): void {
-  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] }))
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'engine', ref: 0 }))
   on('ui.status', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
 }

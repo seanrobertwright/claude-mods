@@ -17,12 +17,12 @@ const BAND = {
 
 const COMPOSER = { origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } } as const
 
-/** The engine beneath the mod: an empty band, a store in memory, a prompt box that records what it is given. */
+/** The engine beneath the mod: its own band (a node, as core answers), a store in memory, a prompt box that records what it is given. */
 function engineBeneath(on: On, stored?: Readonly<Record<string, unknown>>): { filled: { text: string; mode: string }[]; sent: string[] } {
   const filled: { text: string; mode: string }[] = []
   const sent: string[] = []
   mock.store(on, stored)
-  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] }))
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'engine', ref: 0 }))
   on('ui.toast', () => ({ value: undefined }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/work/repo' }))
