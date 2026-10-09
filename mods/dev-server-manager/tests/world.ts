@@ -155,7 +155,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     w.spawned.push(e)
     const key = e.argv.join(' ')
     const child = w.children.get(key)?.shift() ?? {}
-    if (child.cannotStart !== undefined) throw new Error(child.cannotStart)
+    if (child.cannotStart !== undefined) return { deny: child.cannotStart }
     const stopped = new Promise<'stopped'>(resolve => next.signal.addEventListener('abort', () => resolve('stopped')))
     let isEnded = false
     try {

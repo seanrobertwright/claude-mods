@@ -171,7 +171,7 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
     if (live.get(name) === entry) live.delete(name)
     if (entry.isStopping || hasStarted) return
     // A command that cannot start rejects the first pull: its message is the row's words.
-    const message = error instanceof Error ? error.message : String(error)
+    const message = (error instanceof Error ? error.message : String(error)).replace(/^dev-server-manager: \$\.process\.spawn: /, '')
     await setRun($, name, run => ({ ...run, status: 'stopped', problem: message }))
     return
   }
@@ -308,6 +308,15 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: COMMAND, description: 'Open the dev servers pane: start, stop and watch the project dev servers' })
     await loadRows($, config)
     return started
+  })
+
+  on('session.end', async ($, e, next) => {
+    const ended = await next(e)
+    // After /clear the process goes on under a new session, and so do its servers.
+    if (e.reason !== 'clear') {
+      for (const name of [...live.keys()]) await stop($, name).catch(report($))
+    }
+    return ended
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
