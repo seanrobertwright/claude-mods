@@ -8,6 +8,7 @@
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\"",
     "check:secrets": "sh .githooks/check-personal-data.sh",
     "check": "node scripts/check-mods.mjs",
+    "sync:system-one": "node scripts/sync-system-one.mjs",
     "test:scripts": "node --test \"scripts/*.test.mjs\""
   },
   "devDependencies": {
