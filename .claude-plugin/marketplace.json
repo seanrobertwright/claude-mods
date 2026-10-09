@@ -53,6 +53,11 @@
       "description": "Asks you before Claude reads a .env or key file, and refuses when no one is there to answer."
     },
     {
+      "name": "bash-quoting-rescue",
+      "source": "./mods/bash-quoting-rescue",
+      "description": "Before a shell command runs, parses it with the shell's own parser and refuses one that does not parse, such as an unclosed quote or heredoc, so none of it runs."
+    },
+    {
       "name": "outputs",
       "source": "./mods/outputs",
       "description": "A pane listing the files this session has made or changed, newest first; click one to open it."
@@ -71,6 +76,11 @@
       "name": "post-merge-cleanup",
       "source": "./mods/post-merge-cleanup",
       "description": "/cleanup after a PR merges: switch to the default branch, pull, and delete the merged branch and its worktree, after one confirmation."
+    },
+    {
+      "name": "pre-pr-claims-check",
+      "source": "./mods/pre-pr-claims-check",
+      "description": "Refuses gh pr create and gh pr edit while the PR's title, its body or the branch's added Markdown lines hold a file:line citation, a placeholder or a count spelled out in words, listing each one."
     },
     {
       "name": "lint-test-gate",
