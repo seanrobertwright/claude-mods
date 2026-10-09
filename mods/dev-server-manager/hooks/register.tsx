@@ -5,10 +5,10 @@ import type { OutputLine, PaneView, PeerEntry, RowDef, Rows, ServerRun } from '.
 import { ADD_USAGE, parseAdd } from './add'
 import type { AddedServer } from './add'
 import { detectRows, LOCKFILES, parseScripts } from './detect'
-import { findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
+import { endWords, errorLines, findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
 import { checkPort } from './port'
 import type { PortCheck } from './port'
-import { commandText, newRun } from './servers'
+import { commandText, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS } from './servers'
 import { renderPane } from './view'
 import type { PaneActions } from './view'
 
@@ -18,6 +18,8 @@ const TITLE = 'Dev servers'
 const COMMAND = 'dev-servers'
 /** Output reaches `$.state` at most about once a second. */
 const FLUSH_MS = 1000
+/** How long a death's toast stays. */
+const DEATH_TOAST_MS = 8000
 /** After its own stop the mod waits this long at most for the listener to let go, polling every POLL_MS. */
 const RELEASE_MS = 3000
 const POLL_MS = 100
@@ -45,8 +47,13 @@ let flushedAt = 0
 let isFlushPending = false
 // The servers the mod itself stopped, whose port may linger before the next start.
 const stoppedByMod = new Set<string>()
+// Death toasts raised in this tick, shown as one.
+let pendingToasts: string[] = []
 
 type Config = { isRestartOn: boolean; scripts: string[] }
+
+// The settings as this module's register read them.
+let settings: Config = { isRestartOn: true, scripts: [] }
 
 function parseConfig(options: Record<string, unknown>): Config {
   return { isRestartOn: options.restart !== false, scripts: parseScripts(options.scripts) }
@@ -192,9 +199,68 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
   const signal = result?.signal ?? null
   if (code === 0 && signal === null) {
     await setRun($, name, run => ({ ...run, status: 'exited', endedAt: at, lastExit: 0, hasNote: false }))
-  } else {
-    await setRun($, name, run => ({ ...run, status: 'crashed', endedAt: at, lastExit: code }))
+  } else await die($, name, code, signal, at)
+}
+
+/** Marks the lines a death picked as its error in the kept output. */
+function markError(name: string, count: number): void {
+  const list = memory[name] ?? []
+  let left = count
+  const marked = [...list]
+  for (let at = marked.length - 1; at >= 0 && left > 0; at -= 1) {
+    const line = marked[at]!
+    if (line.stream === 'divider') break
+    if (line.stream === 'note') continue
+    marked[at] = { ...line, isError: true }
+    left -= 1
   }
+  memory = { ...memory, [name]: marked }
+}
+
+/**
+ * A death: a non-zero exit, or a signal the mod did not send. It toasts, and
+ * restarts while the setting is on and the cap of 3 in 2 minutes allows; in a
+ * headless session it does neither, and the row stays crashed.
+ */
+async function die($: EngineInterface, name: string, code: number | null, signal: string | null, at: number): Promise<void> {
+  const def = await defOf($, name)
+  const lines = errorLines(memory[name] ?? [])
+  markError(name, lines.length)
+  await flushOutput($)
+  const death = { at, code, signal, command: def === undefined ? name : commandText(def), lines }
+  const isShowing = await isShown($)
+  let restartNumber = 0
+  await setRun($, name, run => {
+    const restarts = run.restarts.filter(time => at - time < RESTART_WINDOW_MS)
+    const canRestart = isShowing && settings.isRestartOn && restarts.length < RESTART_CAP
+    restartNumber = canRestart ? restarts.length + 1 : 0
+    return {
+      ...run,
+      status: 'crashed',
+      endedAt: at,
+      lastExit: code,
+      death,
+      crashes: [...run.crashes, at],
+      restarts: canRestart ? [...restarts, at] : restarts,
+      isGaveUp: isShowing && settings.isRestartOn && !canRestart,
+      hasNote: canRestart,
+    }
+  })
+  if (!isShowing) return
+  const ended = endWords(death)
+  toastDeath($, restartNumber > 0 ? `✗ ${name} crashed (${ended}), restarting (${restartNumber}/${RESTART_CAP})` : `✗ ${name} crashed (${ended})`)
+  if (restartNumber > 0) await start($, name, { divider: `crashed (${ended}) · restarted` })
+}
+
+/** Raises a death's toast; several deaths in one tick are one toast. */
+function toastDeath($: EngineInterface, text: string): void {
+  pendingToasts.push(text)
+  if (pendingToasts.length > 1) return
+  $.clock.after(0, () => {
+    const texts = pendingToasts
+    pendingToasts = []
+    $.ui.toast(texts.join(' · '), { timeoutMs: DEATH_TOAST_MS })
+  })
 }
 
 /**
@@ -217,8 +283,11 @@ async function portCheck($: EngineInterface, name: string, port: number): Promis
   return checkPort(run, windows, port)
 }
 
+/** How a start came about: the divider's words, and whether the person (or Claude) handled the server by hand. */
+type StartReason = { divider: string; isByHand?: boolean; isAfterReload?: boolean }
+
 /** Starts a server: the port check first, then the child, with no shell. */
-async function start($: EngineInterface, name: string, divider: string): Promise<void> {
+async function start($: EngineInterface, name: string, reason: StartReason): Promise<void> {
   if (live.has(name) || !(await isShown($))) return
   const def = await defOf($, name)
   if (def === undefined || def.blocked !== '') return
@@ -233,8 +302,20 @@ async function start($: EngineInterface, name: string, divider: string): Promise
   }
   const root = await $.session.root()
   const now = await $.clock.now()
-  await addOutput($, name, [{ stream: 'divider', text: `── ${divider} ${hhmm(now)} ──`, at: now }])
-  await setRun($, name, run => ({ ...run, status: 'starting', url: '', startedAt: now, endedAt: 0, movedFrom: 0, problem, holder: '' }))
+  await addOutput($, name, [{ stream: 'divider', text: `── ${reason.divider} ${hhmm(now)} ──`, at: now }])
+  const handled = reason.isByHand === true ? { crashes: [], restarts: [], isGaveUp: false, hasNote: false } : {}
+  await setRun($, name, run => ({
+    ...run,
+    ...handled,
+    status: 'starting',
+    url: '',
+    startedAt: now,
+    endedAt: 0,
+    movedFrom: 0,
+    isAfterReload: reason.isAfterReload === true,
+    problem,
+    holder: '',
+  }))
   const entry: Live = {
     stream: $.process.spawn({ argv: def.argv, cwd: join(root, def.cwd), env: { PYTHONUNBUFFERED: '1' } }),
     isStopping: false,
@@ -264,7 +345,7 @@ function report($: EngineInterface): (error: unknown) => void {
 function paneActions($: EngineInterface, config: Config): PaneActions {
   return {
     pick: name => void update($, viewAtom, view => ({ ...view, picked: view.picked === name ? null : name, anchor: null, isFillRefused: false })),
-    start: name => void start($, name, 'started').catch(report($)),
+    start: name => void start($, name, { divider: 'started', isByHand: true }).catch(report($)),
     stop: name => void stop($, name).catch(report($)),
     restart: name => void restartByHand($, name).catch(report($)),
     fillError: () => undefined,
@@ -277,6 +358,25 @@ function paneActions($: EngineInterface, config: Config): PaneActions {
     toggleHidden: () => void update($, viewAtom, view => ({ ...view, isShowingHidden: !view.isShowingHidden })),
     latest: () => undefined,
     settings: () => void $.command.run({ command: 'mod-settings' }).catch(report($)),
+  }
+}
+
+/**
+ * A fresh module after a reload that changed it: the old module's servers died
+ * with it, so each one `$.state` still lists as up starts again. In a headless
+ * session nothing new starts, and they read stopped.
+ */
+async function bringBack($: EngineInterface): Promise<void> {
+  if (Object.keys(memory).length === 0) {
+    memory = await read($, outputAtom)
+    seq = Math.max(seq, ...Object.values(memory).flat().map(line => line.seq))
+  }
+  const runs = await read($, runsAtom)
+  const isShowing = await isShown($)
+  for (const [name, run] of Object.entries(runs)) {
+    if (!isUp(run.status) || live.has(name)) continue
+    if (isShowing) await start($, name, { divider: 'restarted after reload', isAfterReload: true })
+    else await setRun($, name, current => ({ ...current, status: 'stopped' }))
   }
 }
 
@@ -326,16 +426,18 @@ async function runSubcommand($: EngineInterface, config: Config, args: string): 
 /** The person's restart: stop, then start again. */
 async function restartByHand($: EngineInterface, name: string): Promise<void> {
   await stop($, name)
-  await start($, name, 'restarted')
+  await start($, name, { divider: 'restarted', isByHand: true })
 }
 
 export const register: Register = (on, options) => {
   const config = parseConfig(options)
+  settings = config
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({ name: COMMAND, description: 'Open the dev servers pane: start, stop and watch the project dev servers' })
     await loadRows($, config)
+    await bringBack($)
     return started
   })
 
