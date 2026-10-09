@@ -80,6 +80,8 @@ export type GitHubView = {
   branch: string
   prs: PullRequest[]
   issues: Issue[]
+  /** The pinned issue of `repo` as the last load read it; null with no pin, or with pinning off. */
+  pin: Pin | null
   /** Why the lists could not load (status `error` or `unavailable`). */
   error: string
   /** Milliseconds since the epoch of the last successful load; 0 before it. */
