@@ -125,3 +125,13 @@ test('a server that moves to another port by itself is running, moved from the k
   expect((await pane.findAll({ type: 'Text' })).find(text => text.text === 'up 0s · moved from :5173')?.props.color).toBe('warning')
   expect(w.store.get(`ports:${ROOT}`)).toEqual({ dev: 5173 })
 })
+
+test('a second start pressed while the port check runs starts nothing more', async ($, on) => {
+  const w = world(on, KNOWN)
+  await startSession($)
+  const pane = await openPane($)
+  await pane.press({ key: 'row-dev' })
+  await Promise.all([pane.press({ key: 'start' }), pane.press({ key: 'start' })])
+  await w.clock.settle()
+  expect(spawnedCount(w)).toBe(1)
+})

@@ -8,10 +8,10 @@ import { detectRows, LOCKFILES, parseScripts } from './detect'
 import { endWords, errorLines, errorPrompt, findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
 import { COMPOSE_ID, composeText, otherSessions, peerKey, peerPrefix, REFRESH_MS } from './peers'
 import { checkPort } from './port'
-import { lineCount, OUTPUT_SPEC, OUTPUT_TOOL, outputText, RESTART_SPEC, RESTART_TOOL, RESTART_WAIT_MS } from './tools'
-import type { ToolServer } from './tools'
 import type { PortCheck } from './port'
 import { commandText, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS, statusLine } from './servers'
+import { lineCount, OUTPUT_SPEC, OUTPUT_TOOL, outputText, RESTART_SPEC, RESTART_TOOL, RESTART_WAIT_MS } from './tools'
+import type { ToolServer } from './tools'
 import { moveOf, paneGeometry, renderPane, scrollAnchor } from './view'
 import type { PaneActions } from './view'
 
@@ -49,6 +49,8 @@ let memory: Record<string, OutputLine[]> = {}
 let seq = 0
 let flushedAt = 0
 let isFlushPending = false
+// The servers whose start is under way (the port check), so a second press starts nothing more.
+const opening = new Set<string>()
 // The servers the mod itself stopped, whose port may linger before the next start.
 const stoppedByMod = new Set<string>()
 // Death toasts raised in this tick, shown as one.
@@ -396,9 +398,19 @@ async function portCheck($: EngineInterface, name: string, port: number): Promis
 /** How a start came about: the divider's words, and whether the person (or Claude) handled the server by hand. */
 type StartReason = { divider: string; isByHand?: boolean; isAfterReload?: boolean }
 
-/** Starts a server: the port check first, then the child, with no shell. */
+/** Starts a server: the port check first, then the child, with no shell. One start at a time per server. */
 async function start($: EngineInterface, name: string, reason: StartReason): Promise<void> {
-  if (live.has(name) || !(await isShown($))) return
+  if (live.has(name) || opening.has(name)) return
+  opening.add(name)
+  try {
+    await open($, name, reason)
+  } finally {
+    opening.delete(name)
+  }
+}
+
+async function open($: EngineInterface, name: string, reason: StartReason): Promise<void> {
+  if (!(await isShown($))) return
   const def = await defOf($, name)
   if (def === undefined || def.blocked !== '') return
   let problem = ''
