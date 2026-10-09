@@ -44,7 +44,7 @@ function gate(value: unknown): Gate | null {
     message: text(value.message),
     type,
     decisions: declared.length > 0 ? declared : [{ id: 'approve', label: 'Approve' }, { id: 'reject', label: 'Reject' }],
-    childRunId: text(value.childRunId) || text(value.child_run_id),
+    subRunId: text(value.childRunId) || text(value.child_run_id),
     hasRework: value.onReject !== undefined || value.on_reject !== undefined || declared.some(d => d.id === 'reject'),
     isRoundDone: value.roundDone === true || value.isComplete === true || value.complete === true,
     isReadable: nodeId !== '' && type !== '',
@@ -136,13 +136,13 @@ export function liveCount(runs: readonly Run[]): number {
  * `metadata.approval` and `metadata.wait`, plus the mod's own check of a
  * `child_workflow` gate's sub-run, which Archon never reads.
  */
-export type Attention =
+export type Standing =
   | { kind: 'none' }
   | { kind: 'approval'; gate: Gate; since: number }
   | { kind: 'action'; wait: Wait; since: number }
-  | { kind: 'stranded'; gate: Gate; child: Run | undefined; since: number }
+  | { kind: 'stranded'; gate: Gate; subRun: Run | undefined; since: number }
   | { kind: 'unreadable'; since: number }
-  | { kind: 'blocked'; gate: Gate; child: Run | undefined }
+  | { kind: 'blocked'; gate: Gate; subRun: Run | undefined }
   | { kind: 'waiting'; wait: Wait }
   | { kind: 'resuming'; gate: Gate }
 
@@ -154,7 +154,8 @@ function isAnswered(detail: Detail | undefined): boolean {
   return answered > asked && answered >= 0
 }
 
-export function attention(run: Run, byId: ReadonlyMap<string, Run>, detail: Detail | undefined): Attention {
+/** Where a run stands, its sub-run looked up among `runs`. */
+export function standing(run: Run, runs: readonly Run[], detail: Detail | undefined): Standing {
   if (run.status !== 'paused') return { kind: 'none' }
   const since = run.approval?.since || run.wait?.since || run.lastActivityAt
   if (run.wait !== null) {
@@ -163,17 +164,24 @@ export function attention(run: Run, byId: ReadonlyMap<string, Run>, detail: Deta
   const gate = run.approval
   if (gate === null) return { kind: 'unreadable', since }
   if (gate.type === 'child_workflow') {
-    const child = byId.get(gate.childRunId)
-    return child !== undefined && hasEnded(child) ? { kind: 'stranded', gate, child, since } : { kind: 'blocked', gate, child }
+    const subRun = runs.find(other => other.id === gate.subRunId)
+    return subRun !== undefined && hasEnded(subRun) ? { kind: 'stranded', gate, subRun, since } : { kind: 'blocked', gate, subRun }
   }
   if (!gate.isReadable) return { kind: 'unreadable', since }
   return isAnswered(detail) ? { kind: 'resuming', gate } : { kind: 'approval', gate, since }
 }
 
+/** The node a run waits at: an approval's or a stranded parent's gate, or an action-needed wait; '' for any other standing. */
+export function waitNode(found: Standing): string {
+  if (found.kind === 'approval' || found.kind === 'stranded') return found.gate.nodeId
+  if (found.kind === 'action') return found.wait.nodeId
+  return ''
+}
+
 /** What a run that needs you is waiting on: the run that holds it (the parent, or the deepest sub-run on a gate) and why. */
 export type NeedsYou = {
   holder: Run
-  attention: Extract<Attention, { since: number }>
+  standing: Extract<Standing, { since: number }>
 }
 
 /**
@@ -181,26 +189,26 @@ export type NeedsYou = {
  * the chain to the deepest run on a gate. Waits, answered gates and a sub-run
  * still working do not.
  */
-export function needsYou(run: Run, byId: ReadonlyMap<string, Run>, details: Readonly<Record<string, Detail>>): NeedsYou | undefined {
+export function needsYou(run: Run, runs: readonly Run[], details: Readonly<Record<string, Detail>>): NeedsYou | undefined {
   let at = run
   for (let depth = 0; depth < 10; depth++) {
-    const found = attention(at, byId, details[at.id])
-    if (found.kind === 'approval' || found.kind === 'action' || found.kind === 'stranded' || found.kind === 'unreadable') return { holder: at, attention: found }
-    if (found.kind !== 'blocked' || found.child === undefined) return undefined
-    at = found.child
+    const found = standing(at, runs, details[at.id])
+    if (found.kind === 'approval' || found.kind === 'action' || found.kind === 'stranded' || found.kind === 'unreadable') return { holder: at, standing: found }
+    if (found.kind !== 'blocked' || found.subRun === undefined) return undefined
+    at = found.subRun
   }
   return undefined
 }
 
 /** The sub-runs of a run among the rows, oldest first. */
-export function childrenOf(run: Run, runs: readonly Run[]): Run[] {
+export function subRunsOf(run: Run, runs: readonly Run[]): Run[] {
   return runs.filter(other => other.parentId === run.id).sort((a, b) => a.startedAt - b.startedAt)
 }
 
 /** The latest activity of a run or any run below it. */
 export function latestActivity(run: Run, runs: readonly Run[], depth = 0): number {
   if (depth > 10) return run.lastActivityAt
-  return Math.max(run.lastActivityAt, ...childrenOf(run, runs).map(child => latestActivity(child, runs, depth + 1)))
+  return Math.max(run.lastActivityAt, ...subRunsOf(run, runs).map(subRun => latestActivity(subRun, runs, depth + 1)))
 }
 
 /** The rows the Runs sub-tab lists: runs that are not sub-runs of a listed run. */
@@ -211,10 +219,9 @@ export function topRuns(runs: readonly Run[]): Run[] {
 
 /** Needs-you runs first, the one that has needed you longest at the top; then the rest by latest activity. */
 export function sortRuns(runs: readonly Run[], all: readonly Run[], details: Readonly<Record<string, Detail>>): Run[] {
-  const byId = new Map(all.map(run => [run.id, run]))
-  const keyed = runs.map(run => ({ run, need: needsYou(run, byId, details), latest: latestActivity(run, all) }))
+  const keyed = runs.map(run => ({ run, need: needsYou(run, all, details), latest: latestActivity(run, all) }))
   keyed.sort((a, b) => {
-    if (a.need !== undefined && b.need !== undefined) return a.need.attention.since - b.need.attention.since
+    if (a.need !== undefined && b.need !== undefined) return a.need.standing.since - b.need.standing.since
     if (a.need !== undefined) return -1
     if (b.need !== undefined) return 1
     return b.latest - a.latest
@@ -224,6 +231,5 @@ export function sortRuns(runs: readonly Run[], all: readonly Run[], details: Rea
 
 /** How many of a run family need you: a parent and its sub-runs count once. */
 export function needsYouCount(runs: readonly Run[], details: Readonly<Record<string, Detail>>): number {
-  const byId = new Map(runs.map(run => [run.id, run]))
-  return topRuns(runs).filter(run => needsYou(run, byId, details) !== undefined).length
+  return topRuns(runs).filter(run => needsYou(run, runs, details) !== undefined).length
 }

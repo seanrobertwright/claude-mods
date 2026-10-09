@@ -83,26 +83,26 @@ export function route(pending: Pending, run: Run, text: string, isServer: boolea
 }
 
 /** How a sub-run ended, as a stranded parent's view says it. */
-export function strandHead(child: Run | undefined): string {
-  const name = child?.workflow ?? 'sub-run'
-  if (child?.status === 'cancelled') return `! Sub-run ${name} was cancelled${child.completedAt > 0 ? ` (rejected ${clockTime(child.completedAt)})` : ''}`
-  if (child?.status === 'failed') return `! Sub-run ${name} failed`
+export function strandHead(subRun: Run | undefined): string {
+  const name = subRun?.workflow ?? 'sub-run'
+  if (subRun?.status === 'cancelled') return `! Sub-run ${name} was cancelled${subRun.completedAt > 0 ? ` (rejected ${clockTime(subRun.completedAt)})` : ''}`
+  if (subRun?.status === 'failed') return `! Sub-run ${name} failed`
   return `! Sub-run ${name} finished`
 }
 
 /** The resume button of a stranded parent, by how its sub-run ended. */
-export function strandResume(child: Run | undefined): string {
-  const name = child?.workflow ?? 'the sub-run'
-  if (child?.status === 'cancelled') return 'r  Resume without it'
-  if (child?.status === 'failed') return `r  Resume: run ${name} again, once`
+export function strandResume(subRun: Run | undefined): string {
+  const name = subRun?.workflow ?? 'the sub-run'
+  if (subRun?.status === 'cancelled') return 'r  Resume without it'
+  if (subRun?.status === 'failed') return `r  Resume: run ${name} again, once`
   return `r  Resume: go on with ${name}'s output`
 }
 
 /** The confirming line of a stranded parent's resume. */
-export function strandConfirm(node: string, child: Run | undefined): string {
-  const name = child?.workflow ?? 'the sub-run'
-  if (child?.status === 'cancelled') return `Resume: node ${node} fails ("Sub-run '${name}' was cancelled") and the run goes on by its rules, which usually fail it.`
-  if (child?.status === 'failed') return `Resume: node ${node} runs ${name} again, once.`
+export function strandConfirm(node: string, subRun: Run | undefined): string {
+  const name = subRun?.workflow ?? 'the sub-run'
+  if (subRun?.status === 'cancelled') return `Resume: node ${node} fails ("Sub-run '${name}' was cancelled") and the run goes on by its rules, which usually fail it.`
+  if (subRun?.status === 'failed') return `Resume: node ${node} runs ${name} again, once.`
   return `Resume: node ${node} goes on with ${name}'s output.`
 }
 
@@ -123,18 +123,18 @@ export function lastAnswer(detail: Detail | undefined): { decision: string; at: 
   return received === undefined ? undefined : { decision: received.decision || 'approve', at: received.at, text: received.text }
 }
 
-/** Archon's own words from a CLI reply or a REST body: `{ok:false, error}`, `{error}`, `{message}`, else the last line. */
-export function archonMessage(text: string): { ok: boolean | undefined; message: string; childRunId: string; logPath: string } {
+/** Archon's own words from a CLI reply or a REST body: `{ok:false, error}`, `{error}`, `{message}`, else the last line; a refusal's `childRunId` names the sub-run to answer instead. */
+export function archonMessage(text: string): { ok: boolean | undefined; message: string; subRunId: string; logPath: string } {
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>
     const message = typeof parsed.error === 'string' ? parsed.error : typeof parsed.message === 'string' ? parsed.message : ''
     return {
       ok: typeof parsed.ok === 'boolean' ? parsed.ok : typeof parsed.success === 'boolean' ? parsed.success : undefined,
       message,
-      childRunId: typeof parsed.childRunId === 'string' ? parsed.childRunId : '',
+      subRunId: typeof parsed.childRunId === 'string' ? parsed.childRunId : '',
       logPath: typeof parsed.logPath === 'string' ? parsed.logPath : '',
     }
   } catch {
-    return { ok: undefined, message: firstLine(text.split(/\r?\n/).reverse().join('\n')), childRunId: '', logPath: '' }
+    return { ok: undefined, message: firstLine(text.split(/\r?\n/).reverse().join('\n')), subRunId: '', logPath: '' }
   }
 }

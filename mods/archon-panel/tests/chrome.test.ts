@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { approval, iso, MINUTE, onChild, row, T0 } from './fixtures/runs'
+import { approval, iso, MINUTE, onSubRun, row, T0 } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
 import { COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 import type { World } from './fixtures/world'
@@ -28,7 +28,7 @@ test('the pinned row names the four sub-tabs, Runs carrying the live count and t
     row('a'),
     row('b', { status: 'paused', metadata: { approval: approval() } }),
     // A parent and its sub-run count as one live run; the sub-run on an approval makes the parent need you once.
-    row('p', { status: 'paused', metadata: { approval: onChild('c') } }),
+    row('p', { status: 'paused', metadata: { approval: onSubRun('c') } }),
     row('c', { parent_run_id: 'p', status: 'paused', metadata: { approval: approval() } }),
     row('d', { status: 'completed', completed_at: iso(T0 + MINUTE) }),
   ])

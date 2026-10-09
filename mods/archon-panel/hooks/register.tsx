@@ -15,7 +15,7 @@ import { claimKey, collapse, isClaimed, isMine, statusText, toastEvents } from '
 import type { Runner } from './cli'
 import { parseConfig } from './config'
 import type { Config } from './config'
-import { attention, hasEnded, liveCount, needsYou, needsYouCount, sortRuns, topRuns } from './runs'
+import { hasEnded, liveCount, needsYou, needsYouCount, sortRuns, standing, topRuns, waitNode } from './runs'
 import { runsBody } from './runs-view'
 import { capLines, expandHome, serveLine } from './serve-log'
 import type { Platform } from './scope'
@@ -350,15 +350,12 @@ async function pick($: EngineInterface, config: Config, run: Run): Promise<void>
   }
   await update($, actions, (a): ArchonActions => ({ ...a, pending: null, records: Object.fromEntries(Object.entries(a.records).filter(([id]) => id === run.id)) }))
   const current = await read($, data)
-  const byId = new Map(current.runs.map(r => [r.id, r]))
-  const need = needsYou(run, byId, current.details)
+  const need = needsYou(run, current.runs, current.details)
   if (need === undefined) {
     await openGraph($, run.id)
     return
   }
-  const found = need.attention
-  const node = found.kind === 'approval' ? found.gate.nodeId : found.kind === 'action' ? found.wait.nodeId : found.kind === 'stranded' ? found.gate.nodeId : ''
-  await changeView($, config, (v): ArchonView => ({ ...v, tab: 'log', run: need.holder.id, node, file: '' }))
+  await changeView($, config, (v): ArchonView => ({ ...v, tab: 'log', run: need.holder.id, node: waitNode(need.standing), file: '' }))
 }
 
 /** The files under `root` whose name ends `.yaml` or `.yml`, a few folders deep. */
@@ -436,14 +433,13 @@ async function pickNode($: EngineInterface, config: Config, runId: string, id: s
   } else if (pickOf?.kind === 'loop') {
     const key = `${runId}:${pickOf.id}`
     await update($, view, (v): ArchonView => ({ ...v, loop: v.loop === key ? '' : key, round: 0 }))
-  } else if (pickOf?.kind === 'workflow' && pickOf.children.length > 0) {
-    const byId = new Map(current.runs.map(r => [r.id, r]))
-    const waiting = pickOf.children.find(child => needsYou(child, byId, current.details) !== undefined)
+  } else if (pickOf?.kind === 'workflow' && pickOf.subRuns.length > 0) {
+    const waiting = pickOf.subRuns.find(subRun => needsYou(subRun, current.runs, current.details) !== undefined)
     if (waiting !== undefined) await pick($, config, waiting)
-    else if (pickOf.children.length > 1) {
+    else if (pickOf.subRuns.length > 1) {
       const key = `${runId}:${pickOf.id}`
       await update($, view, (v): ArchonView => ({ ...v, fanouts: v.fanouts.includes(key) ? v.fanouts.filter(f => f !== key) : [...v.fanouts, key] }))
-    } else await openGraph($, pickOf.children[0]!.id)
+    } else await openGraph($, pickOf.subRuns[0]!.id)
   } else {
     await openNode($, config, run, id)
   }
@@ -685,8 +681,7 @@ const REPLY_MS = 30_000
 function raceOf(pending: Pending, run: Run | undefined, runs: readonly Run[], detail: Detail | undefined): string | undefined {
   if (run === undefined) return undefined
   if (hasEnded(run)) return 'Ended elsewhere'
-  const byId = new Map(runs.map(r => [r.id, r]))
-  const found = attention(run, byId, detail)
+  const found = standing(run, runs, detail)
   if (pending.kind === 'answer') {
     if (found.kind === 'approval') return undefined
     const answer = lastAnswer(detail)
@@ -778,8 +773,8 @@ async function deliver($: EngineInterface, config: Config, pending: Pending, run
   if (reply instanceof Error) return { kind: 'refused', message: reply.message }
   const said = archonMessage(reply.text)
   if (!reply.ok) {
-    if (pending.kind === 'answer' && said.childRunId !== '' && !isFollowed) {
-      return deliver($, config, { ...pending, runId: said.childRunId }, { ...run, id: said.childRunId }, text, isServer, true)
+    if (pending.kind === 'answer' && said.subRunId !== '' && !isFollowed) {
+      return deliver($, config, { ...pending, runId: said.subRunId }, { ...run, id: said.subRunId }, text, isServer, true)
     }
     return { kind: 'refused', message: said.message || `Archon answered ${reply.status}` }
   }
@@ -789,7 +784,7 @@ async function deliver($: EngineInterface, config: Config, pending: Pending, run
 /** Whether a run moved on from what a sent action left it waiting at. */
 function hasMoved(run: Run | undefined, runs: readonly Run[], detail: Detail | undefined, kind: 'answer' | 'resume'): boolean {
   if (run === undefined || hasEnded(run)) return true
-  const found = attention(run, new Map(runs.map(r => [r.id, r])), detail)
+  const found = standing(run, runs, detail)
   return kind === 'answer' ? found.kind !== 'approval' : run.status !== 'paused'
 }
 
@@ -821,12 +816,11 @@ async function checkMoved($: EngineInterface, config: Config, runId: string): Pr
  */
 async function settleActions($: EngineInterface): Promise<void> {
   const current = await read($, data)
-  const byId = new Map(current.runs.map(r => [r.id, r]))
   await update($, actions, (a): ArchonActions => {
     let next = a
     const pending = a.pending
     if (pending !== null) {
-      const run = byId.get(pending.runId)
+      const run = current.runs.find(r => r.id === pending.runId)
       const race = raceOf(pending, run, current.runs, current.details[pending.runId])
       if (race !== undefined) {
         const typed = a.text[pending.runId] ?? ''
@@ -835,7 +829,7 @@ async function settleActions($: EngineInterface): Promise<void> {
     }
     for (const [runId, check] of Object.entries(a.checks)) {
       if (!check.isChat) continue
-      const run = byId.get(runId)
+      const run = current.runs.find(r => r.id === runId)
       const polls = check.polls + 1
       const { [runId]: _done, ...rest } = next.checks
       void _done
@@ -849,8 +843,7 @@ async function settleActions($: EngineInterface): Promise<void> {
 
 /** The run that has needed you longest, a sub-run's gate counted like any other; undefined with none. */
 function longestWaiting(current: ArchonData): Run | undefined {
-  const byId = new Map(current.runs.map(r => [r.id, r]))
-  return sortRuns(topRuns(current.runs), current.runs, current.details).find(run => needsYou(run, byId, current.details) !== undefined)
+  return sortRuns(topRuns(current.runs), current.runs, current.details).find(run => needsYou(run, current.runs, current.details) !== undefined)
 }
 
 /** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
@@ -998,7 +991,7 @@ export const register: Register = (on, options) => {
         onFold: block => void update($, view, (v): ArchonView => ({ ...v, includes: v.includes.filter(entry => entry !== `${shown.run}:${block}`) })).catch(report($)),
         onRound: round => void update($, view, (v): ArchonView => ({ ...v, round })).catch(report($)),
         onParent: parent => void openGraph($, parent.id).catch(report($)),
-        onChild: child => void openGraph($, child.id).catch(report($)),
+        onSubRun: subRun => void openGraph($, subRun.id).catch(report($)),
       })
     } else if (shown.tab === 'archon-log') {
       const served = await read($, serveLog)
@@ -1012,9 +1005,8 @@ export const register: Register = (on, options) => {
     else {
       const run = current.runs.find(r => r.id === shown.run)
       const acts = await read($, actions)
-      const byId = new Map(current.runs.map(r => [r.id, r]))
-      const top = run === undefined ? undefined : topRuns(current.runs).find(t => needsYou(t, byId, current.details)?.holder.id === run.id)
-      const need = top === undefined ? undefined : needsYou(top, byId, current.details)
+      const top = run === undefined ? undefined : topRuns(current.runs).find(t => needsYou(t, current.runs, current.details)?.holder.id === run.id)
+      const need = top === undefined ? undefined : needsYou(top, current.runs, current.details)
       const link = run !== undefined && current.source === 'server' && e.surface !== 'mobile' ? `http://localhost:${config.port}/console/r/${run.id}` : ''
       if (run !== undefined && need !== undefined && current.graphs[run.id] === undefined) void ensureGraph($, run.id).catch(report($))
       const logLines = logBody({

@@ -15,7 +15,7 @@ export type Gate = {
   type: string
   decisions: Decision[]
   /** The sub-run a `child_workflow` gate waits on; '' for any other gate. */
-  childRunId: string
+  subRunId: string
   /** Whether a reject has a rework step to go to, so it does not cancel the run. */
   hasRework: boolean
   /** A loop gate whose round said it is done: a bare approve finishes the loop. */

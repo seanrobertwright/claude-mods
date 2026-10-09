@@ -2,7 +2,7 @@
 // this project's runs need you, fail or finish, one per event across sessions.
 
 import type { Detail, Run } from '../types'
-import { childrenOf, hasEnded, needsYou, topRuns } from './runs'
+import { hasEnded, needsYou, subRunsOf, topRuns, waitNode } from './runs'
 import type { NeedsYou } from './runs'
 import { duration, firstLine } from './text'
 
@@ -16,9 +16,8 @@ export function nameOf(run: Run, runs: readonly Run[]): string {
 }
 
 function needing(runs: readonly Run[], details: Readonly<Record<string, Detail>>): { run: Run; need: NeedsYou }[] {
-  const byId = new Map(runs.map(run => [run.id, run]))
   return topRuns(runs).flatMap(run => {
-    const need = needsYou(run, byId, details)
+    const need = needsYou(run, runs, details)
     return need === undefined ? [] : [{ run, need }]
   })
 }
@@ -40,7 +39,7 @@ export function statusText(runs: readonly Run[], details: Readonly<Record<string
   const counted = needs.length === 1 ? '⏸ 1 needs you' : `⏸ ${needs.length} need you`
   const named = first === undefined || needs.length > 1
     ? counted
-    : `⏸ ${nameOf(first.run, runs)} ${first.need.attention.kind === 'approval' ? 'needs approval' : 'needs you'}`
+    : `⏸ ${nameOf(first.run, runs)} ${first.need.standing.kind === 'approval' ? 'needs approval' : 'needs you'}`
   const parts = (need: string, isRunning: boolean, isElsewhere: boolean) =>
     ['Archon', ...(needs.length > 0 ? [need] : []), ...(isRunning && running > 0 ? [`${running} running`] : []), ...(isElsewhere && elsewhere > 0 ? [`⏸ ${elsewhere} elsewhere`] : [])].join(' · ')
   for (const text of [parts(named, true, true), parts(named, true, false), parts(named, false, false)]) {
@@ -51,7 +50,7 @@ export function statusText(runs: readonly Run[], details: Readonly<Record<string
 
 function isFamilyLive(run: Run, runs: readonly Run[], depth = 0): boolean {
   if (!hasEnded(run)) return true
-  return depth < 10 && childrenOf(run, runs).some(child => isFamilyLive(child, runs, depth + 1))
+  return depth < 10 && subRunsOf(run, runs).some(subRun => isFamilyLive(subRun, runs, depth + 1))
 }
 
 export type ToastEvent = {
@@ -68,16 +67,16 @@ const STAYS = { 'needs-you': 15_000, 'failed': 8_000, 'completed': 4_000 } as co
 /** What a run that needs you is waiting on, as its toast says it. */
 function needText(run: Run, need: NeedsYou, runs: readonly Run[]): string {
   const name = nameOf(run, runs)
-  const found = need.attention
+  const found = need.standing
   if (found.kind === 'approval') {
     const inSub = need.holder.id === run.id ? '' : ` (in sub-run ${need.holder.workflow})`
     return `⏸ ${name} needs approval: ${firstLine(found.gate.message)}${inSub}`
   }
   if (found.kind === 'action') return `⏸ ${name} needs you: ${firstLine(found.wait.message)}`
   if (found.kind === 'stranded') {
-    const child = found.child
-    const ending = child === undefined ? 'ended' : child.status === 'completed' ? 'done' : child.status
-    return `⏸ ${name} needs you: sub-run ${child?.workflow ?? 'sub-run'} was ${ending}`
+    const subRun = found.subRun
+    const ending = subRun === undefined ? 'ended' : subRun.status === 'completed' ? 'done' : subRun.status
+    return `⏸ ${name} needs you: sub-run ${subRun?.workflow ?? 'sub-run'} was ${ending}`
   }
   return `⏸ ${name} needs you`
 }
@@ -91,8 +90,8 @@ function needText(run: Run, need: NeedsYou, runs: readonly Run[]): string {
 export function toastEvents(runs: readonly Run[], details: Readonly<Record<string, Detail>>, since: number): ToastEvent[] {
   const events: ToastEvent[] = []
   for (const { run, need } of needing(runs, details)) {
-    if (need.attention.kind === 'unreadable') continue
-    const gate = `${need.holder.id}:${need.attention.kind}:${'gate' in need.attention ? need.attention.gate.nodeId : need.attention.wait.nodeId}:${need.attention.since}`
+    if (need.standing.kind === 'unreadable') continue
+    const gate = `${need.holder.id}:${need.standing.kind}:${waitNode(need.standing)}:${need.standing.since}`
     events.push({ runId: run.id, event: 'needs-you', gate, text: needText(run, need, runs), timeoutMs: STAYS['needs-you'] })
   }
   for (const run of topRuns(runs)) {
@@ -104,7 +103,7 @@ export function toastEvents(runs: readonly Run[], details: Readonly<Record<strin
       const text = `✗ ${nameOf(run, runs)} failed${node === '' ? '' : ` at ${node}`}${error === '' ? '' : `: ${error}`}`
       events.push({ runId: run.id, event: 'failed', gate: '', text, timeoutMs: STAYS.failed })
     } else if (run.status === 'completed') {
-      const subFailed = childrenOf(run, runs).filter(child => child.status === 'failed').length
+      const subFailed = subRunsOf(run, runs).filter(subRun => subRun.status === 'failed').length
       const tail = subFailed === 0 ? '' : `, ${subFailed} sub-run${subFailed === 1 ? '' : 's'} failed`
       events.push({ runId: run.id, event: 'completed', gate: '', text: `✓ ${nameOf(run, runs)} finished in ${duration(run.completedAt - run.startedAt)}${tail}`, timeoutMs: STAYS.completed })
     }

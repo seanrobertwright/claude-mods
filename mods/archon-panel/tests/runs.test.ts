@@ -2,32 +2,32 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { attention, parseRun } from '../hooks/runs'
+import { parseRun, standing } from '../hooks/runs'
 import type { Detail, Run } from '../types'
-import { approval, attention as attentionWait, iso, MINUTE, onChild, row, T0, WORKTREE } from './fixtures/runs'
+import { approval, actionNeeded, iso, MINUTE, onSubRun, row, T0, WORKTREE } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
 import { COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
 const parse = (r: Row) => parseRun(r) as Run
-const index = (rows: Row[]) => new Map(rows.map(r => [r.id, parse(r)]))
+const parsed = (rows: Row[]) => rows.map(parse)
 const NO_DETAIL: Detail = { events: [], files: [], transcriptPath: '', isWorkingPathThere: true }
 
 test('a paused run is sorted the way Archon\'s runAttention sorts it, plus the stranded check', () => {
   const cases: [string, Row[], string][] = [
     ['approval', [row('r', { status: 'paused', metadata: { approval: approval() } })], 'approval'],
     ['interactive loop gate', [row('r', { status: 'paused', metadata: { approval: approval({ type: 'interactive_loop' }) } })], 'approval'],
-    ['action needed', [row('r', { status: 'paused', metadata: { wait: attentionWait() } })], 'action'],
+    ['action needed', [row('r', { status: 'paused', metadata: { wait: actionNeeded() } })], 'action'],
     ['time wait', [row('r', { status: 'paused', metadata: { wait: { kind: 'time', nodeId: 'w', until: iso(T0 + 30 * MINUTE) } } })], 'waiting'],
     ['event wait', [row('r', { status: 'paused', metadata: { wait: { kind: 'event', nodeId: 'w', event: 'ci.done' } } })], 'waiting'],
     ['unreadable gate', [row('r', { status: 'paused', metadata: {} })], 'unreadable'],
-    ['blocked on a live sub-run', [row('r', { status: 'paused', metadata: { approval: onChild('c') } }), row('c', { parent_run_id: 'r' })], 'blocked'],
-    ['stranded by a cancelled sub-run', [row('r', { status: 'paused', metadata: { approval: onChild('c') } }), row('c', { parent_run_id: 'r', status: 'cancelled' })], 'stranded'],
-    ['stranded by a failed sub-run', [row('r', { status: 'paused', metadata: { approval: onChild('c') } }), row('c', { parent_run_id: 'r', status: 'failed' })], 'stranded'],
-    ['stranded by a completed sub-run', [row('r', { status: 'paused', metadata: { approval: onChild('c') } }), row('c', { parent_run_id: 'r', status: 'completed' })], 'stranded'],
+    ['blocked on a live sub-run', [row('r', { status: 'paused', metadata: { approval: onSubRun('c') } }), row('c', { parent_run_id: 'r' })], 'blocked'],
+    ['stranded by a cancelled sub-run', [row('r', { status: 'paused', metadata: { approval: onSubRun('c') } }), row('c', { parent_run_id: 'r', status: 'cancelled' })], 'stranded'],
+    ['stranded by a failed sub-run', [row('r', { status: 'paused', metadata: { approval: onSubRun('c') } }), row('c', { parent_run_id: 'r', status: 'failed' })], 'stranded'],
+    ['stranded by a completed sub-run', [row('r', { status: 'paused', metadata: { approval: onSubRun('c') } }), row('c', { parent_run_id: 'r', status: 'completed' })], 'stranded'],
     ['running', [row('r')], 'none'],
   ]
-  for (const [, rows, kind] of cases) expect(attention(parse(rows[0]!), index(rows), undefined).kind).toBe(kind)
+  for (const [, rows, kind] of cases) expect(standing(parse(rows[0]!), parsed(rows), undefined).kind).toBe(kind)
 })
 
 test('an answered gate waiting to resume does not need you', () => {
@@ -36,7 +36,7 @@ test('an answered gate waiting to resume does not need you', () => {
     { type: 'approval_requested', step: 'review-gate', at: T0, output: '', error: '', iteration: 0, decision: '', text: '', reason: '', durationMs: 0, costUsd: 0 },
     { type: 'approval_received', step: 'review-gate', at: T0 + MINUTE, output: '', error: '', iteration: 0, decision: 'approve', text: '', reason: '', durationMs: 0, costUsd: 0 },
   ] }
-  expect(attention(run, index([]), answered).kind).toBe('resuming')
+  expect(standing(run, [], answered).kind).toBe('resuming')
 })
 
 async function runsPane($: Engine, on: On, rows: Row[], over: Parameters<typeof world>[0] = {}) {
@@ -59,7 +59,7 @@ test('Runs puts runs that need you first, the longest waiting at the top, then t
     row('quiet', { workflow_name: 'archon-quiet', last_activity_at: iso(T0 + MINUTE) }),
     row('busy', { workflow_name: 'archon-busy', last_activity_at: iso(T0 + 3 * MINUTE) }),
     row('gate-new', { workflow_name: 'archon-gate-new', status: 'paused', metadata: { approval: approval({ waitingSince: iso(T0 + 10 * MINUTE) }) } }),
-    row('gate-old', { workflow_name: 'archon-gate-old', status: 'paused', metadata: { wait: { ...attentionWait(), waitingSince: iso(T0 + 4 * MINUTE) } } }),
+    row('gate-old', { workflow_name: 'archon-gate-old', status: 'paused', metadata: { wait: { ...actionNeeded(), waitingSince: iso(T0 + 4 * MINUTE) } } }),
     // A sub-run's activity counts for its parent.
     row('quiet-child', { workflow_name: 'archon-child', parent_run_id: 'quiet', last_activity_at: iso(T0 + 5 * MINUTE) }),
   ])
@@ -71,7 +71,7 @@ test('Runs puts runs that need you first, the longest waiting at the top, then t
 test('each row reads glyph, workflow, status word and time, with a dim detail line', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('a', { workflow_name: 'archon-approve', status: 'paused', metadata: { approval: approval() } }),
-    row('b', { workflow_name: 'archon-act', status: 'paused', metadata: { wait: attentionWait('Push the tag\nthen resume') } }),
+    row('b', { workflow_name: 'archon-act', status: 'paused', metadata: { wait: actionNeeded('Push the tag\nthen resume') } }),
     row('c', { workflow_name: 'archon-odd', status: 'paused', metadata: {} }),
     row('d', { workflow_name: 'archon-later', status: 'paused', metadata: { wait: { kind: 'event', nodeId: 'w', event: 'ci.done' } } }),
     row('e', { workflow_name: 'archon-run', started_at: iso(T0 + 17 * MINUTE) }),
@@ -104,7 +104,7 @@ test('a gate Archon cannot read links its run in Archon while the server answers
 
 test('a stranded parent reads stuck, with its sub-run\'s ending beside it', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
-    row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } }),
+    row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onSubRun('c') } }),
     row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'failed', completed_at: iso(T0 + 5 * MINUTE) }),
   ])
   expect(await labels(pane)).toContain('! archon-ship  stuck: sub-run ended  20m')
@@ -115,9 +115,9 @@ test('a stranded parent reads stuck, with its sub-run\'s ending beside it', COLD
 test('a parent waiting on a sub-run is dim, or reads approval in sub-run and sorts first when the sub-run is on one', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('busy', { workflow_name: 'archon-busy', last_activity_at: iso(T0 + 19 * MINUTE) }),
-    row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } }),
+    row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onSubRun('c') } }),
     row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'paused', metadata: { approval: approval() } }),
-    row('p2', { workflow_name: 'archon-deliver', status: 'paused', metadata: { approval: onChild('c2') } }),
+    row('p2', { workflow_name: 'archon-deliver', status: 'paused', metadata: { approval: onSubRun('c2') } }),
     row('c2', { workflow_name: 'archon-review', parent_run_id: 'p2' }),
   ])
   const shown = await labels(pane)

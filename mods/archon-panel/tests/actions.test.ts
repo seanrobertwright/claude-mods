@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, Mounted } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { approval, attention, event, iso, MINUTE, onChild, row, T0 } from './fixtures/runs'
+import { actionNeeded, approval, event, iso, MINUTE, onSubRun, row, T0 } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
 import { archonCalls, COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 import type { World } from './fixtures/world'
@@ -195,7 +195,7 @@ test('with the server down a web-started run is answered through the CLI, and th
 })
 
 test('a sub-run\'s approval is answered on the sub-run\'s own id, and says what a reject does to its parent', COLD, async ($, on) => {
-  const parent = row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } })
+  const parent = row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onSubRun('c') } })
   const child = row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'paused', metadata: { approval: approval() } })
   const { clock, w, pane } = await open($, on, [parent, child], 'p')
   expect(await texts(pane)).toContain('archon-ship › archon-fix · c · waited 18m')
@@ -291,11 +291,11 @@ test('answered elsewhere during confirmation: a poll drops the pending action, t
 
 // ---------- resume and abandon ----------
 
-const actionNeeded = (over: Record<string, unknown> = {}) =>
-  row('a', { workflow_name: 'archon-release', status: 'paused', ...over, metadata: { wait: { ...attention('Push the release tag, then resume.'), waitingSince: iso(NOW - 14 * MINUTE) } } })
+const actionRow = (over: Record<string, unknown> = {}) =>
+  row('a', { workflow_name: 'archon-release', status: 'paused', ...over, metadata: { wait: { ...actionNeeded('Push the release tag, then resume.'), waitingSince: iso(NOW - 14 * MINUTE) } } })
 
 test('action needed offers resume and abandon, each confirmed with a button naming it', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded()], 'a')
+  const { clock, w, pane } = await open($, on, [actionRow()], 'a')
   const all = await texts(pane)
   expect(all).toContain('⏸ Action needed · waiting 14m')
   expect(all).toContain('Push the release tag, then resume.')
@@ -311,7 +311,7 @@ test('action needed offers resume and abandon, each confirmed with a button nami
 })
 
 test('abandon confirms with its own line and button, and goes through the CLI for a CLI-started run', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded()], 'a')
+  const { clock, w, pane } = await open($, on, [actionRow()], 'a')
   await pane.press({ key: 'abandon' })
   expect(await texts(pane)).toContain("Abandon: ends this run and anything it started. It can't be resumed.")
   expect(await buttons(pane)).toEqual(['confirm=Abandon archon-release', 'back=b: Back'])
@@ -323,7 +323,7 @@ test('abandon confirms with its own line and button, and goes through the CLI fo
 })
 
 test('a web-started run is resumed and abandoned through the server while it answers; resume is sent to its chat', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a')
+  const { clock, w, pane } = await open($, on, [actionRow({ parent_conversation_id: 'conv-1' })], 'a')
   await pane.press({ key: 'resume' })
   await pane.press({ key: 'confirm' })
   await clock.settle()
@@ -337,7 +337,7 @@ test('a web-started run is resumed and abandoned through the server while it ans
 })
 
 test('a web-started run is abandoned through the server while it answers', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a')
+  const { clock, w, pane } = await open($, on, [actionRow({ parent_conversation_id: 'conv-1' })], 'a')
   await pane.press({ key: 'abandon' })
   await pane.press({ key: 'confirm' })
   await clock.settle()
@@ -347,7 +347,7 @@ test('a web-started run is abandoned through the server while it answers', COLD,
 })
 
 test('with the server down a web-started run is resumed through the CLI', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a', { server: 'down' })
+  const { clock, w, pane } = await open($, on, [actionRow({ parent_conversation_id: 'conv-1' })], 'a', { server: 'down' })
   await pane.press({ key: 'resume' })
   await pane.press({ key: 'confirm' })
   await clock.settle()
@@ -356,7 +356,7 @@ test('with the server down a web-started run is resumed through the CLI', COLD, 
 })
 
 test('a Slack run is never resumed from the pane, but can be abandoned, through the CLI', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'slack-1', platform_type: 'slack' })], 'a')
+  const { clock, w, pane } = await open($, on, [actionRow({ parent_conversation_id: 'slack-1', platform_type: 'slack' })], 'a')
   expect(await buttons(pane)).toEqual(['abandon=x  Abandon run'])
   expect((await pane.find({ type: 'Text', text: 'resume it from Slack' }))?.props.dimColor).toBe(true)
   await pane.press({ key: 'abandon' })
@@ -367,7 +367,7 @@ test('a Slack run is never resumed from the pane, but can be abandoned, through 
 })
 
 test('a run whose working path is gone offers only abandon', COLD, async ($, on) => {
-  const { pane } = await open($, on, [actionNeeded({ working_path: 'D:/gone/worktree' })], 'a')
+  const { pane } = await open($, on, [actionRow({ working_path: 'D:/gone/worktree' })], 'a')
   expect(await buttons(pane)).toEqual(['abandon=x  Abandon run'])
   expect((await pane.find({ type: 'Text', text: "can't resume: D:/gone/worktree is gone" }))?.props.dimColor).toBe(true)
   await pane.unmount()
@@ -381,7 +381,7 @@ const STRANDS = [
 
 for (const strand of STRANDS) {
   test(`a parent stranded by a ${strand.ending} sub-run names how it ended, and its resume follows`, COLD, async ($, on) => {
-    const parent = row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } })
+    const parent = row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onSubRun('c') } })
     const child = row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: strand.ending, completed_at: iso(T0 + 5 * MINUTE) })
     const { pane } = await open($, on, [parent, child], 'p')
     const all = await texts(pane)
@@ -395,9 +395,9 @@ for (const strand of STRANDS) {
 }
 
 test('a resume raced: resumed elsewhere, or ended elsewhere, sends nothing', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded()], 'a')
+  const { clock, w, pane } = await open($, on, [actionRow()], 'a')
   await pane.press({ key: 'resume' })
-  w.rows = [actionNeeded({ status: 'running', metadata: {} })]
+  w.rows = [actionRow({ status: 'running', metadata: {} })]
   await pane.press({ key: 'confirm' })
   await clock.settle()
   expect(w.argv.some(a => a[2] === 'resume')).toBe(false)
@@ -406,9 +406,9 @@ test('a resume raced: resumed elsewhere, or ended elsewhere, sends nothing', COL
 })
 
 test('an abandon raced by the run ending sends nothing', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded()], 'a')
+  const { clock, w, pane } = await open($, on, [actionRow()], 'a')
   await pane.press({ key: 'abandon' })
-  w.rows = [actionNeeded({ status: 'cancelled', completed_at: iso(NOW) })]
+  w.rows = [actionRow({ status: 'cancelled', completed_at: iso(NOW) })]
   await pane.press({ key: 'confirm' })
   await clock.settle()
   expect(w.argv.some(a => a[2] === 'abandon')).toBe(false)
@@ -417,7 +417,7 @@ test('an abandon raced by the run ending sends nothing', COLD, async ($, on) => 
 })
 
 test('a refused resume shows Archon\'s message', COLD, async ($, on) => {
-  const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a')
+  const { clock, w, pane } = await open($, on, [actionRow({ parent_conversation_id: 'conv-1' })], 'a')
   w.httpReply = (method, path) => (method === 'POST' && path === '/api/workflows/runs/a/resume' ? { status: 400, body: JSON.stringify({ error: "Cannot resume run with status 'running'." }) } : undefined)
   await pane.press({ key: 'resume' })
   await pane.press({ key: 'confirm' })
@@ -427,7 +427,7 @@ test('a refused resume shows Archon\'s message', COLD, async ($, on) => {
 })
 
 test('a --detach resume the run has not moved on after 30 s says so', COLD, async ($, on) => {
-  const { clock, pane } = await open($, on, [actionNeeded()], 'a')
+  const { clock, pane } = await open($, on, [actionRow()], 'a')
   await pane.press({ key: 'resume' })
   await pane.press({ key: 'confirm' })
   await clock.settle()
@@ -445,7 +445,7 @@ test('/archon opens Log on the run that has needed you longest, a sub-run\'s gat
   const w = world({
     rows: [
       gated('newer', { waitingSince: iso(NOW - MINUTE) }),
-      row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } }),
+      row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onSubRun('c') } }),
       row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'paused', metadata: { approval: approval({ waitingSince: iso(NOW - 9 * MINUTE) }) } }),
     ],
     disk: { ...THERE },

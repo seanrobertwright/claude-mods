@@ -3,8 +3,8 @@
 import type { Elements, RenderElement } from 'claude-code'
 
 import type { ArchonData, ArchonView, Run } from '../types'
-import { attention, childrenOf, hasEnded, needsYou, sortRuns, topRuns } from './runs'
-import type { Attention } from './runs'
+import { hasEnded, needsYou, sortRuns, standing, subRunsOf, topRuns } from './runs'
+import type { Standing } from './runs'
 import { isPinned } from './scope'
 import type { Platform } from './scope'
 import { clockTime, colour, duration, firstLine, fit, glyph } from './text'
@@ -30,7 +30,7 @@ export function shortId(id: string): string {
 }
 
 /** How a run looks: its glyph's state, from its status and what it waits on. */
-export function lookOf(run: Run, found: Attention): Look {
+export function lookOf(run: Run, found: Standing): Look {
   if (found.kind === 'approval' || found.kind === 'blocked' || found.kind === 'resuming') return 'approval'
   if (found.kind === 'action' || found.kind === 'stranded') return 'action'
   if (found.kind === 'unreadable') return 'unreadable'
@@ -39,13 +39,13 @@ export function lookOf(run: Run, found: Attention): Look {
 }
 
 /** The status word beside a run's name. */
-function wordOf(run: Run, found: Attention, holderIsChild: boolean): string {
+function wordOf(run: Run, found: Standing, isHeldBelow: boolean): string {
   switch (found.kind) {
     case 'approval': return 'needs your approval'
     case 'action': return 'action needed'
     case 'stranded': return 'stuck: sub-run ended'
     case 'unreadable': return "gate Archon can't read"
-    case 'blocked': return holderIsChild ? 'approval in sub-run' : 'waiting on a sub-run'
+    case 'blocked': return isHeldBelow ? 'approval in sub-run' : 'waiting on a sub-run'
     case 'resuming': return 'resuming…'
     case 'waiting': return found.wait.until !== '' ? `waits until ${clockTime(Date.parse(found.wait.until))}` : `waits for ${found.wait.event || 'an event'}`
     default: return run.status
@@ -58,11 +58,11 @@ function timeOf(run: Run, now: number): string {
 }
 
 /** How a sub-run ended, as a stranded parent shows it. */
-function endingOf(child: Run | undefined): string {
-  if (child === undefined) return 'ended'
-  if (child.status === 'completed') return 'done'
-  if (child.status === 'cancelled') return child.completedAt > 0 ? `cancelled ${clockTime(child.completedAt)}` : 'cancelled'
-  return child.status
+function endingOf(subRun: Run | undefined): string {
+  if (subRun === undefined) return 'ended'
+  if (subRun.status === 'completed') return 'done'
+  if (subRun.status === 'cancelled') return subRun.completedAt > 0 ? `cancelled ${clockTime(subRun.completedAt)}` : 'cancelled'
+  return subRun.status
 }
 
 /** The adoption line: which run this one continues, or is continued by. */
@@ -81,7 +81,6 @@ export function runsBody(props: RunsProps): RenderElement[] {
   const { ui, data, view, now, width } = props
   const { Box, Text, Button, Link } = ui
   const room = Math.max(8, width - 2)
-  const byId = new Map(data.runs.map(run => [run.id, run]))
   const lines: RenderElement[] = []
   const project = data.project
 
@@ -91,8 +90,8 @@ export function runsBody(props: RunsProps): RenderElement[] {
   if (project === null || project.ids.length === 0) return lines
 
   const row = (run: Run, depth: number, isHere: boolean) => {
-    const found = attention(run, byId, data.details[run.id])
-    const need = needsYou(run, byId, data.details)
+    const found = standing(run, data.runs, data.details[run.id])
+    const need = needsYou(run, data.runs, data.details)
     const look = lookOf(run, found)
     const indent = '  '.repeat(depth)
     const mark = depth > 0 ? '↳' : glyph(look)
@@ -113,7 +112,7 @@ export function runsBody(props: RunsProps): RenderElement[] {
     if (depth > 0) return
     const parts: string[] = []
     if (found.kind === 'action') parts.push(firstLine(found.wait.message))
-    else if (found.kind === 'stranded') parts.push(`${found.child?.workflow ?? 'sub-run'} ${endingOf(found.child)}`)
+    else if (found.kind === 'stranded') parts.push(`${found.subRun?.workflow ?? 'sub-run'} ${endingOf(found.subRun)}`)
     else if (run.message !== '') parts.push(run.message)
     parts.push(...adoption(run, data.runs))
     const detail = `${isHere ? 'here · ' : ''}${parts.filter(part => part !== '').join(' · ')}`
@@ -126,18 +125,18 @@ export function runsBody(props: RunsProps): RenderElement[] {
 
   const family = (run: Run, isHere: boolean) => {
     row(run, 0, isHere)
-    const children = childrenOf(run, data.runs)
-    if (children.length === 0) return
-    const isFolded = (children.length > 1 || hasEnded(run)) && !view.fanouts.includes(run.id)
+    const subRuns = subRunsOf(run, data.runs)
+    if (subRuns.length === 0) return
+    const isFolded = (subRuns.length > 1 || hasEnded(run)) && !view.fanouts.includes(run.id)
     if (isFolded) {
-      const count = (test: (child: Run) => boolean) => children.filter(test).length
+      const count = (test: (subRun: Run) => boolean) => subRuns.filter(test).length
       const parts = [
-        `${children.length} sub-run${children.length === 1 ? '' : 's'}`,
+        `${subRuns.length} sub-run${subRuns.length === 1 ? '' : 's'}`,
         ...[
-          [count(child => !hasEnded(child)), 'running'],
-          [count(child => child.status === 'failed'), 'failed'],
-          [count(child => child.status === 'cancelled'), 'cancelled'],
-          [count(child => child.status === 'completed'), 'done'],
+          [count(subRun => !hasEnded(subRun)), 'running'],
+          [count(subRun => subRun.status === 'failed'), 'failed'],
+          [count(subRun => subRun.status === 'cancelled'), 'cancelled'],
+          [count(subRun => subRun.status === 'completed'), 'done'],
         ].filter(([n]) => n !== 0).map(([n, word]) => `${n} ${word}`),
       ]
       lines.push(
@@ -148,15 +147,15 @@ export function runsBody(props: RunsProps): RenderElement[] {
       )
       return
     }
-    if (children.length > 1) {
+    if (subRuns.length > 1) {
       lines.push(
         <Box key={`run-fanout-${run.id}`} flexDirection="row">
           <Text>{'   '}▾ </Text>
-          <Button key={`fanout-${run.id}`} plain dimColor label={fit(`${children.length} sub-runs`, room - 5)} onPress={() => props.onFanout(run.id)} />
+          <Button key={`fanout-${run.id}`} plain dimColor label={fit(`${subRuns.length} sub-runs`, room - 5)} onPress={() => props.onFanout(run.id)} />
         </Box>,
       )
     }
-    for (const child of children) row(child, 1, false)
+    for (const subRun of subRuns) row(subRun, 1, false)
   }
 
   const tops = topRuns(data.runs)

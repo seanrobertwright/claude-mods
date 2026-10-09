@@ -5,6 +5,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import type { ArchonActions, Detail, GraphNode, Run } from '../types'
 import { ABANDON_LINE, answerButtons, platformName, SERVER_DOWN_NOTE, strandConfirm, strandHead, strandResume } from './actions'
+import { waitNode } from './runs'
 import type { NeedsYou } from './runs'
 import { shortId } from './runs-view'
 import { duration } from './text'
@@ -41,14 +42,6 @@ export type ActionProps = {
   onAll: () => void
 }
 
-/** The node a run's needs-you waits at. */
-export function gateNode(need: NeedsYou): string {
-  const found = need.attention
-  if (found.kind === 'action') return found.wait.nodeId
-  if (found.kind === 'approval' || found.kind === 'stranded') return found.gate.nodeId
-  return ''
-}
-
 /** The area under a run that needs you: notices, then the buttons, the confirming step, or what is being sent. */
 function answerArea(props: ActionProps): RenderElement[] {
   const { ui, run, need, actions } = props
@@ -60,7 +53,7 @@ function answerArea(props: ActionProps): RenderElement[] {
   const lines: RenderElement[] = []
   const pending = actions.pending?.runId === holder.id ? actions.pending : null
   if (actions.sending === holder.id) return lines
-  const found = need.attention
+  const found = need.standing
 
   if (pending !== null) {
     let line: string
@@ -68,7 +61,7 @@ function answerArea(props: ActionProps): RenderElement[] {
       line = `${pending.label.replace(/^[a-z]: /, '').replace(/ \(.*\)$/, '')} ${holder.workflow} ${shortId(holder.id)}${text === '' ? '' : ` · "${text}"`}`
       if (holder.hasConversation && !props.isServer) line = `${line} ${SERVER_DOWN_NOTE}`
     } else if (pending.kind === 'resume') {
-      line = found.kind === 'stranded' ? strandConfirm(found.gate.nodeId, found.child) : `Resume: the run carries on from ${gateNode(need)}.`
+      line = found.kind === 'stranded' ? strandConfirm(found.gate.nodeId, found.subRun) : `Resume: the run carries on from ${waitNode(found)}.`
     } else line = ABANDON_LINE
     const name = pending.kind === 'answer' ? 'Send' : `${pending.kind === 'resume' ? 'Resume' : 'Abandon'} ${holder.workflow}`
     lines.push(<Text wrap="wrap">{line}</Text>)
@@ -105,7 +98,7 @@ function answerArea(props: ActionProps): RenderElement[] {
     if (run.platform !== '' || holder.platform !== '') row.push(<Text dimColor>{`resume it from ${platformName(holder.platform || run.platform)}`}</Text>)
     else if (props.detail?.isWorkingPathThere === false) row.push(<Text dimColor>{`can't resume: ${holder.workingPath} is gone`}</Text>)
     else {
-      const label = found.kind === 'stranded' ? strandResume(found.child) : "r  Resume: I've done it"
+      const label = found.kind === 'stranded' ? strandResume(found.subRun) : "r  Resume: I've done it"
       row.push(<Button key="resume" hotkey="r" variant="primary" label={label} onPress={props.onResume} />)
     }
     row.push(<Button key="abandon" hotkey="x" label="x  Abandon run" onPress={props.onAbandon} />)
@@ -117,7 +110,7 @@ function answerArea(props: ActionProps): RenderElement[] {
 /** The node outputs a gate asks about: each node it waits on, its last part. */
 function asksAbout(props: ActionProps): RenderElement[] {
   const { Text } = props.ui
-  const node = gateNode(props.need)
+  const node = waitNode(props.need.standing)
   const deps = props.graph?.find(n => n.id === node)?.deps ?? []
   const events = props.detail?.events ?? []
   const lines: RenderElement[] = []
@@ -127,8 +120,9 @@ function asksAbout(props: ActionProps): RenderElement[] {
     lines.push(<Text bold>{dep}</Text>)
     for (const line of output.replace(/\n+$/, '').split('\n').slice(-ASKS_LINES)) lines.push(<Text dimColor wrap="wrap">{line}</Text>)
   }
-  if (props.need.attention.kind === 'approval' && props.need.attention.gate.type === 'interactive_loop') {
-    lines.push(<Text dimColor wrap="wrap">{props.need.attention.gate.isRoundDone ? 'A bare approve finishes the loop; with a comment it runs another round.' : 'An approve runs another round, with your comment if you give one.'}</Text>)
+  const found = props.need.standing
+  if (found.kind === 'approval' && found.gate.type === 'interactive_loop') {
+    lines.push(<Text dimColor wrap="wrap">{found.gate.isRoundDone ? 'A bare approve finishes the loop; with a comment it runs another round.' : 'An approve runs another round, with your comment if you give one.'}</Text>)
   }
   return lines
 }
@@ -138,7 +132,7 @@ export function actionBody(props: ActionProps): RenderElement[] {
   const { ui, need, now } = props
   const { Box, Text, Markdown, Link } = ui
   const holder = need.holder
-  const found = need.attention
+  const found = need.standing
   const lines: RenderElement[] = []
   const waited = duration(now - found.since)
   if (found.kind === 'approval' || found.kind === 'unreadable') {
@@ -155,7 +149,7 @@ export function actionBody(props: ActionProps): RenderElement[] {
     lines.push(<Text bold color="warning">{`⏸ Action needed · waiting ${waited}`}</Text>)
     lines.push(<Text wrap="wrap">{found.wait.message}</Text>)
   } else {
-    lines.push(<Text bold color="warning">{strandHead(found.child)}</Text>)
+    lines.push(<Text bold color="warning">{strandHead(found.subRun)}</Text>)
     lines.push(<Text>{`Node ${found.gate.nodeId} can't go on.`}</Text>)
   }
   lines.push(...(props.isCut ? asksAbout(props) : props.log))

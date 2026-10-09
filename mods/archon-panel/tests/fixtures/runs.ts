@@ -67,13 +67,13 @@ export function approval(over: Record<string, unknown> = {}): Record<string, unk
 }
 
 /** An action-needed wait's `metadata.wait`. */
-export function attention(message = 'Push the release tag, then resume.'): Record<string, unknown> {
+export function actionNeeded(message = 'Push the release tag, then resume.'): Record<string, unknown> {
   return { owner: 'dag', nodeId: 'tag', kind: 'attention', waitingSince: iso(T0 + 2 * MINUTE), message }
 }
 
 /** A paused parent's gate on its sub-run. */
-export function onChild(childRunId: string, nodeId = 'fix'): Record<string, unknown> {
-  return { nodeId, type: 'child_workflow', childRunId, waitingSince: iso(T0 + 2 * MINUTE) }
+export function onSubRun(subRunId: string, nodeId = 'fix'): Record<string, unknown> {
+  return { nodeId, type: 'child_workflow', childRunId: subRunId, waitingSince: iso(T0 + 2 * MINUTE) }
 }
 
 /** The list body both sources give, `counts` included. */

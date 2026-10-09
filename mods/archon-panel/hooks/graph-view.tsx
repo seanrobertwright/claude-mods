@@ -6,7 +6,7 @@ import type { Elements, RenderElement } from 'claude-code'
 import type { ArchonView, Detail, GraphNode, Run, RunEvent } from '../types'
 import { layout } from './graph'
 import type { DrawNode, Seg } from './graph'
-import { attention, childrenOf, hasEnded, needsYou } from './runs'
+import { hasEnded, needsYou, standing, subRunsOf, waitNode } from './runs'
 import type { Look } from './text'
 import { duration, fit } from './text'
 
@@ -39,55 +39,54 @@ export function roundsOf(events: readonly RunEvent[], group: string): number {
   return Math.max(0, ...events.filter(e => e.step.startsWith(`${group}.`)).map(e => e.iteration))
 }
 
-function childLook(child: Run, runs: readonly Run[], details: Readonly<Record<string, Detail>>): { look: Look; isGate: boolean } {
-  const byId = new Map(runs.map(run => [run.id, run]))
-  if (needsYou(child, byId, details) !== undefined) return { look: 'approval', isGate: true }
-  return { look: child.status === 'paused' ? 'paused' : child.status, isGate: false }
+function subRunLook(subRun: Run, runs: readonly Run[], details: Readonly<Record<string, Detail>>): { look: Look; isGate: boolean } {
+  if (needsYou(subRun, runs, details) !== undefined) return { look: 'approval', isGate: true }
+  return { look: subRun.status === 'paused' ? 'paused' : subRun.status, isGate: false }
 }
 
 /** The sub-runs a `workflow:` node started. */
-export function subRunsOf(run: Run, node: GraphNode, runs: readonly Run[], workflowNodes: number): Run[] {
-  return childrenOf(run, runs).filter(child => child.parentNodeId === node.id || (child.parentNodeId === '' && workflowNodes === 1))
+export function nodeSubRuns(run: Run, node: GraphNode, runs: readonly Run[], workflowNodes: number): Run[] {
+  return subRunsOf(run, runs).filter(subRun => subRun.parentNodeId === node.id || (subRun.parentNodeId === '' && workflowNodes === 1))
 }
 
 export type Graphed = {
   draw: DrawNode[]
   /** What a press on each box picks. */
-  picks: Map<string, { kind: 'node' | 'block' | 'loop' | 'workflow'; id: string; children: Run[] }>
+  picks: Map<string, { kind: 'node' | 'block' | 'loop' | 'workflow'; id: string; subRuns: Run[] }>
 }
 
 /** The boxes of a run's graph: node states from its events, gates in `warning`, blocks and loops folded unless opened. */
 export function drawNodes(nodes: readonly GraphNode[], run: Run, runs: readonly Run[], details: Readonly<Record<string, Detail>>, view: ArchonView): Graphed {
   const events = details[run.id]?.events ?? []
-  const found = attention(run, new Map(runs.map(r => [r.id, r])), details[run.id])
-  const gateNode = found.kind === 'approval' || found.kind === 'stranded' ? found.gate.nodeId : found.kind === 'action' ? found.wait.nodeId : ''
+  const found = standing(run, runs, details[run.id])
+  const gateNode = waitNode(found)
   const picks: Graphed['picks'] = new Map()
   const workflows = nodes.filter(node => node.kind === 'workflow').length
   const looks = new Map<string, DrawNode>()
   for (const node of nodes) {
     let look = lookFrom(events, node.id)
     let label = node.id
-    let isGate = node.id === gateNode && found.kind !== 'none'
+    let isGate = node.id === gateNode
     if (isGate) look = found.kind === 'approval' ? 'approval' : 'action'
-    picks.set(node.id, { kind: 'node', id: node.id, children: [] })
+    picks.set(node.id, { kind: 'node', id: node.id, subRuns: [] })
     if (node.kind === 'loop_group') {
       const round = roundsOf(events, node.id)
       if (round > 0) look = foldLook(node.body.map(body => lookFrom(events, `${node.id}.${body.id}`, round)))
       label = round > 0 ? `${node.id} ⟳${round}` : node.id
-      picks.set(node.id, { kind: 'loop', id: node.id, children: [] })
+      picks.set(node.id, { kind: 'loop', id: node.id, subRuns: [] })
     } else if (node.kind === 'workflow') {
-      const children = subRunsOf(run, node, runs, workflows)
-      picks.set(node.id, { kind: 'workflow', id: node.id, children })
-      if (children.length === 1) {
-        const shownChild = childLook(children[0]!, runs, details)
-        look = shownChild.look
-        isGate = isGate || shownChild.isGate
-        label = `↳ ${children[0]!.workflow}`
-      } else if (children.length > 1) {
-        const childLooks = children.map(child => childLook(child, runs, details))
-        look = foldLook(childLooks.map(c => c.look))
-        isGate = isGate || childLooks.some(c => c.isGate)
-        label = `↳ ${children.filter(child => hasEnded(child)).length}/${children.length}`
+      const subRuns = nodeSubRuns(run, node, runs, workflows)
+      picks.set(node.id, { kind: 'workflow', id: node.id, subRuns })
+      if (subRuns.length === 1) {
+        const shown = subRunLook(subRuns[0]!, runs, details)
+        look = shown.look
+        isGate = isGate || shown.isGate
+        label = `↳ ${subRuns[0]!.workflow}`
+      } else if (subRuns.length > 1) {
+        const subLooks = subRuns.map(subRun => subRunLook(subRun, runs, details))
+        look = foldLook(subLooks.map(s => s.look))
+        isGate = isGate || subLooks.some(s => s.isGate)
+        label = `↳ ${subRuns.filter(subRun => hasEnded(subRun)).length}/${subRuns.length}`
       } else label = `↳ ${node.workflow || node.id}`
     }
     looks.set(node.id, { id: node.id, label, look, deps: node.deps, isGate, block: node.block })
@@ -118,7 +117,7 @@ export function drawNodes(nodes: readonly GraphNode[], run: Run, runs: readonly 
       isGate: members.some(n => n.isGate),
       block: '',
     })
-    picks.set(`block:${block}`, { kind: 'block', id: block, children: [] })
+    picks.set(`block:${block}`, { kind: 'block', id: block, subRuns: [] })
   }
   // Waits on a folded block's nodes wait on the block.
   const boxOf = (id: string) => {
@@ -152,7 +151,7 @@ export type GraphProps = {
   onFold: (block: string) => void
   onRound: (round: number) => void
   onParent: (parent: Run) => void
-  onChild: (child: Run) => void
+  onSubRun: (subRun: Run) => void
 }
 
 /** The drawn lines of a graph as elements: a box's name is a press that picks it. */
@@ -207,11 +206,11 @@ export function graphBody(props: GraphProps): RenderElement[] {
     lines.push(...segLines(ui, layout(roundNodes(group, events, round), width).lines, props.onPick, 'body'))
   }
 
-  // A fan-out's children, listed once its box is picked.
+  // A fan-out's sub-runs, listed once its box is picked.
   for (const node of props.nodes.filter(n => n.kind === 'workflow' && view.fanouts.includes(`${run.id}:${n.id}`))) {
     const pick = graphed.picks.get(node.id)
-    for (const child of pick?.children ?? []) {
-      lines.push(<Button key={`child-${child.id}`} plain label={fit(`↳ ${child.workflow}  ${child.status}`, width - 2)} onPress={() => props.onChild(child)} />)
+    for (const subRun of pick?.subRuns ?? []) {
+      lines.push(<Button key={`sub-run-${subRun.id}`} plain label={fit(`↳ ${subRun.workflow}  ${subRun.status}`, width - 2)} onPress={() => props.onSubRun(subRun)} />)
     }
   }
   return lines

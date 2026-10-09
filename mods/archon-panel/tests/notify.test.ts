@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { approval, attention, event, iso, MINUTE, onChild, otherRow, row, T0 } from './fixtures/runs'
+import { actionNeeded, approval, event, iso, MINUTE, onSubRun, otherRow, row, T0 } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
 import { COLD, fake, IN_FRONT, world } from './fixtures/world'
 import type { World } from './fixtures/world'
@@ -26,12 +26,12 @@ const lastStatus = (w: World) => w.status[w.status.length - 1]
 
 const STATUS_CASES: { why: string; rows: Row[]; says: string | undefined }[] = [
   { why: 'one run on an approval, named', rows: [row('a', { workflow_name: 'archon-fix-issue', status: 'paused', metadata: { approval: approval() } })], says: 'Archon · ⏸ archon-fix-issue needs approval' },
-  { why: 'one run on action needed, named', rows: [row('a', { workflow_name: 'archon-x', status: 'paused', metadata: { wait: attention() } })], says: 'Archon · ⏸ archon-x needs you' },
+  { why: 'one run on action needed, named', rows: [row('a', { workflow_name: 'archon-x', status: 'paused', metadata: { wait: actionNeeded() } })], says: 'Archon · ⏸ archon-x needs you' },
   {
     why: 'two needing you, counted, beside what runs',
     rows: [
       row('a', { status: 'paused', metadata: { approval: approval() } }),
-      row('b', { status: 'paused', metadata: { wait: attention() } }),
+      row('b', { status: 'paused', metadata: { wait: actionNeeded() } }),
       row('c'),
       row('d', { status: 'pending' }),
       row('e', { status: 'paused', metadata: { wait: { kind: 'time', nodeId: 'w', until: iso(T0 + 50 * MINUTE) } } }),
@@ -92,7 +92,7 @@ test('toast: an approval, with the gate message\'s first line, for 15 s', COLD, 
 
 test('toast: a sub-run\'s approval is raised for its parent, naming the sub-run', COLD, async ($, on) => {
   const { w } = await session($, on, [
-    row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } }),
+    row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onSubRun('c') } }),
     row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'paused', metadata: { approval: approval({ message: 'Ship it?' }) } }),
   ])
   expect(w.toasts).toEqual([{ text: '⏸ archon-ship needs approval: Ship it? (in sub-run archon-fix)', timeoutMs: 15_000 }])
@@ -100,14 +100,14 @@ test('toast: a sub-run\'s approval is raised for its parent, naming the sub-run'
 
 test('toast: action needed and a stranded parent', COLD, async ($, on) => {
   const { w } = await session($, on, [
-    row('a', { workflow_name: 'archon-release', status: 'paused', metadata: { wait: attention('Push the tag\nthen resume') } }),
+    row('a', { workflow_name: 'archon-release', status: 'paused', metadata: { wait: actionNeeded('Push the tag\nthen resume') } }),
   ])
   expect(w.toasts).toEqual([{ text: '⏸ archon-release needs you: Push the tag', timeoutMs: 15_000 }])
 })
 
 test('toast: a parent stranded by a sub-run that ended', COLD, async ($, on) => {
   const { w } = await session($, on, [
-    row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } }),
+    row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onSubRun('c') } }),
     row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'cancelled', completed_at: iso(T0 + 3 * MINUTE) }),
   ])
   expect(w.toasts).toEqual([{ text: '⏸ archon-ship needs you: sub-run archon-fix was cancelled', timeoutMs: 15_000 }])
@@ -152,7 +152,7 @@ test('toast: cancelled, unreadable, waits, answered gates, a parent blocked on a
     row('b', { status: 'paused', metadata: {} }),
     row('c', { status: 'paused', metadata: { wait: { kind: 'time', nodeId: 'w', until: iso(T0 + 50 * MINUTE) } } }),
     answered,
-    row('p', { status: 'paused', metadata: { approval: onChild('k') } }),
+    row('p', { status: 'paused', metadata: { approval: onSubRun('k') } }),
     row('k', { parent_run_id: 'p' }),
     otherRow('o', { status: 'paused', metadata: { approval: approval() } }),
     otherRow('o2', { status: 'failed', completed_at: iso(T0 + 20 * MINUTE + 1) }),
