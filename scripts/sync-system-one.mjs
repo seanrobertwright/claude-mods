@@ -2,23 +2,11 @@
 // Usage: npm run sync:system-one
 // Only copies that already exist are refreshed: a mod takes the client by
 // carrying a copy, and this script never adds one.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** The path of a mod's copy, relative to the mod. */
-export const COPY = join('hooks', 'system-one.ts')
-/** The path of the source, relative to the repo root. */
-export const SOURCE = join('shared', 'system-one.ts')
-
-/** The mods under `root`/mods that carry a copy, sorted. */
-export function modsWithCopy(root) {
-  const modsDir = join(root, 'mods')
-  return readdirSync(modsDir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && existsSync(join(modsDir, entry.name, COPY)))
-    .map(entry => entry.name)
-    .sort()
-}
+import { COPY, modsWithCopy, SOURCE } from './system-one.mjs'
 
 /** Writes the source over every copy under `root` that differs from it; returns the mods it rewrote. */
 export function syncCopies(root) {

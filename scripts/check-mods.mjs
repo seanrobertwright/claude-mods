@@ -11,8 +11,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { modsForPaths } from './mods.mjs'
-import { copyMismatches, fieldMismatches } from './system-one.mjs'
-import { COPY, modsWithCopy, SOURCE } from './sync-system-one.mjs'
+import { COPY, copyMismatches, fieldMismatches, modsWithCopy, SOURCE } from './system-one.mjs'
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..')
 const MODS_DIR = join(ROOT, 'mods')

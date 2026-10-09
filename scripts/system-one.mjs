@@ -1,5 +1,22 @@
-// Pure helpers that keep the System One client's copies and fields in step (ADR-0004),
-// kept apart so tests can import them without running the gate.
+// Where the System One client and its copies live, and the pure helpers that keep
+// the copies and fields in step (ADR-0004), kept apart so the gate and the sync
+// script share them and tests can import them without running either.
+import { existsSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+
+/** The path of a mod's copy, relative to the mod. */
+export const COPY = join('hooks', 'system-one.ts')
+/** The path of the source, relative to the repo root. */
+export const SOURCE = join('shared', 'system-one.ts')
+
+/** The mods under `root`/mods that carry a copy, sorted. */
+export function modsWithCopy(root) {
+  const modsDir = join(root, 'mods')
+  return readdirSync(modsDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && existsSync(join(modsDir, entry.name, COPY)))
+    .map(entry => entry.name)
+    .sort()
+}
 
 /** The mods among `copies` ({ mod, text }) whose copy is not byte for byte `source`, in the order given. */
 export function copyMismatches(source, copies) {
