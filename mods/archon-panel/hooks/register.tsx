@@ -1,12 +1,14 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 
-import type { ArchonData, ArchonView, Detail, Project, Run } from '../types'
+import type { ArchonData, ArchonView, Detail, Project, Run, Tab } from '../types'
+import { bodyWindow, lastPosition, pinnedRow, SETTINGS } from './chrome'
 import { candidates, findArchon, requirementLine } from './cli'
 import type { Runner } from './cli'
 import { parseConfig } from './config'
 import type { Config } from './config'
-import { hasEnded, liveCount } from './runs'
+import { hasEnded, liveCount, needsYou, needsYouCount } from './runs'
+import { runsBody } from './runs-view'
 import type { Platform } from './scope'
 import { listRuns, readDetail, signature } from './source'
 import type { DiskIo } from './source'
@@ -56,6 +58,8 @@ let timer: Timer | undefined
 // Counts attaches, so a surfaces check answered before an attach cannot stop
 // the polling that attach kept going.
 let attaches = 0
+// The furthest each sub-tab can scroll, as last drawn; a scroll never goes past it.
+const furthest: Record<Tab, number> = { 'runs': 0, 'graph': 0, 'log': 0, 'archon-log': 0 }
 
 /**
  * Whether any surface shows the session right now. Asked before each action
@@ -269,6 +273,25 @@ async function load($: EngineInterface, config: Config): Promise<void> {
   if ((await read($, data)).loadId === loadId) await scheduleNext($, config)
 }
 
+/** Picks a run: one that needs you opens Log on its gate or wait node; any other opens its Graph. */
+async function pick($: EngineInterface, run: Run): Promise<void> {
+  const current = await read($, data)
+  const byId = new Map(current.runs.map(r => [r.id, r]))
+  const need = needsYou(run, byId, current.details)
+  if (need === undefined) {
+    await update($, view, (v): ArchonView => ({ ...v, tab: 'graph', run: run.id, node: '' }))
+    return
+  }
+  const found = need.attention
+  const node = found.kind === 'approval' ? found.gate.nodeId : found.kind === 'action' ? found.wait.nodeId : found.kind === 'stranded' ? found.gate.nodeId : ''
+  await update($, view, (v): ArchonView => ({ ...v, tab: 'log', run: need.holder.id, node }))
+}
+
+/** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
+async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
+  return (await $.command.list().catch(() => [])).some(command => command.name === SETTINGS)
+}
+
 /** Rechecks the CLI and the project, then loads: at start, on attach, on reload and on r. */
 async function reload($: EngineInterface, config: Config): Promise<void> {
   const project = await findProject($)
@@ -345,28 +368,55 @@ export const register: Register = (on, options) => {
     return { text: 'Archon pane opened.' }
   })
 
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    // The engine's window stays at 0 so the pinned row never scrolls away; the shown sub-tab moves itself.
+    await update($, view, (v): ArchonView => {
+      const at = Math.min(Math.max(0, v.at[v.tab] + e.by), furthest[v.tab])
+      return at === v.at[v.tab] ? v : { ...v, at: { ...v.at, [v.tab]: at } }
+    })
+    return next({ ...e, offset: 0 })
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text } = ui
     const current = await read($, data)
+    const shown = await read($, view)
     const line = requirementLine(current.requirement)
     const width = Math.max(16, e.props.bodyColumns)
+    const bodyRows = e.props.scroll.bodyRows
     const serverLine = `Archon's server isn't answering on port ${config.port}, so runs come from the CLI every ${interval('cli', true, hasLiveRun(current)) / 1000} s. archon serve makes them faster.`
+    let lines: RenderElement[]
+    if (line !== undefined) lines = [<Text wrap="wrap">{line}</Text>]
+    else if (shown.tab === 'runs') {
+      lines = runsBody({
+        ui,
+        data: current,
+        view: shown,
+        now: await $.clock.now(),
+        width,
+        platform: await platformOf($),
+        serverLine,
+        onPick: run => void pick($, run).catch(report($)),
+        onFanout: id => void update($, view, (v): ArchonView => ({ ...v, fanouts: v.fanouts.includes(id) ? v.fanouts.filter(f => f !== id) : [...v.fanouts, id] })).catch(report($)),
+      })
+    } else if (shown.tab === 'archon-log') lines = [<Text dimColor wrap="wrap">No Archon's log at {config.archonLog}. Point Archon's log in the mod settings at the file archon serve writes to.</Text>]
+    else lines = [<Text dimColor>Pick a run in Runs.</Text>]
+    furthest[shown.tab] = lastPosition(lines.length, bodyRows)
     return (
       <Box flexDirection="column" width={width}>
-        <Box flexDirection="row" justifyContent="space-between">
-          <Text bold wrap="truncate-end">{TITLE}</Text>
-          <Button key="reload" plain dimColor hotkey="r" label="↻" onPress={() => void reload($, config).catch(report($))} />
-        </Box>
-        {line !== undefined
-          ? <Text wrap="wrap">{line}</Text>
-          : (
-            <Box flexDirection="column">
-              {current.project !== null && current.project.ids.length === 0 && current.loadedAt > 0 && <Text dimColor>This folder isn't in an Archon project</Text>}
-              {current.others.live > 0 && <Text dimColor>+{current.others.live} live in other projects</Text>}
-              {current.source === 'cli' && <Text dimColor wrap="wrap">{serverLine}</Text>}
-              {current.runs.filter(run => run.parentId === '').map(run => <Button key={`run-${run.id}`} plain label={run.workflow} onPress={() => {}} />)}
-            </Box>
-          )}
+        {pinnedRow({
+          ui,
+          width,
+          shown: shown.tab,
+          live: liveCount(current.runs),
+          needsYou: needsYouCount(current.runs, current.details),
+          hasSettings: await isSettingsInstalled($),
+          onTab: tab => void update($, view, (v): ArchonView => ({ ...v, tab })).catch(report($)),
+          onReload: () => void reload($, config).catch(report($)),
+          onSettings: () => void $.command.run({ command: SETTINGS }).catch(report($)),
+        })}
+        {bodyWindow(ui, lines, shown.at[shown.tab], bodyRows)}
       </Box>
     )
   })

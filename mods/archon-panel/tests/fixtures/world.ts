@@ -78,6 +78,8 @@ export type World = {
   opened: string[]
   filled: string[]
   copied: string[]
+  /** Where the engine's window was asked to go on each scroll. */
+  scrolls: number[]
 }
 
 export function world(over: Partial<World> = {}): World {
@@ -110,6 +112,7 @@ export function world(over: Partial<World> = {}): World {
     opened: [],
     filled: [],
     copied: [],
+    scrolls: [],
     ...over,
   }
 }
@@ -228,6 +231,10 @@ export function fake(on: On, w: World): void {
     w.opened.push(e.focus === true ? `${e.id}+focus${e.columns === undefined ? '' : '+columns'}` : `${e.id}${e.columns === undefined ? '' : '+columns'}`)
     if (!w.panes.some(p => p.id === e.id)) w.panes.push({ id: e.id, title: e.title ?? e.id, isShown: true, isFocused: e.focus === true, isPlaced: true })
     return { value: { isPlaced: true } }
+  })
+  on('ui.scroll', (_$, e) => {
+    w.scrolls.push(e.offset)
+    return {}
   })
   on('ui.panes', () => ({ value: w.panes.map(p => ({ ...p })) }))
   on('ui.copy', (_$, e) => {
