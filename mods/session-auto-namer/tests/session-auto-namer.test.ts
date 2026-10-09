@@ -171,3 +171,13 @@ test('a milestone and a step with no command suggest the two alone; one of them 
   await submit($, '/gsd:plan-phase M3 only')
   expect(await suggested($)).toBe('Name: plan-phase M3 only')
 })
+
+test('a name past 60 characters is cut at a word and ends in an ellipsis, or mid-word when one word is too long', async ($, on) => {
+  desk(on, { titles: { 'repos/owner/repo/issues/53': 'Add a drift check for copied guards so a fix in one mod reaches every copy' } })
+  await submit($, '/implement https://github.com/owner/repo/issues/53')
+  expect(await suggested($)).toBe('Name: #53 Add a drift check for copied guards so a fix in one mod…')
+
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  await submit($, 'https://example.com/docs/a/very/long/path/that/goes/on/and/on/past/the/bound')
+  expect(await suggested($)).toBe('Name: https://example.com/docs/a/very/long/path/that/goes/on/and/…')
+})

@@ -5,6 +5,8 @@
 
 /** How many words of the arguments, or of the prompt, a name takes. */
 const WORDS = 5
+/** The most characters a name has, its ellipsis counted: about what a session list shows of one. */
+const MAX_NAME = 60
 
 /** An issue or pull request a prompt names, and where gh reads its title. */
 export type IssueRef = {
@@ -56,8 +58,25 @@ function capitalised(word: string): string {
  *   command's last word capitalised, or `M12 - S4` with no command;
  * - the slash command and the first words of its arguments, or the prompt's
  *   first words.
+ * Each is cut to MAX_NAME characters.
  */
 export function nameFor(prompt: string, issue?: { number: number; title: string }): string | undefined {
+  const name = ruleName(prompt, issue)
+  return name === undefined ? undefined : bounded(name)
+}
+
+/**
+ * `name` cut to MAX_NAME characters: at the last space that keeps more than
+ * half of it, else mid-word, and ended with an ellipsis.
+ */
+function bounded(name: string): string {
+  if (name.length <= MAX_NAME) return name
+  const space = name.lastIndexOf(' ', MAX_NAME - 1)
+  const end = space > MAX_NAME / 2 ? space : MAX_NAME - 1
+  return `${name.slice(0, end).trimEnd()}…`
+}
+
+function ruleName(prompt: string, issue?: { number: number; title: string }): string | undefined {
   if (issue !== undefined) return `#${issue.number} ${issue.title}`
   const command = slashCommand(prompt)
   const milestone = MILESTONE.exec(prompt)?.[1]
