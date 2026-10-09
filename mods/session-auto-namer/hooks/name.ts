@@ -15,6 +15,9 @@ export type IssueRef = {
   endpoint: string
 }
 
+/** An issue or pull request a prompt names, with the title gh read for it. */
+export type IssueTitle = { number: number; title: string }
+
 /** An issue's or pull request's link on GitHub. */
 const ISSUE_URL = /https?:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/(\d+)\b/
 /** `#53` standing alone, an issue of the session's repo. */
@@ -60,7 +63,7 @@ function capitalised(word: string): string {
  *   first words.
  * Each is cut to MAX_NAME characters.
  */
-export function nameFor(prompt: string, issue?: { number: number; title: string }): string | undefined {
+export function nameFor(prompt: string, issue?: IssueTitle): string | undefined {
   const name = ruleName(prompt, issue)
   return name === undefined ? undefined : bounded(name)
 }
@@ -76,7 +79,7 @@ function bounded(name: string): string {
   return `${name.slice(0, end).trimEnd()}…`
 }
 
-function ruleName(prompt: string, issue?: { number: number; title: string }): string | undefined {
+function ruleName(prompt: string, issue?: IssueTitle): string | undefined {
   if (issue !== undefined) return `#${issue.number} ${issue.title}`
   const command = slashCommand(prompt)
   const milestone = MILESTONE.exec(prompt)?.[1]
