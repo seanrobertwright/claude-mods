@@ -250,7 +250,7 @@ export type ArchonActions = {
   /** `▶ resumed by you 14:05` and the like, by run, kept while the run is in front. */
   records: Record<string, string[]>
   /** A `--detach` answer or resume to check on after 30 s, by run. */
-  checks: Record<string, { kind: 'answer' | 'resume'; at: number; polls: number; log: string }>
+  checks: Record<string, { kind: 'answer' | 'resume'; at: number; polls: number; log: string; text: string; isChat: boolean }>
 }
 
 declare module 'claude-code' {

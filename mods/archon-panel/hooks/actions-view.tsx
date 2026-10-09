@@ -1,0 +1,165 @@
+// What Log shows for a run that needs you: the approval view and its answer
+// area, or the resume and abandon view, each action through a confirming step.
+
+import type { Elements, RenderElement } from 'claude-code'
+
+import type { ArchonActions, Detail, GraphNode, Run } from '../types'
+import { ABANDON_LINE, answerButtons, platformName, SERVER_DOWN_NOTE, strandConfirm, strandHead, strandResume } from './actions'
+import type { NeedsYou } from './runs'
+import { shortId } from './runs-view'
+import { duration } from './text'
+
+/** The most of a node's output "what it asks about" shows: its last lines. */
+const ASKS_LINES = 10
+
+export type ActionProps = {
+  ui: Elements[keyof Elements]
+  surface: string
+  /** The run that needs you, and the run holding the gate (itself, or its sub-run). */
+  run: Run
+  need: NeedsYou
+  parent: Run | undefined
+  detail: Detail | undefined
+  graph: GraphNode[] | null | undefined
+  actions: ArchonActions
+  now: number
+  width: number
+  isServer: boolean
+  /** The run's page in Archon's web UI, or '' when it is not linked. */
+  link: string
+  /** Whether Log is cut to the gate's node; `a` widens what it asks about to the whole run log. */
+  isCut: boolean
+  /** The whole run log, drawn when `a` widened it. */
+  log: RenderElement[]
+  files: RenderElement[]
+  onDecide: (decision: string, label: string) => void
+  onResume: () => void
+  onAbandon: () => void
+  onConfirm: () => void
+  onBack: () => void
+  onText: (text: string) => void
+  onAll: () => void
+}
+
+/** The node a run's needs-you waits at. */
+export function gateNode(need: NeedsYou): string {
+  const found = need.attention
+  if (found.kind === 'action') return found.wait.nodeId
+  if (found.kind === 'approval' || found.kind === 'stranded') return found.gate.nodeId
+  return ''
+}
+
+/** The area under a run that needs you: notices, then the buttons, the confirming step, or what is being sent. */
+function answerArea(props: ActionProps): RenderElement[] {
+  const { ui, run, need, actions } = props
+  const { Box, Text, Button } = ui
+  // The phone draws no Input.
+  const Input = 'Input' in ui ? ui.Input : undefined
+  const holder = need.holder
+  const text = actions.text[holder.id] ?? ''
+  const lines: RenderElement[] = []
+  const pending = actions.pending?.runId === holder.id ? actions.pending : null
+  if (actions.sending === holder.id) return lines
+  const found = need.attention
+
+  if (pending !== null) {
+    let line: string
+    if (pending.kind === 'answer') {
+      line = `${pending.label.replace(/^[a-z]: /, '').replace(/ \(.*\)$/, '')} ${holder.workflow} ${shortId(holder.id)}${text === '' ? '' : ` · "${text}"`}`
+      if (holder.hasConversation && !props.isServer) line = `${line} ${SERVER_DOWN_NOTE}`
+    } else if (pending.kind === 'resume') {
+      line = found.kind === 'stranded' ? strandConfirm(found.gate.nodeId, found.child) : `Resume: the run carries on from ${gateNode(need)}.`
+    } else line = ABANDON_LINE
+    const name = pending.kind === 'answer' ? 'Send' : `${pending.kind === 'resume' ? 'Resume' : 'Abandon'} ${holder.workflow}`
+    lines.push(<Text wrap="wrap">{line}</Text>)
+    lines.push(
+      <Box key="confirming" flexDirection="row" columnGap={2}>
+        <Button key="confirm" variant="primary" autoFocus label={name} onPress={props.onConfirm} />
+        <Button key="back" hotkey="b" label="b: Back" onPress={props.onBack} />
+      </Box>,
+    )
+    return lines
+  }
+
+  if (found.kind === 'approval') {
+    const buttons = answerButtons(found.gate, holder, props.parent, text)
+    lines.push(
+      <Box key="answers" flexDirection="row" flexWrap="wrap" columnGap={2}>
+        {buttons.map(button => (button.letter === ''
+          ? <Button key={`decide-${button.decision}`} {...(button.isPrimary ? { variant: 'primary' as const } : {})} label={button.label} onPress={() => props.onDecide(button.decision, button.label)} />
+          : <Button key={`decide-${button.decision}`} hotkey={button.letter} {...(button.isPrimary ? { variant: 'primary' as const } : {})} label={button.label} onPress={() => props.onDecide(button.decision, button.label)} />))}
+      </Box>,
+    )
+    if (Input !== undefined && props.surface !== 'mobile') {
+      lines.push(<Input key="comment" label="Comment or reason (optional)" placeholder="Comment or reason (optional)" value={text} onInput={(value: string) => props.onText(value)} onSubmit={(value: string) => props.onText(value)} />)
+    } else lines.push(<Text dimColor>A comment needs the terminal or the desktop app.</Text>)
+    if (found.gate.type === 'container_writeback' && props.link !== '' && ui.Link !== undefined) {
+      const { Link } = ui
+      lines.push(<Link key="diff-link" href={props.link} label="↗ Archon, for the full diff" />)
+    }
+    return lines
+  }
+
+  if (found.kind === 'action' || found.kind === 'stranded') {
+    const row: RenderElement[] = []
+    if (run.platform !== '' || holder.platform !== '') row.push(<Text dimColor>{`resume it from ${platformName(holder.platform || run.platform)}`}</Text>)
+    else if (props.detail?.isWorkingPathThere === false) row.push(<Text dimColor>{`can't resume: ${holder.workingPath} is gone`}</Text>)
+    else {
+      const label = found.kind === 'stranded' ? strandResume(found.child) : "r  Resume: I've done it"
+      row.push(<Button key="resume" hotkey="r" variant="primary" label={label} onPress={props.onResume} />)
+    }
+    row.push(<Button key="abandon" hotkey="x" label="x  Abandon run" onPress={props.onAbandon} />)
+    lines.push(<Box key="resume-row" flexDirection="row" flexWrap="wrap" columnGap={2}>{row}</Box>)
+  }
+  return lines
+}
+
+/** The node outputs a gate asks about: each node it waits on, its last part. */
+function asksAbout(props: ActionProps): RenderElement[] {
+  const { Text } = props.ui
+  const node = gateNode(props.need)
+  const deps = props.graph?.find(n => n.id === node)?.deps ?? []
+  const events = props.detail?.events ?? []
+  const lines: RenderElement[] = []
+  for (const dep of deps) {
+    const output = [...events].reverse().find(e => e.step === dep && e.type === 'node_completed')?.output ?? ''
+    if (output === '') continue
+    lines.push(<Text bold>{dep}</Text>)
+    for (const line of output.replace(/\n+$/, '').split('\n').slice(-ASKS_LINES)) lines.push(<Text dimColor wrap="wrap">{line}</Text>)
+  }
+  if (props.need.attention.kind === 'approval' && props.need.attention.gate.type === 'interactive_loop') {
+    lines.push(<Text dimColor wrap="wrap">{props.need.attention.gate.isRoundDone ? 'A bare approve finishes the loop; with a comment it runs another round.' : 'An approve runs another round, with your comment if you give one.'}</Text>)
+  }
+  return lines
+}
+
+/** The approval view, or the resume and abandon view, top to bottom. */
+export function actionBody(props: ActionProps): RenderElement[] {
+  const { ui, need, now } = props
+  const { Box, Text, Markdown, Link } = ui
+  const holder = need.holder
+  const found = need.attention
+  const lines: RenderElement[] = []
+  const waited = duration(now - found.since)
+  if (found.kind === 'approval' || found.kind === 'unreadable') {
+    const name = `${props.parent === undefined ? '' : `${props.parent.workflow} › `}${holder.workflow}`
+    lines.push(
+      <Box key="loghead" flexDirection="row" columnGap={1}>
+        <Text bold wrap="truncate-end">{`${name} · ${shortId(holder.id)} · waited ${waited}`}</Text>
+        {props.link !== '' && <Link key="archon-link" href={props.link} label="↗ Archon" />}
+      </Box>,
+    )
+    if (found.kind === 'approval' && found.gate.message !== '') lines.push(<Markdown key="gate-message" text={found.gate.message} />)
+    if (found.kind === 'unreadable') lines.push(<Text color="warning" wrap="wrap">This gate is one Archon can't read; answer it in Archon.</Text>)
+  } else if (found.kind === 'action') {
+    lines.push(<Text bold color="warning">{`⏸ Action needed · waiting ${waited}`}</Text>)
+    lines.push(<Text wrap="wrap">{found.wait.message}</Text>)
+  } else {
+    lines.push(<Text bold color="warning">{strandHead(found.child)}</Text>)
+    lines.push(<Text>{`Node ${found.gate.nodeId} can't go on.`}</Text>)
+  }
+  lines.push(...(props.isCut ? asksAbout(props) : props.log))
+  lines.push(...props.files)
+  lines.push(...answerArea(props))
+  return lines
+}

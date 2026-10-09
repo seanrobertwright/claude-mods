@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 
-import type { ArchonData, ArchonView, Detail, GraphNode, LogWindow, Project, Run, Tab } from '../types'
+import type { ArchonActions, ArchonData, ArchonView, Detail, GraphNode, LogWindow, Notice, Pending, Project, Run, Tab } from '../types'
+import { archonMessage, lastAnswer, platformName, recordLine, route } from './actions'
+import { actionBody } from './actions-view'
 import { bodyWindow, lastPosition, pinnedRow, SETTINGS } from './chrome'
 import { candidates, findArchon, requirementLine } from './cli'
 import { workflowNodes } from './graph'
@@ -13,12 +15,12 @@ import { claimKey, collapse, isClaimed, isMine, statusText, toastEvents } from '
 import type { Runner } from './cli'
 import { parseConfig } from './config'
 import type { Config } from './config'
-import { hasEnded, liveCount, needsYou, needsYouCount } from './runs'
+import { attention, hasEnded, liveCount, needsYou, needsYouCount, sortRuns, topRuns } from './runs'
 import { runsBody } from './runs-view'
 import { capLines, expandHome, serveLine } from './serve-log'
 import type { Platform } from './scope'
-import { listRuns, readDetail, serverText, signature } from './source'
-import { dollars, duration, firstLine } from './text'
+import { isTimedOut, listRuns, readDetail, serverText, signature, within } from './source'
+import { clockTime, dollars, duration, firstLine, lastLine } from './text'
 import type { DiskIo } from './source'
 
 const PANE = 'archon'
@@ -61,6 +63,8 @@ const view = atom({ plugin: 'archon-panel', key: 'view' } as const, EMPTY_VIEW)
 const hasStartedUp = atom({ plugin: 'archon-panel', key: 'hasStartedUp' } as const, false)
 const startedAt = atom({ plugin: 'archon-panel', key: 'startedAt' } as const, 0)
 const logWindow = atom({ plugin: 'archon-panel', key: 'log' } as const, EMPTY_WINDOW)
+const EMPTY_ACTIONS: ArchonActions = { pending: null, text: {}, sending: '', notices: {}, records: {}, checks: {} }
+const actions = atom({ plugin: 'archon-panel', key: 'actions' } as const, EMPTY_ACTIONS)
 const serveLog = atom({ plugin: 'archon-panel', key: 'serveLog' } as const, { lines: [] as string[], size: 0, isMissing: false })
 
 // Dies with the module on a reload; session.start or the next attach starts it again.
@@ -292,6 +296,7 @@ async function load($: EngineInterface, config: Config): Promise<void> {
   await scheduleNext($, config)
   void notify($, config).catch(report($))
   void syncLog($, config).catch(report($))
+  await settleActions($)
 }
 
 /** A moment for another session's claim on the same toast to land before this one reads its own back. */
@@ -343,6 +348,7 @@ async function pick($: EngineInterface, config: Config, run: Run): Promise<void>
     await update($, logWindow, () => EMPTY_WINDOW)
     atEnd.log = true
   }
+  await update($, actions, (a): ArchonActions => ({ ...a, pending: null, records: Object.fromEntries(Object.entries(a.records).filter(([id]) => id === run.id)) }))
   const current = await read($, data)
   const byId = new Map(current.runs.map(r => [r.id, r]))
   const need = needsYou(run, byId, current.details)
@@ -605,7 +611,11 @@ async function readServeLog($: EngineInterface, config: Config): Promise<void> {
 
 /** Changes what the person sees, then brings the run log in step. */
 async function changeView($: EngineInterface, config: Config, change: (v: ArchonView) => ArchonView): Promise<void> {
+  const was = await read($, view)
   await update($, view, change)
+  const now = await read($, view)
+  // A change of run or sub-tab drops the pending action; any typed text stays.
+  if (now.tab !== was.tab || now.run !== was.run) await update($, actions, (a): ArchonActions => (a.pending === null ? a : { ...a, pending: null }))
   await syncLog($, config)
 }
 
@@ -666,6 +676,181 @@ async function mention($: EngineInterface): Promise<void> {
     fileNotice = "can't reach the prompt here"
     $.ui.invalidate('ui.render')
   }
+}
+
+/** How long Archon has to reply to an action, and how long after a `--detach` answer or resume the run is checked on. */
+const REPLY_MS = 30_000
+
+/** Whether a run, as fetched again, still waits on the pending action; else what happened elsewhere. */
+function raceOf(pending: Pending, run: Run | undefined, runs: readonly Run[], detail: Detail | undefined): string | undefined {
+  if (run === undefined) return undefined
+  if (hasEnded(run)) return 'Ended elsewhere'
+  const byId = new Map(runs.map(r => [r.id, r]))
+  const found = attention(run, byId, detail)
+  if (pending.kind === 'answer') {
+    if (found.kind === 'approval') return undefined
+    const answer = lastAnswer(detail)
+    return answer === undefined
+      ? 'Answered elsewhere'
+      : `Answered elsewhere · ${recordLine(answer.decision, answer.decision, answer.text, answer.at)}`
+  }
+  if (found.kind === 'action' || found.kind === 'stranded') return undefined
+  return run.status === 'paused' ? 'Answered elsewhere' : 'Resumed elsewhere'
+}
+
+function setNotices($: EngineInterface, runId: string, notices: Notice[]): Promise<unknown> {
+  return update($, actions, (a): ArchonActions => ({ ...a, notices: { ...a.notices, [runId]: notices } }))
+}
+
+/**
+ * Sends the confirmed action. Just before, the run is fetched again: one that
+ * no longer needs you gets nothing. The call goes where the run lives, with 30 s
+ * to reply; a refusal shows Archon's own words. Nothing here ever toasts.
+ */
+async function send($: EngineInterface, config: Config): Promise<void> {
+  const before = await read($, actions)
+  const pending = before.pending
+  if (pending === null || before.sending !== '') return
+  const runId = pending.runId
+  const text = before.text[runId] ?? ''
+  const word = pending.kind === 'answer' ? `Sending ${pending.decision}…` : pending.kind === 'resume' ? '… resuming' : '… abandoning'
+  await update($, actions, (a): ArchonActions => ({ ...a, pending: null, sending: runId, notices: { ...a.notices, [runId]: [{ text: word, tone: 'dim' }] } }))
+  try {
+    const got = await refreshRun($, config, runId)
+    const current = await read($, data)
+    const race = raceOf(pending, got?.run, current.runs, got?.detail)
+    if (race !== undefined) {
+      await setNotices($, runId, [{ text: race, tone: 'dim' }])
+      return
+    }
+    const run = got?.run ?? current.runs.find(r => r.id === runId)
+    if (run === undefined) return
+    const reply = await deliver($, config, pending, run, text, current.source === 'server')
+    if (reply.kind === 'silent') {
+      await setNotices($, runId, [{ text: 'No reply from Archon in 30 s; it may still have gone through', tone: 'error' }])
+      return
+    }
+    if (reply.kind === 'refused') {
+      await setNotices($, runId, [{ text: reply.message, tone: 'error' }])
+      return
+    }
+    const now = await $.clock.now()
+    const isChatResume = pending.kind === 'resume' && reply.via === 'server'
+    const record = pending.kind === 'answer'
+      ? recordLine(pending.decision, pending.label, text, now)
+      : pending.kind === 'abandon' ? `✗ abandoned by you ${clockTime(now)}` : isChatResume ? `▶ sent to its chat ${clockTime(now)}` : `▶ resumed by you ${clockTime(now)}`
+    const isChecked = pending.kind !== 'abandon' && (reply.via === 'cli' || isChatResume)
+    await update($, actions, (a): ArchonActions => ({
+      ...a,
+      text: pending.kind === 'answer' ? { ...a.text, [runId]: '' } : a.text,
+      records: { ...a.records, [run.id]: [...(a.records[run.id] ?? []), record] },
+      notices: { ...a.notices, [runId]: reply.message === '' || reply.via === 'cli' ? [] : [{ text: reply.message, tone: 'dim' }] },
+      checks: isChecked ? { ...a.checks, [run.id]: { kind: pending.kind === 'answer' ? 'answer' : 'resume', at: now, polls: 0, log: reply.log, text, isChat: isChatResume } } : a.checks,
+    }))
+    // A --detach answer or resume is checked on once 30 s have passed; a chat resume over the next two polls.
+    if (isChecked && !isChatResume) $.clock.after(REPLY_MS, () => void checkMoved($, config, run.id).catch(report($)))
+  } finally {
+    await update($, actions, (a): ArchonActions => ({ ...a, sending: a.sending === runId ? '' : a.sending }))
+    await refreshRun($, config, runId)
+  }
+}
+
+type Delivered =
+  | { kind: 'done'; via: 'cli' | 'server'; message: string; log: string }
+  | { kind: 'refused'; message: string }
+  | { kind: 'silent' }
+
+/** Makes the call the action routes to, raced against 30 s; a refusal naming a sub-run's id is followed to it once. */
+async function deliver($: EngineInterface, config: Config, pending: Pending, run: Run, text: string, isServer: boolean, isFollowed = false): Promise<Delivered> {
+  const archon = (await read($, data)).requirement.path
+  const routed = route(pending, run, text, isServer, archon)
+  if (routed.via === 'none') return { kind: 'refused', message: `resume it from ${platformName(run.platform)}` }
+  if (routed.via === 'cli') {
+    const out = await within(io($), REPLY_MS, runner($)(routed.argv, 2 * REPLY_MS)).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
+    if (isTimedOut(out)) return { kind: 'silent' }
+    if (out instanceof Error) return { kind: 'refused', message: out.message }
+    const said = archonMessage(out.stdout)
+    if (out.exitCode !== 0 || said.ok === false) return { kind: 'refused', message: said.message || lastLine(out.stderr) || `archon exited with ${out.exitCode}` }
+    return { kind: 'done', via: 'cli', message: said.message, log: said.logPath }
+  }
+  const reply = await within(io($), REPLY_MS, $.http.fetch(`http://localhost:${config.port}${routed.path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: routed.body })).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
+  if (isTimedOut(reply)) return { kind: 'silent' }
+  if (reply instanceof Error) return { kind: 'refused', message: reply.message }
+  const said = archonMessage(reply.text)
+  if (!reply.ok) {
+    if (pending.kind === 'answer' && said.childRunId !== '' && !isFollowed) {
+      return deliver($, config, { ...pending, runId: said.childRunId }, { ...run, id: said.childRunId }, text, isServer, true)
+    }
+    return { kind: 'refused', message: said.message || `Archon answered ${reply.status}` }
+  }
+  return { kind: 'done', via: 'server', message: pending.kind === 'answer' ? said.message : '', log: '' }
+}
+
+/** Whether a run moved on from what a sent action left it waiting at. */
+function hasMoved(run: Run | undefined, runs: readonly Run[], detail: Detail | undefined, kind: 'answer' | 'resume'): boolean {
+  if (run === undefined || hasEnded(run)) return true
+  const found = attention(run, new Map(runs.map(r => [r.id, r])), detail)
+  return kind === 'answer' ? found.kind !== 'approval' : run.status !== 'paused'
+}
+
+/** 30 s after a `--detach` answer or resume: a gate still unanswered, or a run still paused, says so, and the buttons come back with the text. */
+async function checkMoved($: EngineInterface, config: Config, runId: string): Promise<void> {
+  const check = (await read($, actions)).checks[runId]
+  if (check === undefined) return
+  const got = await refreshRun($, config, runId)
+  const runs = (await read($, data)).runs
+  const moved = hasMoved(got?.run, runs, got?.detail, check.kind)
+  await update($, actions, (a): ArchonActions => {
+    const { [runId]: _done, ...checks } = a.checks
+    void _done
+    if (moved) return { ...a, checks }
+    const said = check.kind === 'answer' ? "Archon accepted the answer but hasn't recorded it" : "Archon accepted the resume but the run hasn't moved"
+    return {
+      ...a,
+      checks,
+      text: check.text === '' ? a.text : { ...a.text, [runId]: check.text },
+      notices: { ...a.notices, [runId]: [{ text: `${said}${check.log === '' ? '.' : `; its log is ${check.log}`}`, tone: 'error' }] },
+    }
+  })
+}
+
+/**
+ * After each poll: a pending confirmation for a run that no longer needs you
+ * is dropped, its typed text left on screen, dim, to copy; a resume sent to a
+ * chat that is still paused two polls later says to check the chat.
+ */
+async function settleActions($: EngineInterface): Promise<void> {
+  const current = await read($, data)
+  const byId = new Map(current.runs.map(r => [r.id, r]))
+  await update($, actions, (a): ArchonActions => {
+    let next = a
+    const pending = a.pending
+    if (pending !== null) {
+      const run = byId.get(pending.runId)
+      const race = raceOf(pending, run, current.runs, current.details[pending.runId])
+      if (race !== undefined) {
+        const typed = a.text[pending.runId] ?? ''
+        next = { ...next, pending: null, notices: { ...next.notices, [pending.runId]: [{ text: race, tone: 'dim' }, ...(typed === '' ? [] : [{ text: typed, tone: 'dim' as const }])] } }
+      }
+    }
+    for (const [runId, check] of Object.entries(a.checks)) {
+      if (!check.isChat) continue
+      const run = byId.get(runId)
+      const polls = check.polls + 1
+      const { [runId]: _done, ...rest } = next.checks
+      void _done
+      if (run === undefined || run.status !== 'paused') next = { ...next, checks: rest }
+      else if (polls >= 2) next = { ...next, checks: rest, notices: { ...next.notices, [runId]: [{ text: 'still paused: check its chat', tone: 'dim' }] } }
+      else next = { ...next, checks: { ...next.checks, [runId]: { ...check, polls } } }
+    }
+    return next
+  })
+}
+
+/** The run that has needed you longest, a sub-run's gate counted like any other; undefined with none. */
+function longestWaiting(current: ArchonData): Run | undefined {
+  const byId = new Map(current.runs.map(r => [r.id, r]))
+  return sortRuns(topRuns(current.runs), current.runs, current.details).find(run => needsYou(run, byId, current.details) !== undefined)
 }
 
 /** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
@@ -751,7 +936,12 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'archon' }, async $ => {
     // Focus brings the pane in front of another mod's tab and gives it the keys.
     await $.ui.open({ id: PANE, title: TITLE, focus: true })
-    void reload($, config).catch(report($))
+    void (async () => {
+      await reload($, config)
+      const longest = longestWaiting(await read($, data))
+      if (longest !== undefined) await pick($, config, longest)
+      else await changeView($, config, (v): ArchonView => ({ ...v, tab: 'runs' }))
+    })().catch(report($))
     return { text: 'Archon pane opened.' }
   })
 
@@ -820,7 +1010,13 @@ export const register: Register = (on, options) => {
     }
     else {
       const run = current.runs.find(r => r.id === shown.run)
-      lines = logBody({
+      const acts = await read($, actions)
+      const byId = new Map(current.runs.map(r => [r.id, r]))
+      const top = run === undefined ? undefined : topRuns(current.runs).find(t => needsYou(t, byId, current.details)?.holder.id === run.id)
+      const need = top === undefined ? undefined : needsYou(top, byId, current.details)
+      const link = run !== undefined && current.source === 'server' && e.surface !== 'mobile' ? `http://localhost:${config.port}/console/r/${run.id}` : ''
+      if (run !== undefined && need !== undefined && current.graphs[run.id] === undefined) void ensureGraph($, run.id).catch(report($))
+      const logLines = logBody({
         ui,
         run,
         runs: current.runs,
@@ -840,6 +1036,47 @@ export const register: Register = (on, options) => {
         onOpen: () => void openOutside($, e.surface).catch(report($)),
         onMention: () => void mention($).catch(report($)),
       })
+      const holderId = run?.id ?? ''
+      const notes: RenderElement[] = [
+        ...(acts.records[holderId] ?? []).map(record => <Text {...(record.startsWith('✗') ? { color: 'error' as const } : {})}>{record}</Text>),
+        ...(acts.notices[holderId] ?? []).map(notice => (notice.tone === 'error'
+          ? <Text color="error" wrap="wrap">{notice.text}</Text>
+          : notice.tone === 'dim' ? <Text dimColor wrap="wrap">{notice.text}</Text> : <Text wrap="wrap">{notice.text}</Text>)),
+      ]
+      if (run !== undefined && need !== undefined && shown.file === '') {
+        const set = (change: (a: ArchonActions) => ArchonActions) => void update($, actions, change).catch(report($))
+        const ask = (kind: Pending['kind'], decision = '', label = '') => set((a): ArchonActions => ({ ...a, pending: { runId: run.id, kind, decision, label } }))
+        const files = (current.details[run.id]?.files ?? []).map(file => (
+          <ui.Button key={`file-${file.path}`} plain label={`${file.path}  ${Math.round(file.size / 1024) === 0 ? `${file.size} B` : `${Math.round(file.size / 1024)} KB`}`} onPress={() => void openFile($, config, file.path).catch(report($))} />
+        ))
+        lines = [
+          ...actionBody({
+            ui,
+            surface: e.surface,
+            run: top!,
+            need,
+            parent: current.runs.find(r => r.id === run.parentId),
+            detail: current.details[run.id],
+            graph: current.graphs[run.id],
+            actions: acts,
+            now: await $.clock.now(),
+            width,
+            isServer: current.source === 'server',
+            link,
+            isCut: shown.node !== '',
+            log: logLines.slice(1),
+            files,
+            onDecide: (decision, label) => ask('answer', decision, label),
+            onResume: () => ask('resume'),
+            onAbandon: () => ask('abandon'),
+            onConfirm: () => void send($, config).catch(report($)),
+            onBack: () => set((a): ArchonActions => ({ ...a, pending: null })),
+            onText: text => set((a): ArchonActions => ({ ...a, text: { ...a.text, [run.id]: text } })),
+            onAll: () => void showAll($, config).catch(report($)),
+          }),
+          ...notes,
+        ]
+      } else lines = [...logLines, ...notes]
     }
     // The logs follow their tail while at their end.
     const last = lastPosition(lines.length, bodyRows)
