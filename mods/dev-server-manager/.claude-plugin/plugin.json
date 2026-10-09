@@ -1,0 +1,20 @@
+{
+  "name": "dev-server-manager",
+  "version": "0.1.0",
+  "description": "A pane of the project's dev servers: start, restart and watch them, and fill a crash's error into the prompt.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "restart": {
+      "type": "boolean",
+      "title": "Restart a server that dies",
+      "description": "Start a dev server again when it dies, up to 3 times in 2 minutes.",
+      "default": true
+    },
+    "scripts": {
+      "type": "string",
+      "title": "Scripts to detect",
+      "description": "Comma-separated package.json script names that become rows.",
+      "default": "dev, start, serve, preview"
+    }
+  }
+}

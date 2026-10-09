@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, presets that switch the model and the effort with one press, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a question before Claude reads a `.env` or key file, a list of the files this session made, a list of the ones it read, a check that keeps banned claims out of a pull request, a gate that runs your checks and hands back only the failures, a nudge to fetch fresh tab IDs when a browser tab is gone, a name for the session from its first prompt, and one dialog for every mod's settings.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, presets that switch the model and the effort with one press, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a question before Claude reads a `.env` or key file, a list of the files this session made, a list of the ones it read, a check that keeps banned claims out of a pull request, a gate that runs your checks and hands back only the failures, a nudge to fetch fresh tab IDs when a browser tab is gone, a name for the session from its first prompt, your project's dev servers in a pane that fills a crash's error into the prompt, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![20 mods](https://img.shields.io/badge/mods-20-6b5bd2)
+![21 mods](https://img.shields.io/badge/mods-21-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all twenty, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all twenty-one, or read the source and write your own.
 
 ## What is a mod?
 
@@ -44,6 +44,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🔄 [chrome-tab-self-heal](#-chrome-tab-self-heal) | Note after a browser tool's error | When a Claude in Chrome tab is gone, tells Claude to fetch the current tab IDs before it tries again |
 | 🏷 [session-auto-namer](#-session-auto-namer) | Band above the prompt | Suggests a name for the session from its first prompt; one press renames it |
 | 🧠 [model-effort-presets](#-model-effort-presets) | Band above the prompt | Plan and execute presets: one press switches the model and the effort together |
+| 🖥 [dev-server-manager](#-dev-server-manager) | Pane in the side panel, status line and toast | Starts, restarts and watches the project's dev servers; a crash toasts, restarts and fills its error into the prompt |
 | ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
@@ -719,6 +720,67 @@ echo '{"presets": "plan=opus/high, execute=sonnet/medium, fix=haiku/low", "comma
 
 **Needs:** nothing.
 
+### 🖥 dev-server-manager
+
+A pane of this project's dev servers, which the mod starts, watches and restarts itself.
+A crash toasts and restarts, and its `error → prompt` button fills the error into the prompt.
+Claude is told what runs, and can read a server's output or restart it, but never start or stop one.
+
+```text
+Dev servers                              ⚙️
+ ● web       :5173  up 12m
+ ! storybook :6006  :6006 taken by node.exe…
+▸✗ worker           crashed 4× since 14:02,…
+ ● ws        :8080  crashed 14:02, restarted…
+────────────────────────────────────────────
+worker  npm run worker
+Error: Cannot find module './jobs'
+crashed 4× since 14:02, gave up
+s: start  e: error → prompt  h: hide
+────────────────────────────────────────────
+── crashed (exit 1) · restarted 14:03 ──
+Error: Cannot find module './jobs'
+    at main.js:3:9
+```
+
+- **Where the rows come from:** the scripts of the project's root `package.json` that the `scripts` setting names, run as `<manager> run <script>`, and the servers you add with `/dev-servers add`.
+  The package manager is the one `packageManager` names, else the one lockfile beside `package.json`, else npm. With two lockfiles and no `packageManager` the row names them and does not start, rather than guess.
+  Workspaces and sub-folders are not scanned: add a server with `--cwd` instead.
+- **No shell.** The mod runs each command by its argument vector, with `PYTHONUNBUFFERED=1` set so a Python server's output arrives. `/dev-servers add` refuses `&&`, `|`, `;`, redirects, backticks, `$(…)` and a leading `VAR=x`, and suggests a `package.json` script instead.
+  Its own options go before the command, so the command's own `--port` passes untouched.
+- **Only the mod's own servers are rows.** Claude's background shells and servers in other terminals are not listed; the port check says when one holds a port.
+- **The port check:** before each start, a known port (declared with `--port`, or learned from the first local URL a server printed) is checked with `netstat`, `ss` or `lsof`. A listener on any address takes it, and the row names the holder: `:6006 taken by node.exe 18244`. Without the tool, the server starts and the row says `port not checked`.
+- **Rows:** ● running, ◌ starting until the first local URL, ○ stopped, ! port taken, ✗ crashed, – exited. A row never moves when its state changes. Pick a row by its name to see its command, URL, buttons and output; pick it again to close them.
+- **A death** (a non-zero exit, or a signal the mod did not send) toasts `✗ web crashed (exit 3), restarting (1/3)` and restarts, at most 3 times in 2 minutes; then the row stays crashed and `gave up`. A clean exit is a dim `exited` row with no toast.
+- **error → prompt** appends the last 40 lines of the run that died to whatever you have typed, after a blank line. Nothing is sent. After an automatic restart the running row keeps the note and the button until you use it, stop or restart the server, Claude restarts it, or it runs 10 minutes without dying.
+- **The output** of the picked server is docked below its buttons: its last 500 lines across restarts, a dim divider between runs. It follows the tail; scroll up and it stays put, with `↓ latest` to follow again. The title, gear and rows never scroll away.
+- **Hiding:** a detected row you never run, such as a production `start`, hides into a dim `1 hidden: start` line; pick that line to unfold the hidden rows, each with an `unhide` button. An added row is removed instead.
+- **Lifetime:** a server lives as long as the session, and through `/clear`. A reload that changes the mod starts each running server again (`restarted after reload`).
+- **Status line:** `dev: web :5173 · api :8000` while any server runs, a crashed one as `web crashed`.
+- **What Claude sees:** while a server runs, a short section of the system prompt lists each one's command, URL and state, and says the pane started it. Two tools of the mod's own, `mcp__dev-server-manager__output` and `mcp__dev-server-manager__restart`, stay deferred until Claude needs them. Reading output is allowed without asking; a restart goes through Claude Code's permission check. A restart from Claude toasts `web restarted by Claude` and resets the restart count.
+- **Two sessions in one project:** a server another session runs shows read-only, `running in another session · :5173`, with its URL and no buttons.
+- In a headless session the mod starts, restarts and toasts nothing, and shows no status line; a server already running runs on until the session ends.
+
+| Command or key | What it does |
+| --- | --- |
+| `/dev-servers` | Open the pane in front, with the keyboard |
+| `/dev-servers add <name> [--port N] [--cwd dir] <command…>` | Add a server to this project; `--cwd` is relative to the project's root |
+| `/dev-servers remove <name>` | Remove a server you added |
+| `/dev-servers unhide <name>` | Show a hidden row again |
+| `s`, `x`, `r` | Start, stop or restart the picked server |
+| `e` | Fill the picked server's last death into the prompt, without sending it |
+| `h` | Hide the picked detected row |
+| Esc | Hand the keyboard back |
+
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Restart a server that dies | `restart` | on | Start a dev server again when it dies, up to 3 times in 2 minutes |
+| Scripts to detect | `scripts` | `dev, start, serve, preview` | Comma-separated `package.json` script names that become rows; empty reads the default |
+
+What it sends where: nothing leaves the machine. The servers' output stays in the session, and the added servers, hidden rows, learned ports and running servers are kept in the mod's own store on this machine.
+
+**Needs:** nothing beyond the package manager of the project.
+
 ### ⚙ mod-settings
 
 One dialog for the settings of every installed mod: pick a mod, change its settings, save.
@@ -757,7 +819,7 @@ cost,folder
 [ Save ]  Saved 2 settings.
 ```
 
-- The gear shows on the panes of whats-next, github-panel, outputs and sources while mod-settings is installed.
+- The gear shows on the panes of whats-next, github-panel, outputs, sources and dev-server-manager while mod-settings is installed.
 - Mods with no settings are not listed.
 - Each setting shows its current value. Change the ones you want and press Save, or Enter in a text field: only the settings you changed are saved, and the mod reloads with them at once.
 - A value Claude Code refuses is shown in red under its setting, with what you typed kept so you can fix it. The other settings still save.
@@ -814,6 +876,7 @@ claude plugin install lint-test-gate@claude-mods
 claude plugin install chrome-tab-self-heal@claude-mods
 claude plugin install session-auto-namer@claude-mods
 claude plugin install model-effort-presets@claude-mods
+claude plugin install dev-server-manager@claude-mods
 claude plugin install mod-settings@claude-mods
 ```
 
