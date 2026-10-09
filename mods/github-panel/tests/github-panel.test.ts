@@ -7,6 +7,7 @@ import {
   fit,
   fixPrompt,
   foldChecks,
+  frontier,
   issueDetail,
   LOG_LINES,
   logTail,
@@ -14,6 +15,8 @@ import {
   parseConfig,
   parseIssues,
   parsePrs,
+  parsePin,
+  pinArgument,
   prDetail,
   watchChecks,
 } from '../hooks/parse'
@@ -808,4 +811,446 @@ test('at the narrowest pane the fill buttons still show and fit', async ($, on) 
     await pane.unmount()
   }
   expect(filled).toEqual(['/wayfinder https://github.com/octo/widgets/issues/7', '/wayfinder https://github.com/octo/widgets/issues/7'])
+})
+
+/** The wayfinder skill's text as the engine expands `/wayfinder <args>`: the skill's body, then its arguments. */
+const skillText = (args: string) => `Wayfinding is about finding that way.\r\n\r\nARGUMENTS: noted in the body\r\n\n\nARGUMENTS: ${args}`
+
+test('pinArgument reads the issue from the ARGUMENTS line: a URL, #N or N of the pane repo, nothing else', () => {
+  expect(pinArgument(skillText('https://github.com/octo/widgets/issues/58'), 'octo/widgets')).toBe(58)
+  expect(pinArgument(skillText('https://github.com/Octo/Widgets/issues/58#issuecomment-1'), 'octo/widgets')).toBe(58)
+  expect(pinArgument(skillText('#58'), 'octo/widgets')).toBe(58)
+  expect(pinArgument(skillText('58 and then some prose'), 'octo/widgets')).toBe(58)
+  expect(pinArgument(skillText('https://github.com/octo/other/issues/58'), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText('https://github.com/octo/widgets/pull/58'), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText('plan the new onboarding flow'), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText('#0'), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText(''), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument('Wayfinding is about finding that way.', 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText('58'), '')).toBeUndefined()
+})
+
+type Ticket = { number: number; title?: string; state?: string; assignees?: number; labels?: string[]; blockers?: string[] }
+
+/** `gh api graphql`'s answer for pinned issue #58 of octo/widgets, with its sub-issues in GitHub's order. */
+function pinReply(tickets: readonly Ticket[], state = 'OPEN'): string {
+  return JSON.stringify({
+    data: {
+      repository: {
+        issue: {
+          number: 58,
+          title: 'Chart the onboarding flow',
+          state,
+          url: 'https://github.com/octo/widgets/issues/58',
+          subIssues: {
+            nodes: tickets.map(ticket => ({
+              number: ticket.number,
+              title: ticket.title ?? `Ticket ${ticket.number}`,
+              state: ticket.state ?? 'OPEN',
+              url: `https://github.com/octo/widgets/issues/${ticket.number}`,
+              assignees: { totalCount: ticket.assignees ?? 0 },
+              labels: { nodes: (ticket.labels ?? []).map(name => ({ name })) },
+              blockedBy: { nodes: (ticket.blockers ?? []).map(blocker => ({ state: blocker })) },
+            })),
+          },
+        },
+      },
+    },
+  })
+}
+
+test('parsePin reads the pinned issue and its sub-issues in order; an issue that does not resolve is null', () => {
+  const pin = parsePin(pinReply([
+    { number: 61, state: 'CLOSED' },
+    { number: 60, assignees: 1, labels: ['wayfinder:decision', 'needs-triage'], blockers: ['CLOSED', 'OPEN'] },
+  ]))
+  expect(pin).toEqual({
+    number: 58,
+    title: 'Chart the onboarding flow',
+    url: 'https://github.com/octo/widgets/issues/58',
+    isOpen: true,
+    subIssues: [
+      { number: 61, title: 'Ticket 61', url: 'https://github.com/octo/widgets/issues/61', isOpen: false, isAssigned: false, labels: [], isBlocked: false },
+      {
+        number: 60,
+        title: 'Ticket 60',
+        url: 'https://github.com/octo/widgets/issues/60',
+        isOpen: true,
+        isAssigned: true,
+        labels: ['wayfinder:decision', 'needs-triage'],
+        isBlocked: true,
+      },
+    ],
+  })
+  expect(parsePin(pinReply([], 'CLOSED'))?.isOpen).toBe(false)
+  const missing = JSON.stringify({
+    data: { repository: { issue: null } },
+    errors: [{ type: 'NOT_FOUND', path: ['repository', 'issue'], message: 'Could not resolve to an Issue with the number of 99999.' }],
+  })
+  expect(parsePin(missing)).toBeNull()
+  expect(() => parsePin('{"data":{"repository":null}}')).toThrow()
+  expect(() => parsePin('[]')).toThrow()
+})
+
+const ticketsOf = (tickets: readonly Ticket[]) => parsePin(pinReply(tickets))?.subIssues ?? []
+
+test('frontier counts each sub-issue once and takes the first takeable one in sub-issue order, with its type', () => {
+  const tickets = ticketsOf([
+    { number: 70, state: 'CLOSED', blockers: ['OPEN'] },
+    { number: 69, assignees: 2 },
+    { number: 68, assignees: 1, blockers: ['OPEN'] },
+    { number: 67, blockers: ['CLOSED', 'OPEN'] },
+    { number: 66, title: 'Pick the store', blockers: ['CLOSED'], labels: ['needs-triage', 'wayfinder:decision'] },
+    { number: 65, title: 'Lower number, later in order' },
+  ])
+  expect(frontier(tickets)).toEqual({
+    done: 1,
+    takeable: 2,
+    claimed: 1,
+    blocked: 2,
+    next: { number: 66, title: 'Pick the store', url: 'https://github.com/octo/widgets/issues/66', type: 'decision' },
+  })
+  expect(frontier(ticketsOf([{ number: 65 }])).next).toEqual({ number: 65, title: 'Ticket 65', url: 'https://github.com/octo/widgets/issues/65', type: '' })
+  expect(frontier(ticketsOf([{ number: 69, assignees: 1 }, { number: 70, state: 'CLOSED' }]))).toEqual({ done: 1, takeable: 0, claimed: 1, blocked: 0 })
+  expect(frontier([])).toEqual({ done: 0, takeable: 0, claimed: 0, blocked: 0 })
+})
+
+/** What gh answers for the pinned issue's read, which the test changes between loads. */
+type PinGh = { reply: string; exitCode?: number; stderr?: string }
+
+/**
+ * gh beneath the mod with a pinned issue to read: the repo, PR and issue lists
+ * as fakeGh answers them, and `gh api graphql` from `pin`. Records every argv.
+ */
+function fakePinGh(on: On, pin: PinGh, runs: (readonly string[])[]): void {
+  on('process.run', (_$, e) => {
+    runs.push(e.argv)
+    const [, noun, verb] = e.argv
+    if (noun === 'repo') return ok('octo/widgets\n')
+    if (noun === 'api' && verb === 'graphql') {
+      return { value: { exitCode: pin.exitCode ?? 0, stdout: pin.reply, stderr: pin.stderr ?? '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (verb === 'list' && !e.argv.includes('--web')) return ok(noun === 'pr' ? PRS : ISSUES)
+    return ok('')
+  })
+}
+
+/** The mod's own store beneath it, in memory, which the test reads and seeds. */
+function fakeStore(on: On, stored: Map<string, unknown>): void {
+  on('store.get', (_$, e) => ({ value: stored.get(e.key) }))
+  on('store.set', (_$, e) => {
+    stored.set(e.key, e.value)
+    return { value: undefined }
+  })
+  on('store.delete', (_$, e) => {
+    stored.delete(e.key)
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: [...stored.keys()] }))
+}
+
+/** The engine's own expansion of a skill beneath the mod: the text as computed. */
+function fakeSkill(on: On): void {
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
+}
+
+const isPinRead = (argv: readonly string[]) => argv[1] === 'api' && argv[2] === 'graphql'
+
+const MAP: Ticket[] = [
+  { number: 70, state: 'CLOSED' },
+  { number: 69, assignees: 1 },
+  { number: 68, blockers: ['OPEN'] },
+  { number: 66, title: 'Pick the store', labels: ['wayfinder:decision'] },
+  { number: 65 },
+]
+
+test('running the watched skill on an issue of the pane repo pins it and opens the pane with the section on top', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const runs: (readonly string[])[] = []
+  fakePinGh(on, { reply: pinReply(MAP) }, runs)
+  const stored = new Map<string, unknown>()
+  fakeStore(on, stored)
+  fakeSkill(on)
+  const opened: string[] = []
+  fakeSession(on, ['terminal'], opened)
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  expect(runs.some(isPinRead)).toBe(false)
+
+  const text = skillText('https://github.com/octo/widgets/issues/58')
+  expect(await $.skill.prompt({ skill: 'wayfinder', text })).toEqual({ text })
+  await clock.settle()
+  expect(stored.get('pin:octo/widgets')).toBe(58)
+  expect(opened).toEqual(['github', 'github+focus'])
+  const read = runs.filter(isPinRead)
+  expect(read.length).toBe(1)
+  expect(read[0]).toEqual(expect.arrayContaining(['owner=octo', 'name=widgets', 'number=58']))
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  expect((await pane.find({ key: 'pin-issue' }))?.text).toContain('Chart the onboarding flow')
+  expect(await pane.find({ key: 'unpin' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: '1 done · 2 takeable · 1 claimed · 1 blocked' })).toBeDefined()
+  expect((await pane.find({ key: 'pin-next' }))?.text).toContain('next: Pick the store')
+  expect(await pane.find({ type: 'Text', text: 'decision' })).toBeDefined()
+  expect(await pane.find({ key: 'work-next' })).toBeDefined()
+  // The section sits above the lists.
+  const texts = (await pane.findAll({})).map(element => element.text ?? '')
+  const section = texts.findIndex(line => line.includes('1 done · 2 takeable'))
+  const prs = texts.findIndex(line => line.startsWith('Pull requests'))
+  expect(section).toBeGreaterThanOrEqual(0)
+  expect(section).toBeLessThan(prs)
+
+  await pane.press({ key: 'pin-issue' })
+  expect(runs[runs.length - 1]).toEqual(['gh', 'issue', 'view', '58', '--web'])
+  await pane.press({ key: 'pin-next' })
+  expect(runs[runs.length - 1]).toEqual(['gh', 'issue', 'view', '66', '--web'])
+  await pane.unmount()
+})
+
+test('prose, another repo\'s issue or no argument makes no pin, opens nothing and says nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  const runs: (readonly string[])[] = []
+  fakePinGh(on, { reply: pinReply(MAP) }, runs)
+  const stored = new Map<string, unknown>()
+  fakeStore(on, stored)
+  fakeSkill(on)
+  const opened: string[] = []
+  fakeSession(on, ['terminal'], opened)
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  for (const args of ['plan the new onboarding flow', 'https://github.com/octo/other/issues/58', '']) {
+    const text = skillText(args)
+    expect(await $.skill.prompt({ skill: 'wayfinder', text })).toEqual({ text })
+  }
+  await clock.settle()
+  expect([...stored.keys()]).toEqual([])
+  expect(opened).toEqual(['github'])
+  expect(toasts).toEqual([])
+  expect(runs.some(isPinRead)).toBe(false)
+})
+
+test('a pin survives into a new session, is replaced by a run on another issue, and is gone after unpin', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const runs: (readonly string[])[] = []
+  const gh: PinGh = { reply: pinReply(MAP) }
+  fakePinGh(on, gh, runs)
+  // Left by an earlier session in this repo; another repo's pin is not this pane's.
+  const stored = new Map<string, unknown>([['pin:octo/widgets', 58], ['pin:octo/other', 3]])
+  fakeStore(on, stored)
+  fakeSkill(on)
+  fakeSession(on, ['terminal'], [])
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  expect((await pane.find({ key: 'pin-issue' }))?.text).toContain('Chart the onboarding flow')
+  expect(runs.filter(isPinRead)[0]).toContain('number=58')
+
+  gh.reply = pinReply([]).replace('"number":58', '"number":80').replace('Chart the onboarding flow', 'Plan the release')
+  await $.skill.prompt({ skill: 'wayfinder', text: skillText('#80') })
+  await clock.settle()
+  expect(stored.get('pin:octo/widgets')).toBe(80)
+  expect(runs.filter(isPinRead).at(-1)).toContain('number=80')
+  expect((await pane.find({ key: 'pin-issue' }))?.text).toContain('Plan the release')
+
+  await pane.press({ key: 'unpin' })
+  expect(stored.has('pin:octo/widgets')).toBe(false)
+  expect(stored.get('pin:octo/other')).toBe(3)
+  expect(await pane.find({ key: 'pin-issue' })).toBeUndefined()
+  const reads = runs.filter(isPinRead).length
+  await pane.press({ key: 'refresh' })
+  expect(runs.filter(isPinRead).length).toBe(reads)
+  await pane.unmount()
+})
+
+test('once the pinned issue reads as closed, or no longer resolves, the pin is dropped', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const gh: PinGh = { reply: pinReply(MAP) }
+  fakePinGh(on, gh, [])
+  const stored = new Map<string, unknown>([['pin:octo/widgets', 58]])
+  fakeStore(on, stored)
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ key: 'pin-issue' })).toBeDefined()
+  gh.reply = pinReply(MAP, 'CLOSED')
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ key: 'pin-issue' })).toBeUndefined()
+  expect(stored.has('pin:octo/widgets')).toBe(false)
+
+  stored.set('pin:octo/widgets', 99999)
+  gh.reply = JSON.stringify({ data: { repository: { issue: null } }, errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to an Issue with the number of 99999.' }] })
+  gh.exitCode = 1
+  gh.stderr = 'gh: Could not resolve to an Issue with the number of 99999.'
+  await pane.press({ key: 'refresh' })
+  expect(stored.has('pin:octo/widgets')).toBe(false)
+  expect(await pane.find({ type: 'Text', text: /Could not resolve/ })).toBeUndefined()
+  expect((await pane.find({ key: 'issue-7' }))?.text).toContain('Sidebar flickers')
+  await pane.unmount()
+})
+
+test('work next fills <command> <map URL> and sends nothing; nothing takeable hides it; no tickets yet keeps it', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const gh: PinGh = { reply: pinReply(MAP) }
+  fakePinGh(on, gh, [])
+  fakeStore(on, new Map([['pin:octo/widgets', 58]]))
+  const desk: Desk = { filled: [], sent: [], panes: [] }
+  fakeDesk(on, desk)
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  await pane.press({ key: 'refresh' })
+  await pane.press({ key: 'work-next' })
+  expect(desk.filled).toEqual(['/wayfinder https://github.com/octo/widgets/issues/58'])
+  expect(desk.sent).toEqual([])
+  expect(desk.panes).toEqual(['close github', 'open github'])
+
+  gh.reply = pinReply([{ number: 69, assignees: 1 }, { number: 68, blockers: ['OPEN'] }, { number: 70, state: 'CLOSED' }])
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ type: 'Text', text: '1 done · 0 takeable · 1 claimed · 1 blocked' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: 'nothing takeable' })).toBeDefined()
+  expect(await pane.find({ key: 'pin-next' })).toBeUndefined()
+  expect(await pane.find({ key: 'work-next' })).toBeUndefined()
+
+  gh.reply = pinReply([])
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ type: 'Text', text: 'no tickets yet' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: 'nothing takeable' })).toBeUndefined()
+  expect(await pane.find({ key: 'work-next' })).toBeDefined()
+  await pane.press({ key: 'work-next' })
+  expect(desk.filled).toEqual(['/wayfinder https://github.com/octo/widgets/issues/58', '/wayfinder https://github.com/octo/widgets/issues/58'])
+  expect(desk.sent).toEqual([])
+  await pane.unmount()
+})
+
+test('the pin is read in the same load as the lists, one GraphQL call each, and a failed read keeps the last section with the error', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const runs: (readonly string[])[] = []
+  const gh: PinGh = { reply: pinReply(MAP) }
+  fakePinGh(on, gh, runs)
+  fakeStore(on, new Map([['pin:octo/widgets', 58]]))
+  fakeSession(on, ['terminal'], [])
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  await clock.advance(FIVE_MINUTES)
+  expect(runs.filter(isLoad).length).toBe(2)
+  expect(runs.filter(isPinRead).length).toBe(2)
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  gh.reply = ''
+  gh.exitCode = 1
+  gh.stderr = 'HTTP 502: Bad Gateway (https://api.github.com/graphql)'
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ type: 'Text', text: 'HTTP 502: Bad Gateway (https://api.github.com/graphql)' })).toBeDefined()
+  expect((await pane.find({ key: 'pin-issue' }))?.text).toContain('Chart the onboarding flow')
+  expect(await pane.find({ type: 'Text', text: '1 done · 2 takeable · 1 claimed · 1 blocked' })).toBeDefined()
+  expect((await pane.find({ key: 'issue-7' }))?.text).toContain('Sidebar flickers')
+  await pane.unmount()
+})
+
+test('the watched skill is the one the wayfinder setting names', { options: { wayfinderCommand: '/lril:wayfinder' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  fakePinGh(on, { reply: pinReply(MAP) }, [])
+  const stored = new Map<string, unknown>()
+  fakeStore(on, stored)
+  fakeSkill(on)
+  const desk: Desk = { filled: [], sent: [], panes: [] }
+  fakeDesk(on, desk)
+  on('session.surfaces', () => ({ value: ['terminal'] as never }))
+
+  await $.skill.prompt({ skill: 'wayfinder', text: skillText('58') })
+  await clock.settle()
+  expect(stored.size).toBe(0)
+  await $.skill.prompt({ skill: 'lril:wayfinder', text: skillText('58') })
+  await clock.settle()
+  expect(stored.get('pin:octo/widgets')).toBe(58)
+  expect(desk.panes).toContain('open github+focus')
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  await pane.press({ key: 'work-next' })
+  expect(desk.filled).toEqual(['/lril:wayfinder https://github.com/octo/widgets/issues/58'])
+  await pane.unmount()
+})
+
+test('an empty wayfinder setting turns pinning off and leaves an existing pin in the store, unshown', { options: { wayfinderCommand: '' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const runs: (readonly string[])[] = []
+  fakePinGh(on, { reply: pinReply(MAP) }, runs)
+  const stored = new Map<string, unknown>([['pin:octo/widgets', 58]])
+  fakeStore(on, stored)
+  fakeSkill(on)
+  const opened: string[] = []
+  fakeSession(on, ['terminal'], opened)
+
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  await $.skill.prompt({ skill: 'wayfinder', text: skillText('80') })
+  await clock.settle()
+  expect(stored.get('pin:octo/widgets')).toBe(58)
+  expect(opened).toEqual(['github'])
+  expect(runs.some(isPinRead)).toBe(false)
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  expect(await pane.find({ key: 'pin-issue' })).toBeUndefined()
+  expect(await pane.find({ key: 'work-next' })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('at the narrowest pane the pinned section fits, its long titles cut', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  on('ui.toast', () => ({ value: undefined }))
+  const long = 'A very long ticket title that cannot fit a narrow pane'
+  fakePinGh(on, { reply: pinReply([{ number: 66, title: long, labels: ['wayfinder:decision'] }]).replace('Chart the onboarding flow', long) }, [])
+  fakeStore(on, new Map([['pin:octo/widgets', 58]]))
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const pane = await $.ui.mount({ plugin: 'github-panel', surface, component: 'Pane', requestId: 'github', props: { ...PANE, bodyColumns: 16 } })
+    await pane.press({ key: 'refresh' })
+    const title = (await pane.find({ key: 'pin-issue' }))?.text ?? ''
+    expect(title.endsWith('…')).toBe(true)
+    expect(Array.from(title).length + 1 + 'unpin'.length).toBeLessThanOrEqual(15)
+    const next = (await pane.find({ key: 'pin-next' }))?.text ?? ''
+    expect(next.startsWith('next: ')).toBe(true)
+    expect(await pane.find({ type: 'Text', text: 'decisi…' })).toBeDefined()
+    expect(Array.from(next).length + 1 + 'decisi…'.length).toBeLessThanOrEqual(15)
+    expect(await pane.find({ key: 'work-next' })).toBeDefined()
+    await pane.unmount()
+  }
+})
+
+test('in a headless session the watched skill keeps the pin but opens nothing and loads nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  const runs: (readonly string[])[] = []
+  fakePinGh(on, { reply: pinReply(MAP) }, runs)
+  const stored = new Map<string, unknown>()
+  fakeStore(on, stored)
+  fakeSkill(on)
+  const opened: string[] = []
+  fakeSession(on, [], opened)
+
+  await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+  await $.skill.prompt({ skill: 'wayfinder', text: skillText('#58') })
+  await clock.settle()
+  expect(stored.get('pin:octo/widgets')).toBe(58)
+  expect(opened).toEqual([])
+  expect(toasts).toEqual([])
+  expect(runs.some(argv => argv.includes('list') || isPinRead(argv))).toBe(false)
 })

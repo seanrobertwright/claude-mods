@@ -28,7 +28,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🧭 [whats-next](#-whats-next) | Pane in the side panel | Lists the next steps of your workflow, each with a prompt ready to paste |
 | ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered, Pass, Fail and Skip for a verdict, and the next wayfinder ticket |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
-| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt; a toast when your branch's checks turn green or red |
+| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt; the issue a `/wayfinder` run works on, pinned with its next ticket; a toast when your branch's checks turn green or red |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
@@ -198,10 +198,16 @@ echo '{"text": "continue where you left off", "graceSeconds": "120"}' | claude p
 A GitHub pane beside What's next listing the repo's open pull requests and issues.
 Click one to open it in the browser.
 Under each issue, `implement` and `wayfinder` put `/implement` or `/wayfinder` and the issue's URL in the prompt. Nothing is sent.
+While a `/wayfinder` effort is under way, its issue is pinned at the top, with the next ticket to take.
 
 ```text
 octocat/hello-world                refresh
 updated just now
+
+Decide how shared code is copied unpin
+3 done · 1 takeable · 1 claimed · 2 blocked
+next: Pick the drift check decision
+work next
 
 Pull requests 2                        all
 #41 Add a drift check for copied guards
@@ -225,6 +231,15 @@ Issues 2                               all
   It fills the prompt box with the failed checks' names, the last 40 lines of the failed run's log, and "Fix it."
   Nothing is sent: you read it and send it yourself.
   The log is fetched only when you press `fix`; when gh cannot fetch it, such as while the run is still going, the prompt holds the names alone.
+- Running `/wayfinder` on an issue of this repo (`/wayfinder 12`, `/wayfinder #12` or the issue's URL) pins that issue and brings the pane to the front.
+  Anything else, such as prose or another repo's issue, pins nothing.
+  The pin is kept for the repo across sessions, one at a time: a run on another issue replaces it.
+  It goes when you press `unpin`, or once the issue is closed.
+- The pinned issue's sub-issues are its tickets, each counted once: closed ones are done, open ones with an open blocker are blocked, assigned ones are claimed, and the rest are takeable.
+  `next` is the first takeable ticket in the order the issue lists its sub-issues, with its `wayfinder:` type label; click it to open it on GitHub.
+  With nothing takeable it says so; an issue with no sub-issues yet says `no tickets yet`.
+- `work next` fills `/wayfinder` and the pinned issue's URL into the prompt, without sending it, so the skill takes the frontier ticket fresh when it runs.
+- The pinned issue is read in the same refresh as the lists. When a refresh fails, the last section stays and the error shows.
 
 | Command or key | What it does |
 | --- | --- |
@@ -233,13 +248,15 @@ Issues 2                               all
 | `all` | Open the whole list on GitHub |
 | `implement`, `wayfinder` | Fill the command and the issue's URL into the prompt, without sending it |
 | `fix` | Fill a request to fix the current branch's failing checks into the prompt box |
+| `unpin` | Drop the pinned issue |
+| `work next` | Fill `/wayfinder` and the pinned issue's URL into the prompt, without sending it |
 
 | Setting | Key | Default | Meaning |
 | --- | --- | --- | --- |
 | Most items per list | `limit` | `30` | How many open pull requests and issues to list each (1-100) |
 | Refresh every (minutes) | `refreshMinutes` | `5` | How often to refresh (0-120); `0` refreshes only on open, after turns and on `r` |
 | Implement button fills | `implementCommand` | `/implement` | The slash command the `implement` button fills before the issue's URL; empty hides the button |
-| Wayfinder button fills | `wayfinderCommand` | `/wayfinder` | The slash command the `wayfinder` button fills before the issue's URL; empty hides the button |
+| Wayfinder button fills | `wayfinderCommand` | `/wayfinder` | The slash command the `wayfinder` and `work next` buttons fill before the issue's URL, and the skill whose runs pin an issue; empty hides the button and turns pinning off |
 
 A command must start with `/` and hold no spaces. Any other value falls back to the default, and a message says so when the session starts. A button is labelled with its command, without the `/`.
 

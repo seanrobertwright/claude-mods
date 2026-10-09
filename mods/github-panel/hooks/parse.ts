@@ -1,4 +1,4 @@
-import type { Blocker, Checks, FailedCheck, Issue, PullRequest, Watch } from '../types'
+import type { Blocker, Checks, FailedCheck, Issue, Pin, PullRequest, SubIssue, Watch } from '../types'
 
 /** The fields asked of `gh pr list` and `gh issue list`; parsePrs and parseIssues read these. */
 export const PR_FIELDS = 'number,title,author,isDraft,reviewDecision,statusCheckRollup,headRefName'
@@ -161,6 +161,120 @@ export function parseIssues(json: string): Issue[] {
       blockedBy: openBlockers(row.blockedBy),
     }]
   })
+}
+
+/** The line the engine appends to a skill's text with what was typed after its name. */
+const ARGUMENTS_LINE = /^ARGUMENTS:[ \t]*(.*)$/gm
+/** An issue's page: any host, then `owner/name/issues/N`, with an anchor or query allowed after. */
+const ISSUE_URL = /^https?:\/\/[^/\s]+\/([^/\s]+\/[^/\s]+)\/issues\/(\d+)(?:[/?#]\S*)?$/
+const ISSUE_NUMBER = /^#?(\d+)$/
+
+/**
+ * The issue a wayfinder run works on: the first word of the skill text's last
+ * `ARGUMENTS:` line, when it is an issue of `repo` (`owner/name`) as a URL,
+ * `#N` or `N`. Prose, another repo's issue or no argument: undefined.
+ */
+export function pinArgument(skillText: string, repo: string): number | undefined {
+  if (repo === '') return undefined
+  const line = Array.from(skillText.matchAll(ARGUMENTS_LINE)).at(-1)?.[1] ?? ''
+  const word = line.trim().split(/\s+/)[0] ?? ''
+  const url = ISSUE_URL.exec(word)
+  if (url !== null && url[1]?.toLowerCase() !== repo.toLowerCase()) return undefined
+  const number = Number(url?.[2] ?? ISSUE_NUMBER.exec(word)?.[1])
+  return isNumber(number) ? number : undefined
+}
+
+/** The read of a pinned issue: the issue, then each of its first 100 sub-issues; parsePin reads it. */
+export const PIN_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      number title state url
+      subIssues(first: 100) {
+        nodes {
+          number title state url
+          assignees { totalCount }
+          labels(first: 20) { nodes { name } }
+          blockedBy(first: 20) { nodes { state } }
+        }
+      }
+    }
+  }
+}`
+
+/** The `nodes` of a GraphQL connection that are records; none when it is not one. */
+function nodesOf(connection: unknown): Record<string, unknown>[] {
+  return isRecord(connection) && Array.isArray(connection.nodes) ? connection.nodes.filter(isRecord) : []
+}
+
+/**
+ * Reads `gh api graphql`'s answer to PIN_QUERY. An issue that does not resolve
+ * (deleted, transferred, or a PR's number) is null; an answer of another shape
+ * throws. Sub-issues without a number and title are dropped.
+ */
+export function parsePin(json: string): Pin | null {
+  const reply: unknown = JSON.parse(json)
+  const repository = isRecord(reply) && isRecord(reply.data) ? reply.data.repository : undefined
+  if (!isRecord(repository) || !('issue' in repository)) throw new Error('gh api graphql did not answer the pinned issue')
+  const issue = repository.issue
+  if (issue === null) return null
+  if (!isRecord(issue) || !isNumber(issue.number)) throw new Error('gh api graphql did not answer the pinned issue')
+  return {
+    number: issue.number,
+    title: text(issue.title),
+    url: text(issue.url),
+    isOpen: text(issue.state) === 'OPEN',
+    subIssues: nodesOf(issue.subIssues).flatMap(node => {
+      if (!isNumber(node.number) || text(node.title) === '') return []
+      return [{
+        number: node.number,
+        title: text(node.title),
+        url: text(node.url),
+        isOpen: text(node.state) === 'OPEN',
+        isAssigned: isRecord(node.assignees) && typeof node.assignees.totalCount === 'number' && node.assignees.totalCount > 0,
+        labels: nodesOf(node.labels).flatMap(label => (text(label.name) === '' ? [] : [text(label.name)])),
+        isBlocked: nodesOf(node.blockedBy).some(blocker => text(blocker.state) === 'OPEN'),
+      }]
+    }),
+  }
+}
+
+/** The label prefix a wayfinder ticket's type carries (`wayfinder:decision`). */
+const TYPE_LABEL = 'wayfinder:'
+
+/** The ticket a wayfinder run would take next. */
+export type NextTicket = {
+  number: number
+  title: string
+  url: string
+  /** Its `wayfinder:<type>` label without the prefix; '' when it has none. */
+  type: string
+}
+
+/** Where a wayfinder map stands: each sub-issue counted once, and the next takeable ticket when there is one. */
+export type Frontier = { done: number; takeable: number; claimed: number; blocked: number; next?: NextTicket }
+
+/**
+ * The wayfinder skill's frontier rule. A closed sub-issue is done; an open one
+ * with an open blocker is blocked; else one with an assignee is claimed; the
+ * rest are takeable. The next ticket is the first takeable one in the order
+ * GitHub keeps the sub-issues, not by number.
+ */
+export function frontier(subIssues: readonly SubIssue[]): Frontier {
+  const counts = { done: 0, takeable: 0, claimed: 0, blocked: 0 }
+  let next: NextTicket | undefined
+  for (const ticket of subIssues) {
+    if (!ticket.isOpen) counts.done += 1
+    else if (ticket.isBlocked) counts.blocked += 1
+    else if (ticket.isAssigned) counts.claimed += 1
+    else {
+      counts.takeable += 1
+      if (next === undefined) {
+        const type = ticket.labels.find(label => label.startsWith(TYPE_LABEL))?.slice(TYPE_LABEL.length) ?? ''
+        next = { number: ticket.number, title: ticket.title, url: ticket.url, type }
+      }
+    }
+  }
+  return next === undefined ? counts : { ...counts, next }
 }
 
 /** The open PR whose head branch is `branch`; none on a detached HEAD, where `branch` is ''. */

@@ -11,6 +11,7 @@ An _Avoid_ word is wrong only where it names that entry's concept; Claude Code's
 **Mod**:
 A plugin of function hooks that changes what Claude Code shows or does between turns.
 The mod's own code decides when it acts, even when what it does is send the model a prompt.
+It may also offer the model a tool, which the model calls when it chooses; the mod's own code answers the call, and the mod does its work whether or not the model ever calls it.
 The marketplace lists mods and nothing else.
 _Avoid_: Extension, addon, plugin (when a mod is meant)
 
