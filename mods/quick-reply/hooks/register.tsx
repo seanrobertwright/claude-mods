@@ -13,6 +13,11 @@ async function send($: EngineInterface, text: string): Promise<void> {
   await $.prompt.submit({ text, asUser: true })
 }
 
+/** Starts a Fail verdict in the prompt, where the person says what went wrong (and can paste an image); nothing is sent. */
+async function fail($: EngineInterface): Promise<void> {
+  await $.prompt.fill({ text: 'Fail: ' })
+}
+
 /** Takes the next ticket of `map`: a fresh session, as the skill wants one ticket per session, then the skill itself. */
 async function takeNext($: EngineInterface, map: number): Promise<void> {
   await update($, reading, () => null)
@@ -97,8 +102,10 @@ export const register: Register = (on, options) => {
       return beneath
     }
     const choices = current?.options ?? []
-    const replies = current === null ? [] : current.isQuestion ? questionReplies : idleReplies
-    if (nextTicket === null && choices.length === 0 && replies.length === 0) return beneath
+    // A verdict question is answered with a verdict: the verdict buttons stand in for the replies.
+    const asksForVerdict = current?.asksForVerdict === true
+    const replies = current === null || asksForVerdict ? [] : current.isQuestion ? questionReplies : idleReplies
+    if (nextTicket === null && choices.length === 0 && replies.length === 0 && !asksForVerdict) return beneath
 
     const { Box, Text, Button } = $.ui.resolve(e)
 
@@ -121,6 +128,13 @@ export const register: Register = (on, options) => {
               onPress={() => void send($, optionReply(option)).catch(report($))}
             />
           ))}
+          {asksForVerdict && (
+            <>
+              <Button key="verdict-pass" label="Pass" onPress={() => void send($, 'pass').catch(report($))} />
+              <Button key="verdict-fail" label="Fail…" onPress={() => void fail($).catch(report($))} />
+              <Button key="verdict-skip" label="Skip" onPress={() => void send($, 'skip').catch(report($))} />
+            </>
+          )}
           {replies.map(reply => (
             <Button
               key={`reply-${reply}`}

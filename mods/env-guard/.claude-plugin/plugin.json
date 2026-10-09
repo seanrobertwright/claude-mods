@@ -1,0 +1,13 @@
+{
+  "name": "env-guard",
+  "version": "0.1.0",
+  "description": "Asks you before Claude reads a .env or key file, and refuses when no one is there to answer.",
+  "userConfig": {
+    "extraPatterns": {
+      "type": "string",
+      "title": "More guarded files",
+      "description": "File names to guard besides the built-in list, separated by commas; * stands for any characters and ? for one (secrets.json, *.kdbx).",
+      "default": ""
+    }
+  }
+}

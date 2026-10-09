@@ -97,6 +97,16 @@ export function parseCached(value: unknown): Pick<NextList, 'steps' | 'updatedAt
   }
 }
 
+/**
+ * The slash command /clear + paste runs between the clear and the paste:
+ * `none` when the setting is empty, `invalid` with the message that says so
+ * when it is not one slash command on one line.
+ */
+export type Prime =
+  | { status: 'none' }
+  | { status: 'set'; text: string; command: string; args: string }
+  | { status: 'invalid'; message: string }
+
 export type Config = {
   skill: string
   maxSteps: number
@@ -104,6 +114,7 @@ export type Config = {
   /** Permission rules for the headless run, one per entry. */
   allowedTools: string[]
   model: string
+  prime: Prime
 }
 
 /**
@@ -148,6 +159,24 @@ const DEFAULTS: Config = {
   refreshOnStart: true,
   allowedTools: [...READ_ONLY_TOOLS],
   model: '',
+  prime: { status: 'none' },
+}
+
+/** A slash command's name, then what follows it on the line. */
+const SLASH_COMMAND = /^\/([\w:.-]+)(?:[ \t]+(.*))?$/
+
+/** A value that is not one slash command on one line is never run: it reads as invalid, with the message the step view shows. */
+function parsePrime(value: unknown): Prime {
+  if (typeof value !== 'string' || value.trim() === '') return DEFAULTS.prime
+  const text = value.trim()
+  const match = /[\r\n]/.test(value) ? null : SLASH_COMMAND.exec(text)
+  if (match === null || match[1] === undefined) {
+    return {
+      status: 'invalid',
+      message: `What's next's "Prime command" setting, ${JSON.stringify(value)}, is not one slash command on one line, so /clear + paste runs none. Name one such as /lril:prime, or leave it empty.`,
+    }
+  }
+  return { status: 'set', text, command: match[1], args: match[2]?.trim() ?? '' }
 }
 
 /**
@@ -161,6 +190,7 @@ const RULE = /^[A-Za-z][\w*-]*(\(.*\))?$/
  * Parses the manifest's userConfig values; a value out of range falls back to
  * its default. An `allowedTools` list with any malformed rule falls back whole
  * to the built-in set, rather than running with part of what the person wrote.
+ * A prime command it rejects keeps a message for the step view (parsePrime).
  */
 export function parseConfig(options: Readonly<Record<string, unknown>>): Config {
   const skill = typeof options.skill === 'string' && /^\/[\w:.-]+$/.test(options.skill.trim())
@@ -178,7 +208,7 @@ export function parseConfig(options: Readonly<Record<string, unknown>>): Config 
   const model = typeof options.model === 'string' && /^([\w.:[\]][\w.:\-[\]]*)?$/.test(options.model.trim())
     ? options.model.trim()
     : DEFAULTS.model
-  return { skill, maxSteps, refreshOnStart, allowedTools, model }
+  return { skill, maxSteps, refreshOnStart, allowedTools, model, prime: parsePrime(options.primeCommand) }
 }
 
 /**
