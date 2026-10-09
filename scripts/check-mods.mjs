@@ -52,13 +52,18 @@ function step(mod, name, command, args) {
  * load of the mod writes (validate and test do not). A headless run of a local
  * command loads it without a model call. No surface shows that session, so
  * every mod stays quiet in it: whats-next starts no headless /ask-sean run.
+ *
+ * Claude Code 2.1.295 loads the mod but writes no types (2.1.293 and 2.1.294
+ * do; issue #176). CHECK_MODS_CLAUDE names the binary for this one load, such
+ * as ~/.local/share/claude/versions/2.1.294; the other checks keep `claude`.
  */
 function ensureTypes(mod) {
   const generated = join(MODS_DIR, mod, '.claude-plugin', 'types', 'tsconfig.json')
   if (existsSync(generated)) return
   console.log(`check-mods: ${mod}: generating types (one headless load)`)
+  const claude = process.env.CHECK_MODS_CLAUDE || 'claude'
   const run = spawnSync(
-    'claude',
+    claude,
     ['-p', '--plugin-dir', join('mods', mod), '--setting-sources', '', '--no-session-persistence'],
     {
       cwd: ROOT,
@@ -68,7 +73,14 @@ function ensureTypes(mod) {
     },
   )
   if (run.error !== undefined) fail(mod, 'generating types', run.error.message)
-  if (!existsSync(generated)) fail(mod, 'generating types', `claude did not write ${generated}`)
+  if (!existsSync(generated)) {
+    fail(
+      mod,
+      'generating types',
+      `${claude} did not write ${generated}. Claude Code 2.1.295 writes no types (issue #176): ` +
+        'set CHECK_MODS_CLAUDE to a 2.1.293 or 2.1.294 binary, or copy .claude-plugin/types/ from another checkout.',
+    )
+  }
 }
 
 /** A file's text as staged, or undefined when the index has no such file. */
