@@ -156,19 +156,30 @@ function recommends(text: string): boolean {
   return /\brecommend/i.test(affirmed)
 }
 
-/** Reads an answer: whether it ends by asking, recommends something, and offers choices. */
-export function readAnswer(answer: string): Reading {
+/**
+ * What a System One model settled about an answer: whether it asks, whether its
+ * run of items are choices to pick from, and whether it recommends something.
+ * A part left out is the regexes' to read.
+ */
+export type Settled = { asks?: boolean; areChoices?: boolean; recommends?: boolean }
+
+/**
+ * Reads an answer: whether it ends by asking, recommends something, and offers
+ * choices. What `settled` holds takes the place of the regexes' reading of that part.
+ */
+export function readAnswer(answer: string, settled: Settled = {}): Reading {
   const text = withoutCode(answer.replace(/\r\n?/g, '\n'))
   const closing = closingSentences(text)
-  const isQuestion = closing.some(sentence => asks(sentence.text))
+  const isQuestion = settled.asks ?? closing.some(sentence => asks(sentence.text))
   // A one-word code span is read as its word here only, so what counts as a question is unchanged.
   const asksForVerdict = closingSentences(text.replace(ONE_WORD_CODE, '$1')).some(sentence => isVerdictQuestion(sentence.text))
+  const areChoices = settled.areChoices ?? asksToChoose(closing)
   return {
     isQuestion,
     asksForVerdict,
-    hasRecommendation: recommends(text),
+    hasRecommendation: settled.recommends ?? recommends(text),
     // A test's numbered lines are its steps, not choices: a verdict answers it.
-    options: isQuestion && !asksForVerdict && asksToChoose(closing) ? findOptions(text) : [],
+    options: isQuestion && !asksForVerdict && areChoices ? findOptions(text) : [],
   }
 }
 

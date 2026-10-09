@@ -2,6 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import { optionReply, parseReplies, readAnswer } from './detect'
+import { buildEndingAsk, readSettled } from './ending'
+import { askSystemOne, parseSystemOne } from './system-one'
+import type { SystemOneIo, SystemOneSettings } from './system-one'
 import { mapFromArgs, nextMap, readBash, skillArgs } from './wayfinder'
 
 const reading = atom({ plugin: 'quick-reply', key: 'reading' } as const, null)
@@ -30,6 +33,43 @@ function report($: EngineInterface): (error: unknown) => void {
   return error => $.ui.toast(`quick-reply: ${error instanceof Error ? error.message : String(error)}`)
 }
 
+/**
+ * Whether any surface shows the session right now. Asked before each model call
+ * and never kept: a reload or a missed attach would leave a kept flag wrong.
+ * Each mod carries its own copy (ADR-0001).
+ */
+async function isShown($: EngineInterface): Promise<boolean> {
+  return (await $.session.surfaces()).length > 0
+}
+
+/**
+ * The engine calls the System One client makes, handed over as closures: the
+ * shared client never touches `$` (ADR-0004). The bound's sleep takes no signal
+ * (see SystemOneIo.sleep): the reading runs after turn.complete has returned.
+ */
+function systemOneIo($: EngineInterface): SystemOneIo {
+  return {
+    fetch: (url, init) => $.http.fetch(url, init),
+    sleep: ms => $.clock.sleep(ms),
+    now: () => $.clock.now(),
+    exists: path => $.fs.exists(path),
+    folder: () => $.session.cwd(),
+    isShown: () => isShown($),
+  }
+}
+
+/**
+ * Asks a System One model how `answer` ends and, while `isCurrent` still says
+ * nothing has moved the band on, draws the parts it settled in place of the
+ * regexes'. No answer, or one too unsure, leaves the regexes' reading drawn.
+ */
+async function readWithModel($: EngineInterface, systemOne: SystemOneSettings, answer: string, isCurrent: () => boolean): Promise<void> {
+  const asked = await askSystemOne(systemOneIo($), systemOne, buildEndingAsk(answer))
+  if (asked === undefined || !isCurrent()) return
+  const settled = readSettled(asked)
+  await update($, reading, current => (current === null || !isCurrent() ? current : readAnswer(answer, settled)))
+}
+
 /** The wayfinder skill, by its own name or a plugin's `<plugin>:wayfinder`. */
 function isWayfinder(skill: string): boolean {
   return skill === 'wayfinder' || skill.endsWith(':wayfinder')
@@ -39,6 +79,10 @@ export const register: Register = (on, options) => {
   const questionReplies = parseReplies(options.questionReplies)
   const idleReplies = parseReplies(options.idleReplies)
   const isNextOffered = options.wayfinderNext !== false
+  const systemOne = parseSystemOne(options)
+  // Counts the answers read and the prompts sent: a model's reading is drawn only
+  // while neither has happened since the answer it reads.
+  let moves = 0
 
   // The loop's memory is the module's own, so it outlives a /clear, which starts a new session
   // without reloading the mod. `map` is the one the skill last ran with, or the one a turn made.
@@ -82,12 +126,18 @@ export const register: Register = (on, options) => {
     if (map !== undefined && turnClosed.includes(map)) map = undefined
     turnClosed = []
     turnCreated = undefined
+    moves += 1
     await update($, reading, () => (e.reason === 'answer' ? readAnswer(e.answer) : null))
     await update($, offer, () => shown ?? null)
+    if (e.reason === 'answer') {
+      const at = moves
+      void readWithModel($, systemOne, e.answer, () => moves === at).catch(report($))
+    }
     return done
   })
 
   on('prompt.submit', async ($, e, next) => {
+    moves += 1
     await update($, reading, () => null)
     await update($, offer, () => null)
     return next(e)
