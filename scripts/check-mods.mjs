@@ -1,13 +1,17 @@
 // Checks every mod under mods/: tsc, ESLint, claude plugin validate, claude plugin test.
+// First, whatever is staged, it checks that each mod's copy of the System One
+// client matches shared/system-one.ts and that those mods' System One fields agree.
 // Usage: node scripts/check-mods.mjs [--staged]
-//   --staged  only the mods with staged changes (what the pre-commit hook runs)
+//   --staged  only the mods with staged changes (what the pre-commit hook runs);
+//             the System One check then reads the files as staged
 // Stops at the first failure and names the mod and the step.
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { modsForPaths } from './mods.mjs'
+import { COPY, copyMismatches, fieldMismatches, modsWithCopy, SOURCE } from './system-one.mjs'
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..')
 const MODS_DIR = join(ROOT, 'mods')
@@ -67,6 +71,43 @@ function ensureTypes(mod) {
   if (!existsSync(generated)) fail(mod, 'generating types', `claude did not write ${generated}`)
 }
 
+/** A file's text as staged, or undefined when the index has no such file. */
+function stagedText(path) {
+  const run = spawnSync('git', ['show', `:${path.replaceAll('\\', '/')}`], { cwd: ROOT, encoding: 'utf8' })
+  return run.status === 0 ? run.stdout : undefined
+}
+
+/** The mods whose copy of the client is staged, sorted. */
+function stagedModsWithCopy() {
+  const run = spawnSync('git', ['ls-files', '--cached', '-z', '--', 'mods/*/hooks/system-one.ts'], { cwd: ROOT, encoding: 'utf8' })
+  if (run.status !== 0) throw new Error(`git ls-files failed: ${run.stderr.trim()}`)
+  return run.stdout.split('\0').filter(path => path !== '').map(path => path.split('/')[1]).sort()
+}
+
+/**
+ * Fails when a copy of the System One client differs from shared/system-one.ts,
+ * or when the mods carrying one declare jevApiKey, modelChoice or layaPort apart
+ * (ADR-0004). Staged, it reads the index, so a source change committed without
+ * its synced copies fails though nothing under mods/ is staged.
+ */
+function checkSystemOne(isStaged) {
+  const read = isStaged ? stagedText : path => (existsSync(join(ROOT, path)) ? readFileSync(join(ROOT, path), 'utf8') : undefined)
+  const mods = isStaged ? stagedModsWithCopy() : modsWithCopy(ROOT)
+  const source = read(SOURCE)
+  if (mods.length === 0 && source === undefined) return
+  console.log('check-mods: system-one: copies and fields')
+  if (source === undefined) fail('system-one', 'copy check', `${SOURCE} is missing`)
+  const copies = mods.map(mod => ({ mod, text: read(join('mods', mod, COPY)) }))
+  const stale = copyMismatches(source, copies)
+  if (stale.length > 0) fail('system-one', 'copy check', `differs from ${SOURCE}: ${stale.join(', ')}; run npm run sync:system-one`)
+  const manifests = mods.map(mod => {
+    const text = read(join('mods', mod, '.claude-plugin', 'plugin.json'))
+    return { mod, userConfig: text === undefined ? undefined : JSON.parse(text).userConfig }
+  })
+  const problems = fieldMismatches(manifests)
+  if (problems.length > 0) fail('system-one', 'field check', problems.join('; '))
+}
+
 function checkMod(mod) {
   const dir = join('mods', mod)
   ensureTypes(mod)
@@ -77,6 +118,7 @@ function checkMod(mod) {
 }
 
 const isStaged = process.argv.includes('--staged')
+checkSystemOne(isStaged)
 const all = listMods()
 const mods = isStaged ? modsForPaths(stagedPaths(), all) : all
 if (mods.length === 0) {
