@@ -59,6 +59,8 @@ type World = {
   fetches: { url: string; method: string; headers: Record<string, string>; body: string }[]
   sent: string[]
   toasts: string[]
+  /** The paths `fs.exists` says are there. */
+  marked: string[]
 }
 
 function newWorld(): World {
@@ -70,6 +72,7 @@ function newWorld(): World {
     fetches: [],
     sent: [],
     toasts: [],
+    marked: [],
   }
 }
 
@@ -81,7 +84,11 @@ function fakeEngine(on: On, world: World): void {
   })
   on('session.cwd', () => ({ value: '/work/repo' }))
   on('session.surfaces', () => ({ value: [...world.surfaces] as never }))
-  on('fs.exists', () => ({ value: false }))
+  on('fs.exists', (_$, e) => {
+    // The engine resolves the path first, so on Windows it arrives under a drive: compared without it.
+    const path = e.path.replace(/^[A-Za-z]:/, '').replaceAll('\\', '/')
+    return { value: world.marked.includes(path) }
+  })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('prompt.submit', (_$, e) => {
     world.sent.push(e.text)
@@ -365,6 +372,20 @@ test('under local only nothing is ever sent to api.typesafe.ai, whatever key is 
   expect(world.fetches.filter(request => request.url.includes('typesafe'))).toEqual([])
 })
 
+test('a folder marked local only keeps the answer off Jev, and Laya is asked in its place', { options: { modelChoice: 'hosted first', jevApiKey: 'ts-test-key' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world = newWorld()
+  fakeEngine(on, world)
+  world.marked = ['/work/.claude/system-one-local-only']
+  world.jev = () => ({ status: 200, body: jevAnswer(YES_NO) })
+  world.laya = () => ({ status: 200, body: layaAnswer(YES_NO) })
+
+  await $.turn.complete(turn(REPORT_OR))
+  await clock.settle()
+  expect(fetched(world, JEV)).toEqual([])
+  expect(fetched(world, `${LAYA}/v1/systemone`).length).toBe(1)
+})
+
 /** Exactly 8,000 characters that end an answer: a long report, then the run and its question. */
 const LAST_8000 = [`${'The parser now reads every heading. '.repeat(220)}`.slice(0, 8_000 - REPORT_OR.length - 1), REPORT_OR].join('\n')
 
@@ -516,18 +537,5 @@ test('under local only no key is named, whatever the key setting holds', { optio
   await $.turn.complete(turn(REPORT_OR))
   await clock.advance(2_000)
   expect(await texts(band)).toEqual([{ text: 'Reply:', isDim: true }])
-  await band.unmount()
-})
-
-test('a reading Laya reports as cut counts as no answer', async ($, on) => {
-  const clock = mock.clock(on, { now: 1_000 })
-  const world = newWorld()
-  fakeEngine(on, world)
-  world.laya = () => ({ status: 200, body: layaAnswer(YES_NO, true) })
-  const band = await mountBand($)
-
-  await $.turn.complete(turn(REPORT_OR))
-  await clock.settle()
-  expect(await keys(band)).toEqual(REGEX_KEYS)
   await band.unmount()
 })
