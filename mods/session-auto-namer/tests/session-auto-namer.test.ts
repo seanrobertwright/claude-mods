@@ -156,3 +156,18 @@ test('an issue gh cannot read gives the other rules', async ($, on) => {
   await submit($, '/implement #99 the cache fix')
   expect(await suggested($)).toBe('Name: implement #99 the cache fix')
 })
+
+test('a milestone and a step suggest them with the command, its last word capitalised', async ($, on) => {
+  desk(on)
+  await submit($, '/gsd:execute-phase M12 S4 with the new parser')
+  expect(await suggested($)).toBe('Name: M12 - S4 - Execute-phase')
+})
+
+test('a milestone and a step with no command suggest the two alone; one of them alone does not count', async ($, on) => {
+  desk(on)
+  await submit($, 'carry on with M3 S1 from yesterday')
+  expect(await suggested($)).toBe('Name: M3 - S1')
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  await submit($, '/gsd:plan-phase M3 only')
+  expect(await suggested($)).toBe('Name: plan-phase M3 only')
+})

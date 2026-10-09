@@ -41,12 +41,30 @@ function firstWords(text: string): string[] {
   return text.split(/\s+/).filter(word => word !== '').slice(0, WORDS)
 }
 
+/** A milestone, `M12`, and a step, `S4`, each a word of its own in capitals. */
+const MILESTONE = /(?:^|\s)(M\d+)\b/
+const STEP = /(?:^|\s)(S\d+)\b/
+
+function capitalised(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1)
+}
+
 /**
- * The name the rules give `prompt`: the issue it names, `#N <title>`, when gh
- * read that issue's title; otherwise the slash command and the first words of its arguments, or the prompt's first words. */
+ * The name the rules give `prompt`, the first that applies:
+ * - the issue it names, `#N <title>`, when gh read that issue's title;
+ * - a milestone and a step it names, `M12 - S4 - <Command>`, the slash
+ *   command's last word capitalised, or `M12 - S4` with no command;
+ * - the slash command and the first words of its arguments, or the prompt's
+ *   first words.
+ */
 export function nameFor(prompt: string, issue?: { number: number; title: string }): string | undefined {
   if (issue !== undefined) return `#${issue.number} ${issue.title}`
   const command = slashCommand(prompt)
+  const milestone = MILESTONE.exec(prompt)?.[1]
+  const step = STEP.exec(prompt)?.[1]
+  if (milestone !== undefined && step !== undefined) {
+    return [milestone, step, ...(command === undefined ? [] : [capitalised(command.name)])].join(' - ')
+  }
   const words = command === undefined ? firstWords(prompt) : [command.name, ...firstWords(command.args)]
   return words.length === 0 ? undefined : words.join(' ')
 }
