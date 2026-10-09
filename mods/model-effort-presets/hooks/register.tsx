@@ -30,6 +30,21 @@ async function apply($: EngineInterface, preset: Preset): Promise<void> {
   await update($, current, () => ({ model, effort: preset.effort }))
 }
 
+/**
+ * Switches to the preset once this command has answered, then runs `then` as the person typed it, and says so.
+ * The engine refuses a command run from inside another, so the switch cannot happen in the answer itself.
+ */
+function switchAfter($: EngineInterface, preset: Preset, then?: { command: string; args: string }): { text: string } {
+  $.clock.after(0, () => {
+    void (async () => {
+      await apply($, preset)
+      if (then !== undefined) await $.command.run(then)
+    })().catch(report($))
+  })
+  const running = then === undefined ? '' : `, then running /${then.command}`
+  return { text: `Switching to ${preset.name}: ${preset.model}, ${preset.effort} effort${running}.` }
+}
+
 /** Moves the mark after /model or /effort ran, whoever ran it: the model as the session now reads it, the effort as given. */
 async function follow($: EngineInterface, command: 'model' | 'effort', args: string): Promise<void> {
   if (command === 'model') {
@@ -62,9 +77,7 @@ export const register: Register = (on, options) => {
     if (rejected !== undefined) return { text: rejected }
     const preset = findPreset(config.presets, e.args)
     if (preset === undefined) return { text: usage(config.presets) }
-    // The engine refuses a command run from inside another, so the switch follows this one's answer.
-    $.clock.after(0, () => void apply($, preset).catch(report($)))
-    return { text: `Switching to ${preset.name}: ${preset.model}, ${preset.effort} effort.` }
+    return switchAfter($, preset)
   })
 
   on('command.run', async ($, e, next) => {
@@ -76,14 +89,8 @@ export const register: Register = (on, options) => {
     const preset = config.commands.get(e.command)
     // A mod's run, this one's own among them, is not the person sending it.
     if (preset === undefined || e.origin.kind === 'plugin' || !(await isShown($))) return next(e)
-    // Held until the preset is on, as /preset's switch is: then sent again as the person typed it.
-    $.clock.after(0, () => {
-      void (async () => {
-        await apply($, preset)
-        await $.command.run({ command: e.command, args: e.args })
-      })().catch(report($))
-    })
-    return { text: `Switching to ${preset.name}: ${preset.model}, ${preset.effort} effort, then running /${e.command}.` }
+    // Held until the preset is on, as /preset's switch is.
+    return switchAfter($, preset, { command: e.command, args: e.args })
   })
 
   on('turn.step', async function* ($, e, next) {
