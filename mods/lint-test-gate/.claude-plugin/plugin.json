@@ -1,0 +1,20 @@
+{
+  "name": "lint-test-gate",
+  "version": "0.1.0",
+  "description": "Runs the project's checks from a band button, and before Claude's git commit, and hands back only the failures.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "checks": {
+      "type": "string",
+      "title": "Checks",
+      "description": "The commands to run, as a JSON list of argument lists, such as [[\"npx\",\"eslint\",\".\"]]; empty runs the package.json scripts lint, typecheck, check and test.",
+      "default": ""
+    },
+    "timeoutMinutes": {
+      "type": "number",
+      "title": "Time limit per check (minutes)",
+      "description": "How long one check may run before it counts as failing, timed out (1-10).",
+      "default": 10
+    }
+  }
+}

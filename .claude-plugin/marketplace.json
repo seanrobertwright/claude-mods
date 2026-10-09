@@ -83,6 +83,11 @@
       "description": "Refuses gh pr create and gh pr edit while the PR's title, its body or the branch's added Markdown lines hold a file:line citation, a placeholder or a count spelled out in words, listing each one."
     },
     {
+      "name": "lint-test-gate",
+      "source": "./mods/lint-test-gate",
+      "description": "Runs the project's checks from a band button, and before Claude's git commit, and hands back only the failures."
+    },
+    {
       "name": "mod-settings",
       "source": "./mods/mod-settings",
       "description": "A gear at the top right of each mod's pane opens one dialog for every claude-mods setting: pick a mod, change its settings, save."

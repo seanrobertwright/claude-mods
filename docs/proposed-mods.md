@@ -72,11 +72,6 @@ On the first session of the day, a band with yesterday's merged PRs, the open PR
 
 Blocks `gh pr create` while the diff holds `file:line` citations, "(PR #NN)" placeholders, "TODO fill in" or counts typed by hand: the bans in your global rules.
 
-### lint-test-gate (rank 21, issue #66)
-
-A "Gate" button and status-line entry.
-It runs the project's checks in the background (ruff, mypy and pytest, or the npm scripts) and sends back only the failures, possibly also as a hook before `git commit`.
-
 ## Feedback and testing
 
 ### uat-pass-fail-pad (rank 6, issue #67)
@@ -136,3 +131,4 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **branch-guard**: rank 10 (issue #62), one of the three "small ones" offered and not chosen. hud already showed the git state, so it adds only the question before a commit or push on the default branch.
 - **env-guard**: rank 11 (issue #63), one of the three "small ones" offered and not chosen. It asks before a read rather than blocking it, and names keypick only when that skill is installed.
 - **bash-quoting-rescue**: rank 19 (issue #64). It asks the shell's own parser, bash or PowerShell, whether a command parses, instead of counting quotes.
+- **lint-test-gate**: rank 21 (issue #66). It runs the checks on a band button and before the model's `git commit`, and fills the failures into the prompt rather than sending them.
