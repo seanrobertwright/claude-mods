@@ -194,3 +194,18 @@ test('below the floor of output rows the engine scrolls the whole body', async (
   await scroll($, -1, 10, 14)
   expect(passed).toEqual([-1])
 })
+
+test('below the floor the whole kept list is drawn for the engine to scroll', async ($, on) => {
+  const w = world(on)
+  const pieces = Array.from({ length: 600 }, (_unused, at) => ({ text: `line ${at}
+` }))
+  script(w, 'npm run dev', { pieces: [URL_LINE, ...pieces] })
+  await startSession($)
+  const pane = await openPane($, 60, 10)
+  await pane.press({ key: 'row-dev' })
+  await pane.press({ key: 'start' })
+  await w.clock.advance(1_000)
+  const drawn = (await pane.findAll({ type: 'Text' })).map(found => found.text).filter(text => text.startsWith('line '))
+  expect(drawn).toHaveLength(500)
+  expect(drawn[0]).toBe('line 100')
+})

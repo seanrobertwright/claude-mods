@@ -12,8 +12,6 @@ import type { Action, Row, Tone } from './servers'
 export const NAME_COLUMNS = 12
 /** Below this many output rows the pane lets the engine scroll the whole body instead. */
 export const OUTPUT_FLOOR = 4
-/** The most lines drawn when the engine scrolls the body. */
-const UNBOUNDED_LINES = 100
 
 export const EMPTY_TEXT = `Nothing to run here. Add one: ${ADD_USAGE}`
 export const HINT_TEXT = 'Pick a server to act on it and see its output.'
@@ -249,7 +247,7 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
   }
 
   const { lines, outputRows, isBounded } = geometry
-  const window = isBounded ? outputWindow(lines, outputRows, view.anchor) : { drawn: lines.slice(-UNBOUNDED_LINES), isPinned: false }
+  const window = isBounded ? outputWindow(lines, outputRows, view.anchor) : { drawn: lines, isPinned: false }
   const drawLine = (line: OutputLine) => (
     <Text
       key={`out-${line.seq}`}

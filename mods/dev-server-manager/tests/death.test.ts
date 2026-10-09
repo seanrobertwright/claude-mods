@@ -57,7 +57,7 @@ test('the restart cap: 3 in 2 minutes, then the row stays crashed and gives up',
     '✗ dev crashed (exit 3), restarting (3/3)',
     '✗ dev crashed (exit 3)',
   ])
-  const words = "crashed 4× since 14:00, gave up · Error: Cannot find module './jobs'"
+  const words = "crashed 4× since 14:00, gave up · ➜  Local:   http://localhost:5173/"
   expect((await pane.find({ key: 'words-dev' }))?.text).toBe(words)
   expect(await textColor(pane, words)).toBe('error')
   expect((await pane.findAll({ type: 'Button' })).map(button => button.key)).toEqual(['row-dev', 'start', 'error', 'hide'])
@@ -81,8 +81,9 @@ test('with restart off a death toasts and stays crashed with its error', { optio
   await w.clock.advance(1_000)
   expect(w.spawned).toHaveLength(1)
   expect(w.toasts.map(toast => toast.text)).toEqual(['✗ dev crashed (exit 1)'])
-  expect((await pane.find({ key: 'words-dev' }))?.text).toBe("crashed (exit 1) · Error: Cannot find module './jobs'")
-  expect((await pane.find({ key: 'error-head' }))?.text).toBe("Error: Cannot find module './jobs'")
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe("crashed (exit 1) · ➜  Local:   http://localhost:5173/")
+  // The error's first line is the first line of the last 40, whatever it says.
+  expect((await pane.find({ key: 'error-head' }))?.text).toBe('➜  Local:   http://localhost:5173/')
 })
 
 test('a clean exit is a dim exited row: no toast, no restart, no error button', async ($, on) => {
@@ -127,7 +128,7 @@ test('in a headless session a death neither restarts nor toasts', async ($, on) 
   await w.clock.advance(5_000)
   expect(w.toasts).toEqual([])
   expect(w.spawned).toHaveLength(1)
-  expect((await pane.find({ key: 'words-dev' }))?.text).toBe("crashed (exit 3) · Error: Cannot find module './jobs'")
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe("crashed (exit 3) · ➜  Local:   http://localhost:5173/")
 })
 
 test('several deaths in one tick are one toast', async ($, on) => {

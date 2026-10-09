@@ -121,12 +121,9 @@ export function rowWords(row: Row, now: number): { text: string; tone: Tone } {
   }
 }
 
-const ERROR_WORD = /\b(error|exception|traceback|fatal|panic)\b/i
-
-/** The error's first line, which a dead row shows: the first line naming an error, else the last it printed; '' when it printed nothing. */
+/** The error's first line, which a dead row shows: the first non-empty line of the lines the death picked; '' when it printed nothing. */
 export function errorHead(run: ServerRun | undefined): string {
-  const lines = (run?.death?.lines ?? []).map(line => line.trim()).filter(line => line !== '')
-  return lines.find(line => ERROR_WORD.test(line)) ?? lines[lines.length - 1] ?? ''
+  return (run?.death?.lines ?? []).map(line => line.trim()).find(line => line !== '') ?? ''
 }
 
 /** The buttons the detail block shows for a row, in order. Another session's server has none. */
