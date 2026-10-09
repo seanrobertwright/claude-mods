@@ -17,6 +17,19 @@ const ASKING = /\b(which|would you like|should i|do you want|shall i|let me know
 /** Asking for a verdict by setting pass against fail: "Pass or fail?", "passed/failed". */
 const PASS_OR_FAIL = /\bpass(?:ed|es)?\s*(?:\/|,|\bor\b)\s*fail(?:ed|s)?\b/i
 
+/**
+ * Asking whether something passed: "Did it pass?", "Does test 3 pass for you?". The thing asked
+ * about is a few words and not the person ("Do you want me to see if they pass?" asks something
+ * else), and a "to pass" is a requirement, not a result ("Does it need to pass?").
+ */
+const DID_IT_PASS = /\b(?:did|does|do)\s+(?!(?:you|i|we)\b)(?:[\w#-]+\s+){1,4}?(?<!\bto\s+)pass(?:\s+(?:for you|on your (?:end|side|machine)|now|too))?\s*\?/i
+
+/** Telling the person what to answer with: "Type `pass` or describe what's wrong", as /gsd:verify-work does. */
+const TYPE_PASS = /\b(?:type|reply(?:\s+with)?|say|answer(?:\s+with)?|respond\s+with|enter)\s+["'“‘]?pass["'”’]?(?![\w-])/i
+
+/** Inline code that is one word, such as the `pass` a verify-work checkpoint asks for. */
+const ONE_WORD_CODE = /`(\w+)`/g
+
 /** A `?` that ends a word, as a question's does. The one in `/search?q=mods` or `a?.b` does not. */
 const QUESTION_MARK = /\?(?!\.?\w)/
 
@@ -119,6 +132,11 @@ function asks(sentence: string): boolean {
   return QUESTION_MARK.test(sentence) || ASKING.test(sentence)
 }
 
+/** Whether `sentence` asks for a pass/fail verdict on a test or a check. */
+function asksForVerdict(sentence: string): boolean {
+  return (asks(sentence) && PASS_OR_FAIL.test(sentence)) || DID_IT_PASS.test(sentence) || TYPE_PASS.test(sentence)
+}
+
 /**
  * Whether the closing sentences ask the person to pick among the listed items.
  * A plain yes-or-no question does not: a report followed by "Shall I commit?"
@@ -143,11 +161,14 @@ export function readAnswer(answer: string): Reading {
   const text = withoutCode(answer.replace(/\r\n?/g, '\n'))
   const closing = closingSentences(text)
   const isQuestion = closing.some(sentence => asks(sentence.text))
+  // A one-word code span is read as its word here only, so what counts as a question is unchanged.
+  const isVerdict = closingSentences(text.replace(ONE_WORD_CODE, '$1')).some(sentence => asksForVerdict(sentence.text))
   return {
     isQuestion,
-    asksForVerdict: closing.some(sentence => asks(sentence.text) && PASS_OR_FAIL.test(sentence.text)),
+    asksForVerdict: isVerdict,
     hasRecommendation: recommends(text),
-    options: isQuestion && asksToChoose(closing) ? findOptions(text) : [],
+    // A test's numbered lines are its steps, not choices: a verdict answers it.
+    options: isQuestion && !isVerdict && asksToChoose(closing) ? findOptions(text) : [],
   }
 }
 

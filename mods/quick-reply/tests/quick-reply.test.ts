@@ -127,6 +127,43 @@ test('an answer that recommends against something has no recommendation', () => 
 
 test('an answer that asks for a pass/fail verdict is read as one', () => {
   expect(readAnswer('Test 3: does the form save? Pass or fail?').asksForVerdict).toBe(true)
+  expect(readAnswer('Open the settings page and save the form. Did it pass?').asksForVerdict).toBe(true)
+  expect(readAnswer('Run the import again. Does test 3 pass for you?').asksForVerdict).toBe(true)
+  // The checkpoint /gsd:verify-work shows for each UAT test.
+  const checkpoint = [
+    '╔══════════════════════════════════════════════════════════════╗',
+    '║  CHECKPOINT: Verification Required                           ║',
+    '╚══════════════════════════════════════════════════════════════╝',
+    '',
+    '**Test 3: Form saves**',
+    '',
+    'Open Settings, change the name and press Save. The new name shows after a reload.',
+    '',
+    '──────────────────────────────────────────────────────────────',
+    "Type `pass` or describe what's wrong.",
+    '──────────────────────────────────────────────────────────────',
+  ].join('\n')
+  expect(readAnswer(checkpoint).asksForVerdict).toBe(true)
+  expect(readAnswer('Reply "pass" or tell me what broke.').asksForVerdict).toBe(true)
+})
+
+test('the numbered steps of a test asked for a verdict are not offered as choices', () => {
+  const steps = ['Test 4: rename a project.', '1. Open Settings', '2. Change the name', '3. Press Save', 'Pass or fail?'].join('\n')
+  expect(readAnswer(steps)).toEqual({ isQuestion: true, asksForVerdict: true, hasRecommendation: false, options: [] })
+})
+
+test('a question that only mentions passing is not a verdict question, and keeps its reading', () => {
+  const notVerdicts = [
+    'All tests pass. Shall I commit?',
+    'Do you want me to run the tests and see if they pass?',
+    'Should I make the tests pass or skip them?',
+    'Shall I pass the flag through to the build?',
+    'Does it need to pass?',
+    'Want me to pass `--force` to the push?',
+    'The CI shows pass or fail for each job.',
+  ]
+  for (const answer of notVerdicts) expect(readAnswer(answer).asksForVerdict).toBe(false)
+  expect(readAnswer('All tests pass. Shall I commit?')).toEqual({ isQuestion: true, asksForVerdict: false, hasRecommendation: false, options: [] })
 })
 
 test('findOptions keeps the last run in sequence and skips code', () => {
