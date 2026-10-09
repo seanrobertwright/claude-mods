@@ -38,8 +38,12 @@ export type Question =
   | { type: 'noul'; instructions: string; criteria?: { true: string; false: string } }
   | { type: 'choice'; instructions: string; criteria: Record<string, string> }
 
-/** One question's answer: the probability of yes, or the option picked. */
-export type Answer = { type: 'noul'; noul: number } | { type: 'choice'; choice: string }
+/**
+ * One question's answer: the probability of yes, or the option picked with the
+ * confidence the model gave the pick, when it gave one between 0 and 1. Each
+ * model computes that confidence its own way, so a threshold on it is set per model.
+ */
+export type Answer = { type: 'noul'; noul: number } | { type: 'choice'; choice: string; confidence: number | undefined }
 
 /** What a judgment gets back: which model answered, and its answers by question id. */
 export type Answers = { backend: Backend; answers: Record<string, Answer> }
@@ -284,7 +288,8 @@ function isLayaOpenapi(body: unknown): boolean {
 /**
  * The answers of a readable reply: a `model` and an `answers` map keyed by
  * exactly the questions asked, each of its question's type with a value it can
- * take. Anything else is unreadable, so undefined.
+ * take. Anything else is unreadable, so undefined. A choice's confidence that is
+ * missing or out of range leaves the answer readable, with no confidence.
  */
 function readAnswers(body: unknown, questions: Record<string, Question>): Record<string, Answer> | undefined {
   if (!isObject(body) || typeof body.model !== 'string' || !isObject(body.answers)) return undefined
@@ -303,7 +308,9 @@ function readAnswers(body: unknown, questions: Record<string, Question>): Record
     } else {
       const choice = answer.choice
       if (typeof choice !== 'string' || !Object.hasOwn(question.criteria, choice)) return undefined
-      answers[id] = { type: 'choice', choice }
+      const confidence = answer.confidence
+      const isConfidence = typeof confidence === 'number' && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1
+      answers[id] = { type: 'choice', choice, confidence: isConfidence ? confidence : undefined }
     }
   }
   return answers

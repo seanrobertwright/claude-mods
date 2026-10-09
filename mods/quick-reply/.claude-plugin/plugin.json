@@ -21,6 +21,26 @@
       "title": "Offer the next wayfinder ticket",
       "description": "After a wayfinder turn closes a ticket or charts a map, the band offers Next ticket: one press runs /clear, then /wayfinder with the map.",
       "default": true
+    },
+    "modelChoice": {
+      "type": "string",
+      "title": "System One models",
+      "description": "Which System One model reads how each of Claude's answers ends, to choose the buttons. Local only: Laya on this machine, or the built-in reading as before. Local first: Laya, and TypeSafe's hosted Jev while Laya is unavailable. Hosted first: Jev, and Laya while Jev is unavailable. Jev receives the last 8,000 characters of every answer Claude gives and the labels of the choices found in it, once after each answered turn.",
+      "options": ["local only", "local first", "hosted first"],
+      "default": "local only"
+    },
+    "jevApiKey": {
+      "type": "string",
+      "title": "Jev API key",
+      "description": "Your key for TypeSafe's hosted Jev, from console.typesafe.ai. Sent only to api.typesafe.ai, and only while System One models allows Jev. A changed key takes effect once the mod reloads.",
+      "sensitive": true,
+      "default": ""
+    },
+    "layaPort": {
+      "type": "number",
+      "title": "Laya port",
+      "description": "The port laya-serve listens on at 127.0.0.1 (its LAYA_PORT).",
+      "default": 8000
     }
   }
 }
