@@ -102,12 +102,13 @@ export function currentPreset(presets: readonly Preset[], current: Current): Pre
   return presets.find(preset => isModel(current.model, preset.model) && (current.effort === null || current.effort === preset.effort))
 }
 
-/** The preset `/preset` was given, by name in any case. */
+/** The preset of that name, in any case: what `/preset` and a mapping name, and a second preset's clash. */
 export function findPreset(presets: readonly Preset[], name: string): Preset | undefined {
   const wanted = name.trim().toLowerCase()
   return presets.find(preset => preset.name.toLowerCase() === wanted)
 }
 
+/** The answer to `/preset` given no name or one that is not a preset. */
 export function usage(presets: readonly Preset[]): string {
   return `Usage: /preset <${presets.map(preset => preset.name).join('|')}>`
 }
