@@ -57,19 +57,38 @@ test('picking a run on an approval opens Log on its gate: header, message, what 
   await pane.unmount()
 })
 
+/** A run whose gate waits on `plan` but not on `other`: its frozen workflow on disk, and both nodes' output. */
+const SOURCE = 'C:/home/.archon/workspaces/octo/widgets/workflow-source/runs/g'
+const ASKING: Partial<World> = {
+  disk: {
+    ...THERE,
+    [`${SOURCE}/manifest.json`]: JSON.stringify({ workflow_name: 'archon-plan' }),
+    [`${SOURCE}/bundled/workflows/archon-plan.yaml`]: 'name: archon-plan\nnodes:\n  - id: plan\n    command: plan\n  - id: other\n    command: other\n  - id: review-gate\n    approval:\n      message: Review\n    depends_on: [plan]\n',
+  },
+  events: { g: [event('node_completed', 'plan', { node_output: 'The plan, in short.' }), event('node_completed', 'other', { node_output: 'Not asked about.' })] },
+}
+
 test('what an approval asks about is the output of each node its gate waits on', COLD, async ($, on) => {
-  const root = 'C:/home/.archon/workspaces/octo/widgets/workflow-source/runs/g'
-  const { pane } = await open($, on, [gated('g')], 'g', {
-    disk: {
-      ...THERE,
-      [`${root}/manifest.json`]: JSON.stringify({ workflow_name: 'archon-plan' }),
-      [`${root}/bundled/workflows/archon-plan.yaml`]: 'name: archon-plan\nnodes:\n  - id: plan\n    command: plan\n  - id: other\n    command: other\n  - id: review-gate\n    approval:\n      message: Review\n    depends_on: [plan]\n',
-    },
-    events: { g: [event('node_completed', 'plan', { node_output: 'The plan, in short.' }), event('node_completed', 'other', { node_output: 'Not asked about.' })] },
-  })
+  const { pane } = await open($, on, [gated('g')], 'g', ASKING)
   const all = await texts(pane)
   expect(all).toContain('The plan, in short.')
   expect(all).not.toContain('Not asked about.')
+  await pane.unmount()
+})
+
+test('a widens what an approval asks about to the whole run log', COLD, async ($, on) => {
+  const { clock, pane } = await open($, on, [gated('g')], 'g', ASKING)
+  const all = await pane.find({ key: 'asks-all' })
+  expect(all?.props.hotkey).toBe('a')
+  expect(all?.props.label).toBe('whole run log')
+  await pane.press({ key: 'asks-all' })
+  await clock.settle()
+  const shown = await texts(pane)
+  expect(shown).toContain('The plan, in short.')
+  expect(shown).toContain('Not asked about.')
+  expect((await pane.findAll({ type: 'Button' })).some(b => b.props.hotkey === 'a')).toBe(false)
+  // Still the approval view: the answer area stays.
+  expect((await pane.find({ key: 'decide-approve' }))?.text).toBe('y: Approve')
   await pane.unmount()
 })
 

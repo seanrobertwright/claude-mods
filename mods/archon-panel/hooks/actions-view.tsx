@@ -107,13 +107,18 @@ function answerArea(props: ActionProps): RenderElement[] {
   return lines
 }
 
-/** The node outputs a gate asks about: each node it waits on, its last part. */
+/** The node outputs a gate asks about: each node it waits on, its last part, under an `a` that widens it to the whole run log. */
 function asksAbout(props: ActionProps): RenderElement[] {
-  const { Text } = props.ui
+  const { Box, Text, Button } = props.ui
   const node = waitNode(props.need.standing)
   const deps = props.graph?.find(n => n.id === node)?.deps ?? []
   const events = props.detail?.events ?? []
-  const lines: RenderElement[] = []
+  const lines: RenderElement[] = [
+    <Box key="asks" flexDirection="row" columnGap={1}>
+      <Text dimColor>{`cut to ${node} ·`}</Text>
+      <Button key="asks-all" plain dimColor hotkey="a" label="whole run log" onPress={props.onAll} />
+    </Box>,
+  ]
   for (const dep of deps) {
     const output = [...events].reverse().find(e => e.step === dep && e.type === 'node_completed')?.output ?? ''
     if (output === '') continue
