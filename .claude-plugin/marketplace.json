@@ -103,6 +103,11 @@
       "description": "One press above the prompt switches the model and the effort together: a plan preset, an execute preset, or your own, also by /preset <name> or when you send a mapped command."
     },
     {
+      "name": "dev-server-manager",
+      "source": "./mods/dev-server-manager",
+      "description": "A pane of the project's dev servers: start, restart and watch them, and fill a crash's error into the prompt."
+    },
+    {
       "name": "mod-settings",
       "source": "./mods/mod-settings",
       "description": "A gear at the top right of each mod's pane opens one dialog for every claude-mods setting: pick a mod, change its settings, save."
