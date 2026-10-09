@@ -95,10 +95,6 @@ When a browser tool answers "tab no longer exists", it tells the model to call `
 
 ## Session and environment
 
-### session-auto-namer (rank 13, issue #71)
-
-Suggests a session name from the first prompt, such as "M12 - S4 - Execute" or an issue's number and title, applied with one click.
-
 ### model-effort-presets (rank 14, issue #72)
 
 Band buttons or a command for "plan" and "execute" pairs of model and effort, optionally switched by workflow step.
@@ -132,3 +128,4 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **env-guard**: rank 11 (issue #63), one of the three "small ones" offered and not chosen. It asks before a read rather than blocking it, and names keypick only when that skill is installed.
 - **bash-quoting-rescue**: rank 19 (issue #64). It asks the shell's own parser, bash or PowerShell, whether a command parses, instead of counting quotes.
 - **lint-test-gate**: rank 21 (issue #66). It runs the checks on a band button and before the model's `git commit`, and fills the failures into the prompt rather than sending them.
+- **session-auto-namer**: rank 13 (issue #71). Names are made by rules, with no model call, and applied by a press.
