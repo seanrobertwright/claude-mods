@@ -1,0 +1,5 @@
+{
+  "name": "branch-guard",
+  "version": "0.1.0",
+  "description": "Before Claude commits or pushes on the default branch, asks you whether to create a branch first."
+}
