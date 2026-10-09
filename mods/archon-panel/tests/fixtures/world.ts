@@ -80,6 +80,8 @@ export type World = {
   copied: string[]
   /** Whether the prompt box takes a fill, or refuses it as a surface with no composer does. */
   composer: 'ok' | 'no_composer'
+  /** Every command run through the engine, as `/name`. */
+  ran: string[]
   /** Every file read, by path as asked. */
   reads: string[]
   /** Where the engine's window was asked to go on each scroll. */
@@ -118,6 +120,7 @@ export function world(over: Partial<World> = {}): World {
     copied: [],
     scrolls: [],
     reads: [],
+    ran: [],
     composer: 'ok',
     ...over,
   }
@@ -224,7 +227,10 @@ export function fake(on: On, w: World): void {
   on('turn.complete', (_$, e) => ({ text: e.answer }) as never)
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('command.list', () => ({ value: w.commands.map(name => ({ name, description: name, source: 'plugin' })) as never }))
-  on('command.run', (_$, e) => ({ value: { text: `ran /${e.command}` } }) as never)
+  on('command.run', (_$, e) => {
+    w.ran.push(`/${e.command}`)
+    return { value: { text: `ran /${e.command}` } } as never
+  })
   on('ui.toast', (_$, e) => {
     w.toasts.push({ text: e.text, timeoutMs: e.timeoutMs ?? 4000 })
     return { value: undefined }

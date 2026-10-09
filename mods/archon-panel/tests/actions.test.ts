@@ -336,6 +336,16 @@ test('a web-started run is resumed and abandoned through the server while it ans
   await pane.unmount()
 })
 
+test('a web-started run is abandoned through the server while it answers', async ($, on) => {
+  const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a')
+  await pane.press({ key: 'abandon' })
+  await pane.press({ key: 'confirm' })
+  await clock.settle()
+  expect(w.fetches.filter(f => f.method === 'POST').map(f => f.url)).toEqual(['http://localhost:3090/api/workflows/runs/a/abandon'])
+  expect(archonCalls(w).some(call => call.startsWith('workflow abandon'))).toBe(false)
+  await pane.unmount()
+})
+
 test('with the server down a web-started run is resumed through the CLI', async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a', { server: 'down' })
   await pane.press({ key: 'resume' })

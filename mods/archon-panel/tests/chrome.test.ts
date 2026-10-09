@@ -55,6 +55,8 @@ test('the settings gear is drawn only while /mod-settings is listed, and runs it
   await pane.redraw()
   const gear = await pane.find({ key: 'mod-settings' })
   expect(gear?.text).toBe('⚙️')
+  await pane.press({ key: 'mod-settings' })
+  expect(w.ran).toEqual(['/mod-settings'])
   await pane.unmount()
 })
 

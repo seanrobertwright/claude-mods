@@ -83,7 +83,7 @@ test('each row reads glyph, workflow, status word and time, with a dim detail li
   const shown = await labels(pane)
   expect(shown).toContain('⏸ archon-approve  needs your approval  20m')
   expect(shown).toContain('! archon-act  action needed  20m')
-  expect(shown).toContain('? archon-odd  gate Archon can\'t read  20m')
+  expect(shown).toContain('? archon-odd  gate Archon can\'t read  20m ↗ Archon')
   expect(shown).toContain('◷ archon-later  waits for ci.done  20m')
   expect(shown).toContain('● archon-run  running  3m')
   expect(shown).toContain('✓ archon-done  completed  12m')
@@ -93,6 +93,12 @@ test('each row reads glyph, workflow, status word and time, with a dim detail li
   expect(await pane.find({ type: 'Text', text: '  Push the tag' })).toBeDefined()
   expect((await pane.findAll({ type: 'Text', text: '  Plan the widget with care' })).some(t => t.props.dimColor === true)).toBe(true)
   expect((await pane.find({ type: 'Text', text: '⏸' }))?.props.color).toBe('warning')
+  await pane.unmount()
+})
+
+test('a gate Archon cannot read links its run in Archon while the server answers', async ($, on) => {
+  const { pane } = await runsPane($, on, [row('odd', { workflow_name: 'archon-odd', status: 'paused', metadata: {} })])
+  expect((await pane.find({ type: 'Link' }))?.props.href).toBe('http://localhost:3090/console/r/odd')
   await pane.unmount()
 })
 

@@ -977,6 +977,7 @@ export const register: Register = (on, options) => {
         width,
         platform: await platformOf($),
         serverLine,
+        linkBase: current.source === 'server' && e.surface !== 'mobile' ? `http://localhost:${config.port}/console/r/` : '',
         onPick: run => void pick($, config, run).catch(report($)),
         onFanout: id => void update($, view, (v): ArchonView => ({ ...v, fanouts: v.fanouts.includes(id) ? v.fanouts.filter(f => f !== id) : [...v.fanouts, id] })).catch(report($)),
       })

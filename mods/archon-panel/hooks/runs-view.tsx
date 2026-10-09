@@ -18,6 +18,8 @@ export type RunsProps = {
   width: number
   platform: Platform
   serverLine: string
+  /** Where a run's page in Archon's web UI starts, `http://localhost:<port>/console/r/`; '' when runs are not linked. */
+  linkBase: string
   onPick: (run: Run) => void
   onFanout: (parentId: string) => void
 }
@@ -77,7 +79,7 @@ function adoption(run: Run, runs: readonly Run[]): string[] {
 
 export function runsBody(props: RunsProps): RenderElement[] {
   const { ui, data, view, now, width } = props
-  const { Box, Text, Button } = ui
+  const { Box, Text, Button, Link } = ui
   const room = Math.max(8, width - 2)
   const byId = new Map(data.runs.map(run => [run.id, run]))
   const lines: RenderElement[] = []
@@ -103,7 +105,9 @@ export function runsBody(props: RunsProps): RenderElement[] {
         <Text inverse={isPicked}>{isPicked ? '▸' : ' '}{indent}</Text>
         <Text {...(tone === undefined ? {} : { color: tone })} dimColor={isDim}>{mark}</Text>
         <Text> </Text>
-        <Button key={`pick-${run.id}`} plain dimColor={isDim} label={fit(label, room - indent.length - 2)} onPress={() => props.onPick(run)} />
+        <Button key={`pick-${run.id}`} plain dimColor={isDim} label={fit(label, room - indent.length - 2 - (found.kind === 'unreadable' && props.linkBase !== '' ? 10 : 0))} onPress={() => props.onPick(run)} />
+        {found.kind === 'unreadable' && props.linkBase !== '' && <Text> </Text>}
+        {found.kind === 'unreadable' && props.linkBase !== '' && <Link key={`link-${run.id}`} href={`${props.linkBase}${run.id}`} label="↗ Archon" />}
       </Box>,
     )
     if (depth > 0) return
