@@ -41,6 +41,8 @@ export type World = {
   tools: string[]
   store: Map<string, unknown>
   stateWrites: string[]
+  toolSpecs: { name: string; isDeferred: unknown }[]
+  isToolRegisterRefused: boolean
   logs: string[]
 }
 
@@ -77,6 +79,8 @@ export function world(on: On, options: WorldOptions = {}): World {
     tools: [],
     store: new Map(Object.entries(options.store ?? {})),
     stateWrites: [],
+    toolSpecs: [],
+    isToolRegisterRefused: false,
     logs: [],
   }
   // The machine's port tools: netstat answers with no listener unless a test says otherwise.
@@ -147,7 +151,9 @@ export function world(on: On, options: WorldOptions = {}): World {
     return { text: e.text }
   })
   on('tool.register', (_$, e) => {
+    if (w.isToolRegisterRefused) return { deny: 'the session is not bound yet' }
     w.tools.push(e.name)
+    w.toolSpecs.push({ name: e.name, isDeferred: e.isDeferred })
     return { value: { tool: `mcp__${PLUGIN}__${e.name}` } }
   })
 

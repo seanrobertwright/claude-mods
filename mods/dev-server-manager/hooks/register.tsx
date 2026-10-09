@@ -7,6 +7,8 @@ import type { AddedServer } from './add'
 import { detectRows, LOCKFILES, parseScripts } from './detect'
 import { endWords, errorLines, errorPrompt, findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
 import { checkPort } from './port'
+import { lineCount, OUTPUT_SPEC, OUTPUT_TOOL, outputText, RESTART_SPEC, RESTART_TOOL, RESTART_WAIT_MS } from './tools'
+import type { ToolServer } from './tools'
 import type { PortCheck } from './port'
 import { commandText, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS, statusLine } from './servers'
 import { renderPane } from './view'
@@ -18,8 +20,9 @@ const TITLE = 'Dev servers'
 const COMMAND = 'dev-servers'
 /** Output reaches `$.state` at most about once a second. */
 const FLUSH_MS = 1000
-/** How long a death's toast stays. */
+/** How long a death's toast stays, and Claude's restart's. */
 const DEATH_TOAST_MS = 8000
+const CLAUDE_TOAST_MS = 4000
 /** After its own stop the mod waits this long at most for the listener to let go, polling every POLL_MS. */
 const RELEASE_MS = 3000
 const POLL_MS = 100
@@ -51,6 +54,8 @@ const stoppedByMod = new Set<string>()
 let pendingToasts: string[] = []
 // The status line last shown, so an unchanged one is not set again.
 let shownStatus: string | undefined
+// Claude's restarts waiting for a run's URL or end, by server.
+const waiters = new Map<string, (() => void)[]>()
 
 type Config = { isRestartOn: boolean; scripts: string[] }
 
@@ -199,11 +204,13 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
           const movedFrom = known > 0 && known !== found.port ? known : 0
           await setRun($, name, run => ({ ...run, status: 'running', url: found.url, movedFrom }))
           await learnPort($, name, found.port)
+          wake(name)
         }
       }
     }
   } catch (error) {
     if (live.get(name) === entry) live.delete(name)
+    if (!entry.isStopping) wake(name)
     if (entry.isStopping || hasStarted) return
     // A command that cannot start rejects the first pull: its message is the row's words.
     const message = (error instanceof Error ? error.message : String(error)).replace(/^dev-server-manager: \$\.process\.spawn: /, '')
@@ -212,6 +219,7 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
   }
   if (live.get(name) === entry) live.delete(name)
   if (entry.isStopping) return
+  wake(name)
   const at = await $.clock.now()
   const rest = (['stdout', 'stderr'] as const).filter(stream => pending[stream] !== '')
   await addOutput($, name, rest.map(stream => ({ stream, text: stripAnsi(pending[stream]), at })))
@@ -342,6 +350,34 @@ async function start($: EngineInterface, name: string, reason: StartReason): Pro
   }
   live.set(name, entry)
   void follow($, name, entry).catch(report($))
+  await offerTools($, name)
+}
+
+/**
+ * Registers the two tools at every bring-up: the first time a server runs in
+ * the session, and again after a reload, a name registered again being
+ * replaced. Before the session binds the call rejects: a dim line in the output says so.
+ */
+async function offerTools($: EngineInterface, name: string): Promise<void> {
+  try {
+    await $.tool.register(OUTPUT_SPEC)
+    await $.tool.register(RESTART_SPEC)
+  } catch (error) {
+    const at = await $.clock.now()
+    const message = error instanceof Error ? error.message : String(error)
+    await addOutput($, name, [{ stream: 'note', text: `could not offer Claude the dev-servers tools: ${message}`, at }])
+  }
+}
+
+/** Resolves when `name`'s current run prints its URL or ends. */
+function untilUp(name: string): Promise<void> {
+  return new Promise(resolve => waiters.set(name, [...(waiters.get(name) ?? []), resolve]))
+}
+
+function wake(name: string): void {
+  const waiting = waiters.get(name) ?? []
+  waiters.delete(name)
+  for (const resolve of waiting) resolve()
 }
 
 /** Stops a server the mod runs: closing its stream kills the whole tree, and reads no exit code. */
@@ -464,6 +500,64 @@ async function runSubcommand($: EngineInterface, config: Config, args: string): 
   return `Use /dev-servers to open the pane, ${ADD_USAGE}, /dev-servers remove <name> or /dev-servers unhide <name>.`
 }
 
+/** A server as the tools describe it, its output the freshest the module holds. */
+async function toolServer($: EngineInterface, def: RowDef): Promise<ToolServer> {
+  const run = (await read($, runsAtom))[def.name] ?? newRun()
+  return { name: def.name, command: commandText(def), status: run.status, url: run.url, lastExit: run.lastExit, lines: memory[def.name] ?? [] }
+}
+
+/** The tool's answer, or its refusal as the error the model reads. */
+type ToolAnswer = { result: string } | { deny: string }
+
+function unknownServer(name: string, defs: readonly RowDef[]): ToolAnswer {
+  return { deny: `No dev server is named ${name}. The servers are: ${defs.length === 0 ? 'none' : defs.map(def => def.name).join(', ')}.` }
+}
+
+/**
+ * `output`: the named server's header and current run, or with none named the
+ * one running server, or the running names when several run. Works headless.
+ */
+async function answerOutput($: EngineInterface, server: unknown, lines: unknown): Promise<ToolAnswer> {
+  const { defs } = await read($, rowsAtom)
+  const runs = await read($, runsAtom)
+  let def: RowDef | undefined
+  if (typeof server === 'string' && server !== '') {
+    def = defs.find(candidate => candidate.name === server)
+    if (def === undefined) return unknownServer(server, defs)
+  } else {
+    const up = defs.filter(candidate => isUp(runs[candidate.name]?.status ?? 'stopped'))
+    if (up.length > 1) return { result: `Several dev servers run: ${up.map(candidate => candidate.name).join(', ')}. Call again with server set to one of them.` }
+    def = up[0] ?? (Object.keys(runs).length === 1 ? defs.find(candidate => candidate.name in runs) : undefined)
+    if (def === undefined) return { result: `No dev server runs. The servers are: ${defs.map(candidate => candidate.name).join(', ') || 'none'}.` }
+  }
+  return { result: outputText(await toolServer($, def), lineCount(lines)) }
+}
+
+/**
+ * `restart` from Claude: only a running or crashed server of this session, never
+ * headless. It counts as handling the server by hand, toasts, and waits for the
+ * new run's URL or end, 30 s at most, then answers what `output` would.
+ */
+async function restartByClaude($: EngineInterface, server: unknown): Promise<ToolAnswer> {
+  if (!(await isShown($))) return { deny: 'Restart is not available in a headless session.' }
+  const { defs } = await read($, rowsAtom)
+  const name = typeof server === 'string' ? server : ''
+  const def = defs.find(candidate => candidate.name === name)
+  if (def === undefined) return unknownServer(name, defs)
+  if ((await read($, peersAtom)).some(peer => peer.name === name) && !live.has(name)) {
+    return { deny: `${name} runs in another session; restart it from that session's dev-servers pane.` }
+  }
+  const status = (await read($, runsAtom))[name]?.status ?? 'stopped'
+  if (!isUp(status) && status !== 'crashed') {
+    return { deny: `${name} ${status === 'exited' ? 'exited' : `is ${status}`}: start it from the dev-servers pane.` }
+  }
+  await stop($, name)
+  await start($, name, { divider: 'restarted by Claude', isByHand: true })
+  $.ui.toast(`${name} restarted by Claude`, { timeoutMs: CLAUDE_TOAST_MS })
+  if (live.has(name)) await Promise.race([untilUp(name), $.clock.sleep(RESTART_WAIT_MS)])
+  return { result: outputText(await toolServer($, def), lineCount(undefined)) }
+}
+
 /** The person's restart: stop, then start again. */
 async function restartByHand($: EngineInterface, name: string): Promise<void> {
   await stop($, name)
@@ -490,6 +584,11 @@ export const register: Register = (on, options) => {
     }
     return ended
   })
+
+  on('tool.call', { tool: OUTPUT_TOOL }, async ($, e) => answerOutput($, e.server, e.lines))
+  on('tool.call', { tool: RESTART_TOOL }, async ($, e) => restartByClaude($, e.server))
+  // Reading stored lines and a process's state asks no one; restart goes through the normal check.
+  on('tool.check', { tool: OUTPUT_TOOL }, () => ({ decision: 'allow' }))
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     if (e.args.trim() !== '') return { text: await runSubcommand($, config, e.args) }
