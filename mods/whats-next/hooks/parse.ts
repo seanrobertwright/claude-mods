@@ -1,4 +1,5 @@
 import type { NextList, NextStep, StepDraft } from '../types'
+import type { KeyProblem } from './system-one'
 
 const FENCE = /```[^\n]*\n([\s\S]*?)\n[ \t]*```/
 const FENCES = /```[^\n]*\n([\s\S]*?)\n[ \t]*```/g
@@ -368,7 +369,7 @@ export function skillNotForHeadless(skill: string): string {
  * What the pane says when the "System One models" setting allows TypeSafe's
  * hosted Jev and the "Jev API key" setting holds no key Jev accepts.
  */
-export function systemOneKeyMessage(problem: 'absent' | 'malformed' | 'rejected'): string {
+export function systemOneKeyMessage(problem: KeyProblem): string {
   const fix = 'Set a key from console.typesafe.ai in What\'s next\'s "Jev API key" setting, or set "System One models" to local only.'
   if (problem === 'absent') return `What's next may ask TypeSafe's hosted Jev, but no "Jev API key" is set, so it asks Laya or Haiku instead. ${fix}`
   if (problem === 'malformed') return `What's next's "Jev API key" is not a key (a key is printable ASCII with no spaces), so it is never sent and What's next asks Laya or Haiku instead. ${fix}`
