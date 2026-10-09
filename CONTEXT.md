@@ -68,6 +68,12 @@ A model is unavailable for a while after it fails, and the hosted model for the 
 A model still busy with another ask is not unavailable: the new ask takes the **Fallback**.
 _Avoid_: Backend, provider, mode
 
+**System One client**:
+The one shared file, `shared/system-one.ts`, that every mod using a **System One model** carries a byte-identical copy of.
+It owns whether a model is available, the bound on each ask, the key and **Local-only folder** rules, and the shape of an answer; the mod owns the question, the text it sends, and what to do with the answer.
+Its rules are tested once, at its own interface, not through each mod.
+_Avoid_: SDK, wrapper
+
 **Local-only folder**:
 A folder the person has marked so that no mod sends anything to the hosted model from it or from any folder beneath it, whatever the mod's model choice.
 The mark takes effect at once, for the next thing a mod would send.
