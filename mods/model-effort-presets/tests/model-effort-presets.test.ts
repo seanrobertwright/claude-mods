@@ -48,6 +48,13 @@ function engineBeneath(on: On, startModel = IDS.sonnet ?? ''): { ran: string[]; 
     ran.push(`/effort ${e.args}`)
     return { text: `Set effort level to ${e.args} (this session only)` }
   })
+  // The person's own commands, as a skill's: each records that it ran, and with what.
+  for (const command of ['lril:plan-feature', 'lril:review']) {
+    on('command.run', { command }, (_$, e) => {
+      ran.push(`/${command} ${e.args}`)
+      return {}
+    })
+  }
   return { ran, toasts }
 }
 
@@ -89,4 +96,18 @@ test('/preset execute switches to execute once it has answered, and /preset nope
   await clock.settle()
   expect(ran).toEqual(['/model sonnet', '/effort medium'])
   await band.unmount()
+})
+
+test('a mapped command switches to its preset before it runs; an unmapped one changes nothing', { options: { commands: 'lril:plan-feature=plan' } }, async ($, on) => {
+  const { ran } = engineBeneath(on)
+  const clock = mock.clock(on)
+  await $.session.start(INTERACTIVE)
+
+  await $.command.run({ command: 'lril:review', args: 'the diff', ...COMPOSER })
+  await clock.settle()
+  expect(ran).toEqual(['/lril:review the diff'])
+
+  await $.command.run({ command: 'lril:plan-feature', args: 'presets', ...COMPOSER })
+  await clock.settle()
+  expect(ran).toEqual(['/lril:review the diff', '/model opus', '/effort high', '/lril:plan-feature presets'])
 })

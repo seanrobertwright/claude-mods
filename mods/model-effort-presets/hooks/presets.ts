@@ -19,7 +19,13 @@ export function parseConfig(options: Readonly<Record<string, unknown>>): Config 
     const slash = value.lastIndexOf('/')
     return { name, model: value.slice(0, slash).trim(), effort: value.slice(slash + 1).trim() }
   })
-  return { presets, commands: new Map() }
+  const commands = new Map(
+    entries(typeof options.commands === 'string' ? options.commands : '').flatMap(([command, name]): [string, Preset][] => {
+      const preset = findPreset(presets, name)
+      return preset === undefined ? [] : [[command.replace(/^\//, ''), preset]]
+    }),
+  )
+  return { presets, commands }
 }
 
 /**

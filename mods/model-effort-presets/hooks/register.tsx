@@ -39,6 +39,20 @@ export const register: Register = (on, options) => {
     return { text: `Switching to ${preset.name}: ${preset.model}, ${preset.effort} effort.` }
   })
 
+  on('command.run', async ($, e, next) => {
+    const preset = config.commands.get(e.command)
+    // A mod's run, this one's own among them, is not the person sending it.
+    if (preset === undefined || e.origin.kind === 'plugin') return next(e)
+    // Held until the preset is on, as /preset's switch is: then sent again as the person typed it.
+    $.clock.after(0, () => {
+      void (async () => {
+        await apply($, preset)
+        await $.command.run({ command: e.command, args: e.args })
+      })().catch(report($))
+    })
+    return { text: `Switching to ${preset.name}: ${preset.model}, ${preset.effort} effort, then running /${e.command}.` }
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const beneath = await next(e)
     if (e.props.hasSurvey || e.props.view.agentId !== undefined) return beneath
