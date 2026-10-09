@@ -29,7 +29,7 @@ test('two lockfiles and no packageManager: the rows show, the conflict names bot
   expect(detected.conflict).toEqual(['package-lock.json', 'pnpm-lock.yaml'])
 })
 
-test('only the scripts the setting names become rows, in the setting order', () => {
+test('only the scripts the setting names become rows, in the setting order; a monorepo root fan-out script is an ordinary row', () => {
   const text = JSON.stringify({ scripts: { preview: 'vite preview', dev: 'turbo run dev', lint: 'eslint .' } })
   expect(detectRows(text, [], SCRIPTS).rows).toEqual([
     { name: 'dev', argv: ['npm', 'run', 'dev'] },

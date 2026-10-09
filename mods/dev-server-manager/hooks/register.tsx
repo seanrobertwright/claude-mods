@@ -61,6 +61,10 @@ const waiters = new Map<string, (() => void)[]>()
 let ticker: Timer | undefined
 // The pane's width at its last drawing, which a scroll event does not carry.
 let paneColumns = 60
+// The store entries this module wrote: still its own after /clear gives the session another id.
+const ownEntries = new Set<string>()
+// What a /clear may take from $.state while the servers run on: written back if it does.
+let carried: { rows: Rows; runs: Record<string, ServerRun>; view: PaneView } | undefined
 
 type Config = { isRestartOn: boolean; scripts: string[] }
 
@@ -246,20 +250,22 @@ async function recordRunning($: EngineInterface, name: string): Promise<void> {
   if (def === undefined || run === undefined || !isUp(run.status)) return
   const port = Number(/:(\d+)$/.exec(run.url)?.[1] ?? def.port)
   const entry: PeerEntry = { sessionId: await $.session.id(), name, command: commandText(def), port, url: run.url, refreshedAt: await $.clock.now() }
-  await $.store.set(peerKey(await $.session.root(), name), entry)
+  const key = peerKey(await $.session.root(), name)
+  ownEntries.add(key)
+  await $.store.set(key, entry)
 }
 
 /** Clears this session's entry for a server that no longer runs. */
 async function forgetRunning($: EngineInterface, name: string): Promise<void> {
   const key = peerKey(await $.session.root(), name)
   const entry = (await $.store.get(key).catch(() => undefined)) as PeerEntry | undefined
-  if (entry?.sessionId === (await $.session.id())) await $.store.delete(key)
+  if (ownEntries.delete(key) || entry?.sessionId === (await $.session.id())) await $.store.delete(key)
 }
 
 /** The servers the project's other sessions run, from their fresh store entries. */
 async function readPeers($: EngineInterface): Promise<PeerEntry[]> {
   const prefix = peerPrefix(await $.session.root())
-  const keys = (await $.store.keys().catch(() => [])).filter(key => key.startsWith(prefix))
+  const keys = (await $.store.keys().catch(() => [])).filter(key => key.startsWith(prefix) && !ownEntries.has(key))
   const values = await Promise.all(keys.map(key => $.store.get(key).catch(() => undefined)))
   return otherSessions(values, await $.session.id(), await $.clock.now())
 }
@@ -288,6 +294,22 @@ async function composeSection($: EngineInterface): Promise<string | undefined> {
     .filter(peer => !own.some(server => server.name === peer.name))
     .map(peer => ({ name: peer.name, command: peer.command, url: peer.url, state: 'running in another session' }))
   return composeText([...own, ...others])
+}
+
+/**
+ * After /clear the module and its servers run on under a new session. Should
+ * the engine have emptied the mod's `$.state` with the old session, the rows,
+ * runs, output and pane place it held are written back.
+ */
+async function restoreCarried($: EngineInterface): Promise<void> {
+  const held = carried
+  if (held === undefined) return
+  carried = undefined
+  if (Object.keys(await read($, runsAtom)).length > 0) return
+  await update($, rowsAtom, () => held.rows)
+  await update($, runsAtom, () => held.runs)
+  await update($, viewAtom, () => held.view)
+  await flushOutput($)
 }
 
 /** Marks the lines a death picked as its error in the kept output. */
@@ -644,11 +666,13 @@ export const register: Register = (on, options) => {
 
   on('session.attach', async ($, e, next) => {
     const attached = await next(e)
+    await restoreCarried($)
     startTicker($)
     return attached
   })
 
   on('prompt.compose', async ($, e, next) => {
+    await restoreCarried($)
     const composed = await next(e)
     // A headless session hears nothing of the servers.
     if (e.surfaces.length === 0) return composed
@@ -657,6 +681,9 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear' && live.size > 0) {
+      carried = { rows: await read($, rowsAtom), runs: await read($, runsAtom), view: await read($, viewAtom) }
+    }
     const ended = await next(e)
     // After /clear the process goes on under a new session, and so do its servers.
     if (e.reason !== 'clear') {
@@ -671,6 +698,7 @@ export const register: Register = (on, options) => {
   on('tool.check', { tool: OUTPUT_TOOL }, () => ({ decision: 'allow' }))
 
   on('command.run', { command: COMMAND }, async ($, e) => {
+    await restoreCarried($)
     if (e.args.trim() !== '') return { text: await runSubcommand($, config, e.args) }
     await loadRows($, config)
     await refresh($)

@@ -88,3 +88,20 @@ test('prompt.compose lists what runs, here and in another session, and names the
   ].join('\n'))
   expect(await compose($, [])).toBeUndefined()
 })
+
+test('after /clear gives the session another id, its own servers are still its own', async ($, on) => {
+  const w = world(on)
+  script(w, 'npm run dev', { pieces: [URL_LINE] })
+  await startSession($)
+  const pane = await openPane($)
+  await pane.press({ key: 'row-dev' })
+  await pane.press({ key: 'start' })
+  await w.clock.settle()
+  await $.session.end({ reason: 'clear', sessionId: 'session-a', resume: { id: 'session-a' } } as never)
+  w.sessionId = 'session-c'
+  await w.clock.advance(1_000)
+  await pane.press({ key: 'stop' })
+  await w.clock.advance(30_000)
+  expect(w.store.has(KEY)).toBe(false)
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe('stopped')
+})

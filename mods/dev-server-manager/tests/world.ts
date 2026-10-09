@@ -41,6 +41,7 @@ export type World = {
   tools: string[]
   store: Map<string, unknown>
   stateWrites: string[]
+  sessionId: string
   toolSpecs: { name: string; isDeferred: unknown }[]
   isToolRegisterRefused: boolean
   logs: string[]
@@ -79,6 +80,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     tools: [],
     store: new Map(Object.entries(options.store ?? {})),
     stateWrites: [],
+    sessionId: options.sessionId ?? 'session-a',
     toolSpecs: [],
     isToolRegisterRefused: false,
     logs: [],
@@ -90,7 +92,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   mock.env(on, options.os === undefined ? { OS: 'Windows_NT' } : options.os === '' ? {} : { OS: options.os })
 
   on('session.root', () => ({ value: ROOT }))
-  on('session.id', () => ({ value: options.sessionId ?? 'session-a' }))
+  on('session.id', () => ({ value: w.sessionId }))
   on('session.surfaces', () => ({ value: [...w.surfaces] }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.attach', (_$, e) => ({ clientId: e.clientId }))

@@ -17,6 +17,7 @@ const UNBOUNDED_LINES = 100
 
 export const EMPTY_TEXT = `Nothing to run here. Add one: ${ADD_USAGE}`
 export const HINT_TEXT = 'Pick a server to act on it and see its output.'
+const UNHIDE = 'unhide'
 
 export type PaneActions = {
   pick: (name: string) => void
@@ -177,13 +178,17 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
     const lead = `${row === picked ? '▸' : ' '}${glyph(row)} `
     const middle = ` ${pad(port, portWidth)}  `
     const words = tableWords(row, now)
-    const room = width - Array.from(lead).length - nameWidth - Array.from(middle).length
+    // An unfolded hidden row ends in its own unhide button.
+    const isHidden = hidden.includes(name)
+    const room = width - Array.from(lead).length - nameWidth - Array.from(middle).length - (isHidden ? UNHIDE.length + 1 : 0)
     return (
       <Box key={`line-${name}`} flexDirection="row">
         <Text>{lead}</Text>
         <Button key={`row-${name}`} plain label={pad(name, nameWidth)} onPress={() => act.pick(name)} />
         <Box key={`port-${name}`}><Text>{middle}</Text></Box>
         <Box key={`words-${name}`}><Text wrap="truncate-end" {...toneProps(words.tone)}>{cut(words.text, room)}</Text></Box>
+        {isHidden && <Text> </Text>}
+        {isHidden && <Button key={`unhide-${name}`} plain dimColor label={UNHIDE} onPress={() => act.unhide(name)} />}
       </Box>
     )
   })
@@ -193,7 +198,7 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
       key="hidden"
       plain
       dimColor
-      label={cut(view.isShowingHidden ? `hide ${hidden.length} again` : `${hidden.length} hidden: ${hidden.join(', ')}`, width)}
+      label={cut(`${hidden.length} hidden: ${hidden.join(', ')}`, width)}
       onPress={() => act.toggleHidden()}
     />
   )
@@ -224,7 +229,7 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
         {view.isFillRefused && <Box key="fill-refused"><Text dimColor>can{"'"}t reach the prompt here</Text></Box>}
         <Box flexDirection="row" columnGap={2}>
           {hiddenRow
-            ? <Button key="unhide" plain hotkey="u" label="unhide" onPress={() => act.unhide(name)} />
+            ? null
             : buttons.map(action => (
               <Button
                 key={action}

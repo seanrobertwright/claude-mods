@@ -101,3 +101,26 @@ test('uvicorn prints its URL on stderr, and Django its banner once unbuffered', 
   expect((await pane.find({ key: 'port-django' }))?.text).toContain(':8001')
   expect(w.spawned.every(request => request.env?.PYTHONUNBUFFERED === '1')).toBe(true)
 })
+
+test('after /clear the servers run on, and the fresh session lists them even if $.state was cleared', async ($, on) => {
+  const w = world(on)
+  // An engine whose /clear empties the mod's values: they read unwritten until the mod writes them again.
+  let clearedAt = -1
+  const isUnwritten = (key: string) => clearedAt >= 0 && !w.stateWrites.slice(clearedAt).includes(key)
+  on('state.get', (_$, e, next) => (isUnwritten(e.key) ? ({ value: { value: undefined, version: 0 } } as never) : next(e)))
+  on('prompt.compose', () => ({ sections: [] }) as never)
+  script(w, 'npm run dev', { pieces: [{ text: 'Local: http://localhost:5173/\n' }] })
+  await startSession($)
+  const pane = await openPane($)
+  await pane.press({ key: 'row-dev' })
+  await pane.press({ key: 'start' })
+  await w.clock.settle()
+  await pane.unmount()
+  await $.session.end({ reason: 'clear', sessionId: 'session-a', resume: { id: 'session-a' } } as never)
+  clearedAt = w.stateWrites.length
+  const composed = await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: ['terminal'], tools: [], outputStyle: null, traits: [] } as never)
+  expect(composed.sections.find(section => section.id === 'dev-server-manager:servers')?.text).toContain('- dev: npm run dev, http://localhost:5173, running')
+  expect(w.killed).toEqual([])
+  const again = await openPane($)
+  expect((await again.find({ key: 'words-dev' }))?.text).toBe('up 0s')
+})

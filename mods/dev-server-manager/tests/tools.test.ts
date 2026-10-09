@@ -156,3 +156,20 @@ test('restart by Claude refuses a stopped or exited server, and a headless sessi
   expect((await call($, RESTART, { server: 'dev' })).deny).toBe('Restart is not available in a headless session.')
   expect(w.spawned).toHaveLength(2)
 })
+
+test('restart by Claude resets the automatic restart count', async ($, on) => {
+  const w = world(on)
+  allow(on)
+  const dies = { pieces: [URL_LINE, { stream: 'stderr' as const, text: 'Error: boom\n', afterMs: 1_000 }], exit: { code: 3, signal: null } }
+  script(w, 'npm run dev', dies, dies, { pieces: [URL_LINE] }, dies, {})
+  await startSession($)
+  await startRow($, 'dev')
+  await w.clock.advance(1_000)
+  await w.clock.advance(1_000)
+  expect(w.toasts.map(toast => toast.text)).toEqual(['✗ dev crashed (exit 3), restarting (1/3)', '✗ dev crashed (exit 3), restarting (2/3)'])
+  const answer = call($, RESTART, { server: 'dev' })
+  await w.clock.settle()
+  await answer
+  await w.clock.advance(1_000)
+  expect(w.toasts.map(toast => toast.text).slice(-1)).toEqual(['✗ dev crashed (exit 3), restarting (1/3)'])
+})

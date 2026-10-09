@@ -44,9 +44,14 @@ test('a detected row hides, folds into a dim line, unfolds in place, and unhides
   expect((await pane.find({ key: 'hidden' }))?.text).toBe('1 hidden: preview')
 
   await pane.press({ key: 'hidden' })
+  expect((await pane.find({ key: 'hidden' }))?.text).toBe('1 hidden: preview')
+  expect((await pane.find({ key: 'line-preview' }))?.text).toContain('unhide')
+  await pane.press({ key: 'hidden' })
+  expect(await pane.find({ key: 'row-preview' })).toBeUndefined()
+  await pane.press({ key: 'hidden' })
   await pane.press({ key: 'row-preview' })
   expect(await pane.find({ key: 'start' })).toBeUndefined()
-  await pane.press({ key: 'unhide' })
+  await pane.press({ key: 'unhide-preview' })
   expect(w.store.get(`hidden:${ROOT}`)).toEqual([])
   expect(await pane.find({ key: 'hidden' })).toBeUndefined()
 
