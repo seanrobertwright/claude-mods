@@ -3,7 +3,7 @@ import type { EngineInterface, Register, RenderElement, Timer } from 'claude-cod
 
 import type { ArchonActions, ArchonData, ArchonView, Detail, LogWindow, Notice, Pending, Project, Run, Tab } from '../types'
 import { deliver, hasMoved, movedElsewhere, recordLine, REPLY_MS } from './actions'
-import { actionBody } from './actions-view'
+import { actionBody, offersResume } from './actions-view'
 import { bodyWindow, lastPosition, pinnedRow, SETTINGS } from './chrome'
 import { candidates, findArchon, requirementLine } from './cli'
 import { readWorkflow } from './graph'
@@ -880,6 +880,7 @@ export const register: Register = (on, options) => {
     const bodyRows = e.props.scroll.bodyRows
     const serverLine = `Archon's server isn't answering on port ${config.port}, so runs come from the CLI every ${interval('cli', true, hasLiveRun(current)) / 1000} s. archon serve makes them faster.`
     let lines: RenderElement[]
+    let isResumeShown = false
     if (line !== undefined) lines = [<Text wrap="wrap">{line}</Text>]
     else if (shown.tab === 'runs') {
       lines = runsBody({
@@ -959,6 +960,7 @@ export const register: Register = (on, options) => {
       if (run !== undefined && need !== undefined && shown.file === '') {
         const set = (change: (a: ArchonActions) => ArchonActions) => void update($, actions, change).catch(report($))
         const ask = (kind: Pending['kind'], decision = '', label = '') => set((a): ArchonActions => ({ ...a, pending: { runId: run.id, kind, decision, label } }))
+        isResumeShown = offersResume({ run: top!, need, detail: current.details[run.id], actions: acts })
         const files = (current.details[run.id]?.files ?? []).map(file => (
           <ui.Button key={`file-${file.path}`} plain label={`${file.path}  ${Math.round(file.size / 1024) === 0 ? `${file.size} B` : `${Math.round(file.size / 1024)} KB`}`} onPress={() => void openFile($, config, file.path).catch(report($))} />
         ))
@@ -1005,6 +1007,7 @@ export const register: Register = (on, options) => {
           live: liveCount(current.runs),
           needsYou: needsYouCount(current.runs, current.details),
           hasSettings: await isSettingsInstalled($),
+          isReloadKey: !isResumeShown,
           onTab: tab => void changeView($, config, (v): ArchonView => ({ ...v, tab })).catch(report($)),
           onReload: () => void reload($, config).catch(report($)),
           onSettings: () => void $.command.run({ command: SETTINGS }).catch(report($)),

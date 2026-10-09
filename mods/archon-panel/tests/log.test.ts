@@ -75,6 +75,21 @@ test('a node\'s error from the events shows in error under its end marker, cut a
   await pane.unmount()
 })
 
+test('an opened node-output fold draws at most 4,000 characters, then says how much more is not shown', COLD, async ($, on) => {
+  const error = Array.from({ length: 40 }, (_, i) => `${String(i).padStart(2, '0')} ${'e'.repeat(197)}`).join('\n')
+  const { pane } = await logOf($, on, [done('exec-1', { status: 'failed' })], 'exec-1', {
+    transcripts: { 'exec-1': EXEC },
+    events: { 'exec-1': [event('node_failed', 'test', { error })] },
+  })
+  const fold =(await pane.findAll({ type: 'Button' })).find(b => b.text.startsWith('▸ ') && b.text.endsWith('more lines'))
+  expect(fold).toBeDefined()
+  await pane.press({ key: fold!.key! })
+  const drawn = (await pane.findAll({ type: 'Text' })).filter(t => t.props.color === 'error' && /^(dd )?e+$/.test(t.text)).map(t => t.text).join('')
+  expect(drawn.length).toBeLessThanOrEqual(4_000)
+  expect((await lines(pane)).some(text => /^… \d+(\.\d)? KB more not shown$/.test(text))).toBe(true)
+  await pane.unmount()
+})
+
 test('with all nodes, tool rows take their node from the run\'s tool_called events, and fan-out text is marked ∥', COLD, async ($, on) => {
   const { pane } = await logOf($, on, [done('fan-1')], 'fan-1', {
     transcripts: { 'fan-1': FAN },

@@ -96,7 +96,7 @@ function answerArea(props: ActionProps): RenderElement[] {
   if (found.kind === 'action' || found.kind === 'stranded') {
     const row: RenderElement[] = []
     if (run.platform !== '' || holder.platform !== '') row.push(<Text dimColor>{`resume it from ${platformName(holder.platform || run.platform)}`}</Text>)
-    else if (props.detail?.isWorkingPathThere === false) row.push(<Text dimColor>{`can't resume: ${holder.workingPath} is gone`}</Text>)
+    else if (!isPathThere(props.detail)) row.push(<Text dimColor>{`can't resume: ${holder.workingPath} is gone`}</Text>)
     else {
       const label = found.kind === 'stranded' ? strandResume(found.subRun) : "r  Resume: I've done it"
       row.push(<Button key="resume" hotkey="r" variant="primary" label={label} onPress={props.onResume} />)
@@ -133,6 +133,20 @@ function asksAbout(props: ActionProps): RenderElement[] {
 }
 
 /** The approval view, or the resume and abandon view, top to bottom. */
+const isPathThere = (detail: ActionProps['detail']): boolean => detail?.isWorkingPathThere !== false
+
+/**
+ * Whether the answer area offers Resume, which then holds the `r` key: the
+ * pinned row's reload gives it up (an answer's letter never takes `r`, but
+ * Resume is `r` by name).
+ */
+export function offersResume(props: Pick<ActionProps, 'run' | 'need' | 'detail' | 'actions'>): boolean {
+  const { standing, holder } = props.need
+  if (standing.kind !== 'action' && standing.kind !== 'stranded') return false
+  if (props.actions.pending?.runId === holder.id) return false
+  return props.run.platform === '' && holder.platform === '' && isPathThere(props.detail)
+}
+
 export function actionBody(props: ActionProps): RenderElement[] {
   const { ui, need, now } = props
   const { Box, Text, Markdown, Link } = ui
@@ -141,7 +155,7 @@ export function actionBody(props: ActionProps): RenderElement[] {
   const lines: RenderElement[] = []
   const waited = duration(now - found.since)
   if (found.kind === 'approval' || found.kind === 'unreadable') {
-    const name = `${props.parent === undefined ? '' : `${props.parent.workflow} › `}${holder.workflow}`
+    const name = `${props.parent === undefined ? '' : `${props.parent.workflow} › sub-run `}${holder.workflow}`
     lines.push(
       <Box key="loghead" flexDirection="row" columnGap={1}>
         <Text bold wrap="truncate-end">{`${name} · ${shortId(holder.id)} · waited ${waited}`}</Text>

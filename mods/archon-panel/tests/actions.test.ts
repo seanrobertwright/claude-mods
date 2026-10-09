@@ -103,7 +103,7 @@ test('declared decisions take y, n, or the first free letter of their label, nev
     'decide-approve=y: Approve',
     'decide-needs-revision=e: Needs revision',
     'decide-abort-all=t: Abort all',
-    'decide-reject=n: Reject',
+    'decide-reject=n: Reject (cancels the run)',
   ])
   expect((await pane.find({ key: 'decide-abort-all' }))?.props.hotkey).toBe('t')
   await pane.unmount()
@@ -217,7 +217,7 @@ test('a sub-run\'s approval is answered on the sub-run\'s own id, and says what 
   const parent = row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onSubRun('c') } })
   const child = row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'paused', metadata: { approval: approval() } })
   const { clock, w, pane } = await open($, on, [parent, child], 'p')
-  expect(await texts(pane)).toContain('archon-ship › archon-fix · c · waited 18m')
+  expect(await texts(pane)).toContain('archon-ship › sub-run archon-fix · c · waited 18m')
   expect((await pane.find({ key: 'decide-reject' }))?.text).toBe('n: Reject (cancels this sub-run; archon-ship stays paused)')
   await pane.press({ key: 'decide-approve' })
   await pane.press({ key: 'confirm' })
@@ -477,6 +477,24 @@ test('/archon opens Log on the run that has needed you longest, a sub-run\'s gat
   await clock.settle()
   const pane = await $.ui.mount({ plugin: 'archon-panel', surface: 'terminal', component: 'Pane', requestId: 'archon', props: paneProps(100, 120) })
   expect((await pane.find({ key: 'tab-log' }))?.props.dimColor).toBe(false)
-  expect((await pane.findAll({ type: 'Text' })).map(t => t.text)).toContain('archon-ship › archon-fix · c · waited 9m')
+  expect((await pane.findAll({ type: 'Text' })).map(t => t.text)).toContain('archon-ship › sub-run archon-fix · c · waited 9m')
+  await pane.unmount()
+})
+
+// ---------- keys the pane shares ----------
+
+const holders = async (pane: Pane, hotkey: string) => (await pane.findAll({ type: 'Button' })).filter(b => b.props.hotkey === hotkey).map(b => b.key)
+
+test('r reloads from the pinned row, but in a Resume view it is Resume\'s alone', COLD, async ($, on) => {
+  const { pane } = await open($, on, [actionRow()], 'a')
+  expect(await holders(pane, 'r')).toEqual(['resume'])
+  await pane.press({ key: 'tab-runs' })
+  expect(await holders(pane, 'r')).toEqual(['reload'])
+  await pane.unmount()
+})
+
+test('a gate that declares reject but has no rework step still says a reject cancels the run', COLD, async ($, on) => {
+  const { pane } = await open($, on, [gated('g', { decisions: [{ id: 'approve', label: 'Approve' }, { id: 'reject', label: 'Reject' }] })], 'g')
+  expect(await buttons(pane)).toEqual(['decide-approve=y: Approve', 'decide-reject=n: Reject (cancels the run)'])
   await pane.unmount()
 })

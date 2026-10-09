@@ -25,6 +25,8 @@ export type ChromeProps = {
   live: number
   needsYou: number
   hasSettings: boolean
+  /** False while a Resume button holds `r`. */
+  isReloadKey: boolean
   onTab: (tab: Tab) => void
   onReload: () => void
   onSettings: () => void
@@ -52,7 +54,7 @@ export function pinnedRow(props: ChromeProps): RenderElement {
         })}
       </Box>
       <Box flexDirection="row" columnGap={1} flexShrink={0}>
-        <Button key="reload" plain dimColor hotkey="r" label="↻" onPress={props.onReload} />
+        <Button key="reload" plain dimColor {...(props.isReloadKey ? { hotkey: 'r' } : {})} label="↻" onPress={props.onReload} />
         {props.hasSettings && <Button key={SETTINGS} plain dimColor label="⚙️" onPress={props.onSettings} />}
       </Box>
     </Box>

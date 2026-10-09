@@ -45,7 +45,7 @@ function gate(value: unknown): Gate | null {
     type,
     decisions: declared.length > 0 ? declared : [{ id: 'approve', label: 'Approve' }, { id: 'reject', label: 'Reject' }],
     subRunId: text(value.childRunId) || text(value.child_run_id),
-    hasRework: value.onReject !== undefined || value.on_reject !== undefined || declared.some(d => d.id === 'reject'),
+    hasRework: value.onReject !== undefined || value.on_reject !== undefined,
     isRoundDone: value.roundDone === true || value.isComplete === true || value.complete === true,
     isReadable: nodeId !== '' && type !== '',
     since: time(value.waitingSince ?? value.requestedAt ?? value.since),

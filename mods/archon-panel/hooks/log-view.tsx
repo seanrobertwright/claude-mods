@@ -141,10 +141,12 @@ export function logBody(props: LogProps): RenderElement[] {
       const isError = e.type === 'node_failed'
       const foldKey = `out-${key}-${isError ? 'error' : 'output'}`
       const isOpen = view.fold === foldKey
-      const cut = cutLines(isError ? e.error : e.output, isOpen ? Number.MAX_SAFE_INTEGER : OUTPUT_LINES, width)
+      const full = isError ? e.error : e.output
+      const cut = cutLines(isOpen ? full.slice(0, FOLD_CHARS) : full, isOpen ? Number.MAX_SAFE_INTEGER : OUTPUT_LINES, width)
       cut.shown.forEach((text, i) => lines.push(
         <Box key={`log-${foldKey}-${i}`}>{isError ? <Text color="error" wrap="wrap">{text}</Text> : <Text dimColor wrap="wrap">{text}</Text>}</Box>,
       ))
+      if (isOpen && full.length > FOLD_CHARS) lines.push(<Box key={`log-${foldKey}-rest`}><Text dimColor>{`… ${size(full.length - FOLD_CHARS)} more not shown`}</Text></Box>)
       if (cut.more > 0) lines.push(<Box key={`log-${foldKey}-more`}><Button key={foldKey} plain dimColor label={`▸ ${cut.more} more lines`} onPress={() => props.onFold(foldKey)} /></Box>)
     }
   }
