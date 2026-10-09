@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
-import { copyMismatches, fieldMismatches } from './system-one.mjs'
+import { COPY, copyMismatches, fieldMismatches, modsWithCopy, SHARED_FIELDS, SOURCE as SOURCE_PATH } from './system-one.mjs'
 
 const SOURCE = 'export const BOUND_CAP_MS = 10_000\n'
 
@@ -81,4 +84,55 @@ test('a mod that carries a copy but none of the fields is named even when it is 
     'whats-next: modelChoice is missing',
     'whats-next: layaPort is missing',
   ])
+})
+
+const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..')
+const read = path => readFileSync(join(ROOT, path), 'utf8')
+const userConfig = mod => JSON.parse(read(join('mods', mod, '.claude-plugin', 'plugin.json'))).userConfig
+
+test('quick-reply and whats-next carry the client byte for byte and declare its fields alike, and a drift in either is named', () => {
+  assert.deepEqual(modsWithCopy(ROOT), ['quick-reply', 'whats-next'])
+  const source = read(SOURCE_PATH)
+  const copies = modsWithCopy(ROOT).map(mod => ({ mod, text: read(join('mods', mod, COPY)) }))
+  assert.deepEqual(copyMismatches(source, copies), [])
+  const manifests = modsWithCopy(ROOT).map(mod => ({ mod, userConfig: userConfig(mod) }))
+  assert.deepEqual(fieldMismatches(manifests), [])
+
+  for (const drifted of ['quick-reply', 'whats-next']) {
+    const edited = copies.map(copy => (copy.mod === drifted ? { ...copy, text: `${copy.text}// drift\n` } : copy))
+    assert.deepEqual(copyMismatches(source, edited), [drifted])
+  }
+  const [first, second] = manifests
+  const portMoved = structuredClone(second)
+  portMoved.userConfig.layaPort.default = 8001
+  assert.deepEqual(fieldMismatches([first, portMoved]), [`${second.mod}: layaPort differs from ${first.mod}'s`])
+  const choicesMoved = structuredClone(first)
+  choicesMoved.userConfig.modelChoice.options = ['hosted first', 'local first', 'local only']
+  assert.deepEqual(fieldMismatches([choicesMoved, second]), [`${second.mod}: modelChoice differs from ${first.mod}'s`])
+})
+
+test("quick-reply's modelChoice description says, word for word, what it sends (#128)", () => {
+  assert.equal(
+    userConfig('quick-reply').modelChoice.description,
+    "Which System One model reads how each of Claude's answers ends, to choose the buttons. Local only: Laya on this machine, or the built-in reading as before. Local first: Laya, and TypeSafe's hosted Jev while Laya is unavailable. Hosted first: Jev, and Laya while Jev is unavailable. Jev receives the last 8,000 characters of every answer Claude gives and the labels of the choices found in it, once after each answered turn.",
+  )
+})
+
+/** The README's entry for `mod`: from its heading to the next mod's. */
+function readmeEntry(mod) {
+  const readme = read('README.md')
+  const start = readme.search(new RegExp(`^### \\S+ ${mod}$`, 'm'))
+  assert.notEqual(start, -1, `README has no entry for ${mod}`)
+  const end = readme.indexOf('\n### ', start + 1)
+  return readme.slice(start, end === -1 ? undefined : end)
+}
+
+test('each mod carrying the client lists the three settings in its README entry, says what it sends to each model, and points at the steps for running Laya', () => {
+  for (const mod of modsWithCopy(ROOT)) {
+    const entry = readmeEntry(mod)
+    for (const field of SHARED_FIELDS) assert.match(entry, new RegExp(`\`${field}\``), `${mod}: ${field}`)
+    assert.match(entry, /\*\*To Jev,\*\*/, `${mod}: what goes to Jev`)
+    assert.match(entry, /\*\*To Laya,\*\*/, `${mod}: what goes to Laya`)
+    assert.match(entry, /\(#run-laya-for-these-mods\)/, `${mod}: the Laya steps`)
+  }
 })

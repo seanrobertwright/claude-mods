@@ -16,6 +16,8 @@ declare module 'claude-code' {
       reading: Reading | null
       /** The wayfinder map the band offers to take the next ticket of, or null. */
       offer: number | null
+      /** The Jev key's problem the band names under the replies until the next prompt (the client's KeyProblem), or null. */
+      keyNote: 'absent' | 'malformed' | 'rejected' | null
     }
   }
 }
