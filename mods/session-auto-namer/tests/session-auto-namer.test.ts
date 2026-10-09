@@ -27,6 +27,7 @@ function desk(on: On, setup: { titles?: Record<string, string>; turns?: number; 
   on('ui.toast', () => ({ value: undefined }))
   on('session.surfaces', () => ({ value: setup.isHeadless === true ? [] : ['terminal'] }))
   on('session.turns', () => ({ value: turns }))
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('prompt.submit', (_$, e) => {
     turns += 1
     return { text: e.text }
@@ -84,7 +85,6 @@ test('a resumed session, whose transcript already holds prompts, gets no suggest
 
 test('a /clear starts a fresh session: the old suggestion goes and its first prompt gets one', async ($, on) => {
   desk(on)
-  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   await submit($, 'fix the flaky login test on windows please')
   // The transcript's count of prompts does not start again after a /clear.
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
@@ -127,4 +127,32 @@ test('in a headless session nothing is suggested and gh is not started', async (
   await submit($, '/implement #53')
   expect(await suggested($)).toBeUndefined()
   expect(log).toEqual([])
+})
+
+const TITLES = {
+  'repos/owner/repo/issues/53': 'Add a drift check',
+  'repos/owner/repo/issues/7': 'Bring the asked pane to the front',
+  'repos/{owner}/{repo}/issues/41': 'Name the mods in the README',
+}
+
+test("an issue's link suggests its number and its title from gh, started by bare name", async ($, on) => {
+  const log = desk(on, { titles: TITLES })
+  await submit($, '/implement https://github.com/owner/repo/issues/53')
+  expect(await suggested($)).toBe('Name: #53 Add a drift check')
+  expect(log).toEqual(['gh api --jq .title repos/owner/repo/issues/53'])
+})
+
+test("a pull request's link, or #N in the session's repo, suggests its number and title", async ($, on) => {
+  desk(on, { titles: TITLES })
+  await submit($, 'review https://github.com/owner/repo/pull/7 before the release')
+  expect(await suggested($)).toBe('Name: #7 Bring the asked pane to the front')
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  await submit($, '/wayfinder #41')
+  expect(await suggested($)).toBe('Name: #41 Name the mods in the README')
+})
+
+test('an issue gh cannot read gives the other rules', async ($, on) => {
+  desk(on, { titles: TITLES })
+  await submit($, '/implement #99 the cache fix')
+  expect(await suggested($)).toBe('Name: implement #99 the cache fix')
 })
