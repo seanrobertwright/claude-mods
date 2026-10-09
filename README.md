@@ -139,6 +139,7 @@ Reply:  [a: Keep the copies]  [b: Add a sync script]  [Yes]  [Go with your recom
 - A numbered report before a yes-or-no question ("Shall I commit?") is not offered as choices.
 - When the answer recommends something, the "recommend" reply is the highlighted one. Advice against something does not count.
 - The band stays out of the way while Claude is working, and after a subagent's turn.
+- **A model can read the ending too.** After each answered turn, a [System One model](#run-laya-for-these-mods) is asked how the answer ends, as your System One models setting allows: whether it asks you something, whether its numbered items are choices, and which one it recommends. The band shows its own reading at once, and a sure answer that arrives within 2 s takes its place, so a numbered report closed by "push now or wait?" is not offered as choices.
 
 **Verdicts.** When Claude asks for a pass/fail verdict on a test or a check, as a UAT or `/gsd:verify-work` step does ("Pass or fail?", "Did it pass?", "Type `pass` or describe what's wrong"), the band offers a verdict in place of your replies:
 
@@ -165,6 +166,9 @@ A close made some other way (`gh api`, the web) is not seen, so no button shows,
 | Replies to a question | `questionReplies` | `Yes\|Go with your recommendation\|No` | Shown after Claude asks something, separated by `\|`; empty shows only the choices Claude offered |
 | Replies otherwise | `idleReplies` | `Continue\|Commit and push` | Shown after any other answer; empty hides the band then, except for Next ticket |
 | Offer the next wayfinder ticket | `wayfinderNext` | `true` | After a wayfinder turn closes a ticket or charts a map, offer Next ticket |
+| System One models | `modelChoice` | `local only` | Which System One model reads how each answer ends: `local only` (Laya on this machine, or the band's own reading as before), `local first` (Laya, and TypeSafe's hosted Jev while Laya is unavailable) or `hosted first` (Jev, and Laya while Jev is unavailable) |
+| Jev API key | `jevApiKey` | empty | Your key for Jev, from console.typesafe.ai, kept in secure storage. Sent only to `https://api.typesafe.ai`, and only while System One models allows Jev |
+| Laya port | `layaPort` | `8000` | The port your `laya-serve` listens on at `127.0.0.1` (1-65535) |
 
 Each list holds up to six replies. A reply longer than 120 characters is cut short, and a repeat is dropped.
 For example, to answer questions with your own three replies and hide the band after other answers ([how to set it](#configure-the-mods)):
@@ -172,6 +176,15 @@ For example, to answer questions with your own three replies and hide the band a
 ```sh
 echo '{"questionReplies": "Yes|No|Explain that first", "idleReplies": ""}' | claude plugin configure quick-reply@claude-mods --values-stdin
 ```
+
+What the band sends to a System One model, once after each answered turn:
+
+- **To Jev,** only while System One models allows it and the folder is not [marked local-only](#run-laya-for-these-mods): the last 8,000 characters of Claude's answer and the labels of the choices found in it. Never the contents of a file the mod read itself.
+- **To Laya,** which keeps it on this machine: the answer's closing lines that fit Laya's small window, where the question is, and at most 9 labels of at most 40 characters.
+- **Sure answers only.** Each part of the reading counts only when the model is sure of it, at 0.9 or more (0.1 or less for "these are not choices"). Anything less, a model that is busy or fails, a reading Laya reports as cut, or no answer within 2 s leaves the band's own reading. So does a reading that arrives after your next prompt.
+- **A key it cannot use is named.** While System One models allows Jev, a missing key, one that is not a key, or one TypeSafe rejects is named on a dim line under the replies, until your next prompt. A rejected key stays off until the mod reloads.
+
+Laya and a Jev key are optional: with neither, the band reads each answer as before.
 
 ### ⏳ auto-resume
 
@@ -889,11 +902,11 @@ The values live in your user settings, `~/.claude/settings.json`, under `pluginC
 ## Run Laya for these mods
 
 Laya is a System One model that runs on your own machine, so what a mod sends it stays there.
-A mod that uses one (whats-next today) asks it at `127.0.0.1` on its Laya port setting, and never starts, stops or installs it: you run `laya-serve` yourself.
+A mod that uses one (whats-next and quick-reply today) asks it at `127.0.0.1` on its Laya port setting, and never starts, stops or installs it: you run `laya-serve` yourself.
 
 1. Install Laya with its server extra, as its README says: `pip install "laya[serve]"` in a Python 3.10+ virtual environment. [Running Laya on this Windows machine](docs/research/laya-on-windows.md) has the details.
 2. Bind it to this machine's own address and pick a free port. `laya-serve` takes no flags: it reads `LAYA_HOST` and `LAYA_PORT`, and its default, `0.0.0.0:8000`, is reachable from the network and often taken.
-3. Set no key: leave `LAYA_API_KEY` unset. A mod never sends Laya a key, so a Laya with one answers each ask with `401` and the mod uses Haiku instead.
+3. Set no key: leave `LAYA_API_KEY` unset. A mod never sends Laya a key, so a Laya with one answers each ask with `401` and the mod uses its fallback instead (Haiku for whats-next, its own reading for quick-reply).
 4. Enter the same port in the mod's Laya port setting.
 
 ```powershell

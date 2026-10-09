@@ -518,3 +518,16 @@ test('under local only no key is named, whatever the key setting holds', { optio
   expect(await texts(band)).toEqual([{ text: 'Reply:', isDim: true }])
   await band.unmount()
 })
+
+test('a reading Laya reports as cut counts as no answer', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world = newWorld()
+  fakeEngine(on, world)
+  world.laya = () => ({ status: 200, body: layaAnswer(YES_NO, true) })
+  const band = await mountBand($)
+
+  await $.turn.complete(turn(REPORT_OR))
+  await clock.settle()
+  expect(await keys(band)).toEqual(REGEX_KEYS)
+  await band.unmount()
+})
