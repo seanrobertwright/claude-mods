@@ -1,4 +1,4 @@
-import type { Current, Preset } from '../types'
+import type { Current, Effort, Preset } from '../types'
 
 /** The settings as the mod runs on them. */
 export type Config = { presets: Preset[]; commands: Map<string, Preset> }
@@ -6,11 +6,11 @@ export type Config = { presets: Preset[]; commands: Map<string, Preset> }
 /** The settings parsed at load: the config, or why it was rejected. */
 export type Parsed = { kind: 'ok'; config: Config } | { kind: 'rejected'; problem: string }
 
-/** The levels /effort takes and a preset may name. */
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+/** Every effort, in the order the rejection lists them. */
+const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** Whether /effort was given a level a preset may name, rather than `auto` or something it refuses. */
-export function isEffort(text: string): boolean {
+export function isEffort(text: string): text is Effort {
   return (EFFORTS as readonly string[]).includes(text)
 }
 
@@ -41,12 +41,11 @@ function parsePreset({ text, key: name, value }: Entry): Preset {
   const slash = value.lastIndexOf('/')
   if (slash === -1) throw new Rejected(`"${text}" is not name=model/effort.`)
   if (/\s/.test(name)) throw new Rejected(`the preset name "${name}" is not one word.`)
-  const preset = { name, model: value.slice(0, slash).trim(), effort: value.slice(slash + 1).trim() }
-  if (preset.model === '') throw new Rejected(`${name} has no model.`)
-  if (!isEffort(preset.effort)) {
-    throw new Rejected(`the effort of ${name} is "${preset.effort}", not one of ${EFFORTS.join(', ')}.`)
-  }
-  return preset
+  const model = value.slice(0, slash).trim()
+  const effort = value.slice(slash + 1).trim()
+  if (model === '') throw new Rejected(`${name} has no model.`)
+  if (!isEffort(effort)) throw new Rejected(`the effort of ${name} is "${effort}", not one of ${EFFORTS.join(', ')}.`)
+  return { name, model, effort }
 }
 
 function parsePresets(text: string): Preset[] {

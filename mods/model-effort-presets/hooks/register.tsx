@@ -54,7 +54,8 @@ async function follow($: EngineInterface, command: 'model' | 'effort', args: str
   }
   const level = args.trim().toLowerCase()
   // `auto` hands the effort back to the model's default, which no command reads; anything else /effort refused.
-  if (isEffort(level) || level === 'auto') await update($, current, held => ({ ...held, effort: isEffort(level) ? level : null }))
+  const effort = isEffort(level) ? level : level === 'auto' ? null : undefined
+  if (effort !== undefined) await update($, current, held => ({ ...held, effort }))
 }
 
 export const register: Register = (on, options) => {
