@@ -51,6 +51,10 @@ function engineBeneath(on: On, { model: startModel = IDS.sonnet ?? '', surfaces 
     ran.push(`/effort ${e.args}`)
     return { text: `Set effort level to ${e.args} (this session only)` }
   })
+  // eslint-disable-next-line require-yield -- the stand-in sends no chunks, only the step's result
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+  })
   // The person's own commands, as a skill's: each records that it ran, and with what.
   for (const command of ['lril:plan-feature', 'lril:review']) {
     on('command.run', { command }, (_$, e) => {
@@ -169,4 +173,24 @@ test('in a headless session there is no band and no switching', { options: { com
   await clock.settle()
   expect(ran).toEqual(['/lril:plan-feature presets'])
   expect(toasts).toEqual([])
+})
+
+test('the band marks the preset the session is on, following a switch by hand and the effort a request shows', async ($, on) => {
+  engineBeneath(on)
+  await $.session.start(INTERACTIVE)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  // Until a request or a switch shows the effort, the model alone marks a preset.
+  expect(await variantOf(band, 'preset-execute')).toBe('primary')
+
+  await $.command.run({ command: 'effort', args: 'low', ...COMPOSER })
+  expect(await variantOf(band, 'preset-execute')).toBeUndefined()
+  await $.command.run({ command: 'model', args: 'opus', ...COMPOSER })
+  expect(await variantOf(band, 'preset-plan')).toBeUndefined()
+
+  for await (const chunk of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'high', messageCount: 1 })) void chunk
+  expect(await variantOf(band, 'preset-plan')).toBe('primary')
+  // A subagent's request runs on its own settings, not the session's.
+  for await (const chunk of $.turn.step({ turnId: 't1', index: 1, model: 'claude-haiku-5-5', effort: 'low', messageCount: 1, agentId: 'a1' })) void chunk
+  expect(await variantOf(band, 'preset-plan')).toBe('primary')
+  await band.unmount()
 })

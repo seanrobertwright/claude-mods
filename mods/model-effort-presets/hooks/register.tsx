@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Current, Preset } from '../types'
-import { currentPreset, findPreset, parseConfig, usage } from './presets'
+import { currentPreset, findPreset, isEffort, parseConfig, usage } from './presets'
 import type { Config } from './presets'
 
 const LABEL = 'Preset:'
@@ -28,6 +28,18 @@ async function apply($: EngineInterface, preset: Preset): Promise<void> {
   await $.command.run({ command: 'effort', args: preset.effort })
   const model = await $.session.model()
   await update($, current, () => ({ model, effort: preset.effort }))
+}
+
+/** Moves the mark after /model or /effort ran, whoever ran it: the model as the session now reads it, the effort as given. */
+async function follow($: EngineInterface, command: 'model' | 'effort', args: string): Promise<void> {
+  if (command === 'model') {
+    const model = await $.session.model()
+    await update($, current, held => ({ ...held, model }))
+    return
+  }
+  const level = args.trim().toLowerCase()
+  // `auto` hands the effort back to the model's default, which no command reads; anything else /effort refused.
+  if (isEffort(level) || level === 'auto') await update($, current, held => ({ ...held, effort: isEffort(level) ? level : null }))
 }
 
 export const register: Register = (on, options) => {
@@ -56,6 +68,11 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', async ($, e, next) => {
+    if (e.command === 'model' || e.command === 'effort') {
+      const done = await next(e)
+      await follow($, e.command, e.args).catch(() => undefined)
+      return done
+    }
     const preset = config.commands.get(e.command)
     // A mod's run, this one's own among them, is not the person sending it.
     if (preset === undefined || e.origin.kind === 'plugin' || !(await isShown($))) return next(e)
@@ -67,6 +84,16 @@ export const register: Register = (on, options) => {
       })().catch(report($))
     })
     return { text: `Switching to ${preset.name}: ${preset.model}, ${preset.effort} effort, then running /${e.command}.` }
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    // The request says what the session runs on; a subagent's own settings are not the session's.
+    if (e.agentId === undefined) {
+      const effort = e.effort === undefined ? null : String(e.effort)
+      await update($, current, held => (held.model === e.model && held.effort === effort ? held : { model: e.model, effort })).catch(() => undefined)
+    }
+    // The response streams through untouched.
+    return yield* next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

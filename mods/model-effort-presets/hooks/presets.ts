@@ -9,6 +9,11 @@ export type Parsed = { kind: 'ok'; config: Config } | { kind: 'rejected'; proble
 /** The levels /effort takes and a preset may name. */
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
+/** Whether /effort was given a level a preset may name, rather than `auto` or something it refuses. */
+export function isEffort(text: string): boolean {
+  return (EFFORTS as readonly string[]).includes(text)
+}
+
 /** The commands a preset switches through, and /preset itself: mapping one would switch inside a switch. */
 const SWITCHES: readonly string[] = ['model', 'effort', 'preset']
 
@@ -38,7 +43,7 @@ function parsePreset({ text, key: name, value }: Entry): Preset {
   if (/\s/.test(name)) throw new Rejected(`the preset name "${name}" is not one word.`)
   const preset = { name, model: value.slice(0, slash).trim(), effort: value.slice(slash + 1).trim() }
   if (preset.model === '') throw new Rejected(`${name} has no model.`)
-  if (!(EFFORTS as readonly string[]).includes(preset.effort)) {
+  if (!isEffort(preset.effort)) {
     throw new Rejected(`the effort of ${name} is "${preset.effort}", not one of ${EFFORTS.join(', ')}.`)
   }
   return preset
