@@ -631,6 +631,7 @@ It stops at the first failure and names the mod and the step.
 A mod's `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes when it loads the mod and which git ignores.
 When that file is missing, as on a fresh clone, the script loads the mod once with a headless `claude -p` run of a local command, which makes no model call.
 The script needs the `claude` CLI on the PATH.
+Claude Code 2.1.295 loads the mod but writes no types ([#176](https://github.com/seanrobertwright/claude-mods/issues/176)); set `CHECK_MODS_CLAUDE` to a 2.1.293 or 2.1.294 binary (such as `~/.local/share/claude/versions/2.1.294`) and the script uses it for that one load.
 
 `npm install` wires the pre-commit hook. On each commit it runs:
 
