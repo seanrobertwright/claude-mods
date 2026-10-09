@@ -66,6 +66,63 @@ export function workflowNodes(yaml: string, find: (name: string) => string | und
   return out.map(node => ({ ...node, deps: node.deps.flatMap(dep => ends.get(dep) ?? [dep]) }))
 }
 
+/** What reading a frozen workflow source needs: a folder's entries and a file's text, each of which may throw. */
+export type SourceIo = {
+  list: (path: string) => Promise<readonly { name: string; kind: string }[]>
+  read: (path: string) => Promise<string>
+}
+
+/** The files under `root` whose name ends `.yaml` or `.yml`, a few folders deep. */
+async function yamlFiles(io: SourceIo, root: string, depth = 0): Promise<string[]> {
+  const entries = await io.list(root).catch(() => [])
+  const found: string[] = []
+  for (const entry of entries) {
+    const path = `${root}/${entry.name}`
+    if (entry.kind === 'dir' && depth < 5) found.push(...(await yamlFiles(io, path, depth + 1)))
+    else if (entry.kind === 'file' && /\.ya?ml$/i.test(entry.name)) found.push(path)
+  }
+  return found
+}
+
+/** How a workflow of a frozen source ranks when two share a name: a project's over a global one over a bundled one. */
+function rankOf(path: string): number {
+  return /\/bundled\//.test(path) ? 0 : /\/global\//.test(path) ? 1 : 2
+}
+
+/**
+ * A run's nodes, read from its frozen workflow source
+ * (`metadata.workflow_source.root`), which never changes: the workflow
+ * `manifest.json` names (else `workflow`), and any workflow it includes.
+ * Null when the source has no such workflow or can't be read.
+ */
+export async function readWorkflow(io: SourceIo, sourceRoot: string, workflow: string): Promise<GraphNode[] | null> {
+  const root = sourceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (root === '') return null
+  const manifest = await io.read(`${root}/manifest.json`).then(text => JSON.parse(text) as { workflow_name?: unknown }).catch(() => undefined)
+  const name = typeof manifest?.workflow_name === 'string' ? manifest.workflow_name : workflow
+  const files = await yamlFiles(io, root)
+  const texts = new Map<string, string>()
+  const textOf = async (path: string) => {
+    if (!texts.has(path)) texts.set(path, await io.read(path).catch(() => ''))
+    return texts.get(path)!
+  }
+  const nameIn = (text: string) => /^name:\s*["']?([^"'\n#]+?)["']?\s*$/m.exec(text)?.[1] ?? ''
+  // A workflow's file is usually named for it; any other file is read only when that misses.
+  const byName = new Map<string, { text: string; rank: number }>()
+  const consider = (path: string, text: string) => {
+    const found = nameIn(text)
+    const known = byName.get(found)
+    if (found !== '' && (known === undefined || rankOf(path) > known.rank)) byName.set(found, { text, rank: rankOf(path) })
+  }
+  const base = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.ya?ml$/i, '')
+  for (const path of files) if (base(path) === name || /^archon-/.test(base(path))) consider(path, await textOf(path))
+  if (!byName.has(name)) for (const path of files) consider(path, await textOf(path))
+  const main = byName.get(name)?.text
+  if (main === undefined) return null
+  const sync = new Map([...byName].map(([key, value]) => [key, value.text]))
+  return workflowNodes(main, wanted => sync.get(wanted))
+}
+
 /** One box of the drawn graph. */
 export type DrawNode = {
   id: string

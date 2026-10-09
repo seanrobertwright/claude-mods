@@ -4,7 +4,10 @@
 // (ADR-0006).
 
 import type { Detail, Gate, Pending, Run } from '../types'
-import { clockTime, firstLine } from './text'
+import { hasEnded, standing } from './runs'
+import { isTimedOut, within } from './source'
+import type { Io } from './source'
+import { clockTime, firstLine, lastLine } from './text'
 
 /** Letters an answer never takes: reload, all nodes, back, open, abandon, and approve's and reject's own. */
 const RESERVED = new Set(['r', 'a', 'b', 'o', 'x', 'y', 'n'])
@@ -137,4 +140,60 @@ export function archonMessage(text: string): { ok: boolean | undefined; message:
   } catch {
     return { ok: undefined, message: firstLine(text.split(/\r?\n/).reverse().join('\n')), subRunId: '', logPath: '' }
   }
+}
+
+/** How long Archon has to reply to an action, and how long after a `--detach` answer or resume the run is checked on. */
+export const REPLY_MS = 30_000
+
+/** Whether a run, as fetched again, still waits on the pending action; else what happened elsewhere. */
+export function movedElsewhere(pending: Pending, run: Run | undefined, runs: readonly Run[], detail: Detail | undefined): string | undefined {
+  if (run === undefined) return undefined
+  if (hasEnded(run)) return 'Ended elsewhere'
+  const found = standing(run, runs, detail)
+  if (pending.kind === 'answer') {
+    if (found.kind === 'approval') return undefined
+    const answer = lastAnswer(detail)
+    return answer === undefined
+      ? 'Answered elsewhere'
+      : `Answered elsewhere · ${recordLine(answer.decision, answer.decision, answer.text, answer.at)}`
+  }
+  if (found.kind === 'action' || found.kind === 'stranded') return undefined
+  return run.status === 'paused' ? 'Answered elsewhere' : 'Resumed elsewhere'
+}
+
+export type Delivered =
+  | { kind: 'done'; via: 'cli' | 'server'; message: string; log: string }
+  | { kind: 'refused'; message: string }
+  | { kind: 'silent' }
+
+/** Makes the call the action routes to, raced against 30 s; a refusal naming a sub-run's id is followed to it once. */
+export async function deliver(io: Io, port: number, archon: string, pending: Pending, run: Run, text: string, isServer: boolean, isFollowed = false): Promise<Delivered> {
+  const routed = route(pending, run, text, isServer, archon)
+  if (routed.via === 'none') return { kind: 'refused', message: `resume it from ${platformName(run.platform)}` }
+  if (routed.via === 'cli') {
+    const out = await within(io, REPLY_MS, io.run(routed.argv, 2 * REPLY_MS)).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
+    if (isTimedOut(out)) return { kind: 'silent' }
+    if (out instanceof Error) return { kind: 'refused', message: out.message }
+    const said = archonMessage(out.stdout)
+    if (out.exitCode !== 0 || said.ok === false) return { kind: 'refused', message: said.message || lastLine(out.stderr) || `archon exited with ${out.exitCode}` }
+    return { kind: 'done', via: 'cli', message: said.message, log: said.logPath }
+  }
+  const reply = await within(io, REPLY_MS, io.fetch(`http://localhost:${port}${routed.path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: routed.body })).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
+  if (isTimedOut(reply)) return { kind: 'silent' }
+  if (reply instanceof Error) return { kind: 'refused', message: reply.message }
+  const said = archonMessage(reply.text)
+  if (!reply.ok) {
+    if (pending.kind === 'answer' && said.subRunId !== '' && !isFollowed) {
+      return deliver(io, port, archon, { ...pending, runId: said.subRunId }, { ...run, id: said.subRunId }, text, isServer, true)
+    }
+    return { kind: 'refused', message: said.message || `Archon answered ${reply.status}` }
+  }
+  return { kind: 'done', via: 'server', message: pending.kind === 'answer' ? said.message : '', log: '' }
+}
+
+/** Whether a run moved on from what a sent action left it waiting at. */
+export function hasMoved(run: Run | undefined, runs: readonly Run[], detail: Detail | undefined, kind: 'answer' | 'resume'): boolean {
+  if (run === undefined || hasEnded(run)) return true
+  const found = standing(run, runs, detail)
+  return kind === 'answer' ? found.kind !== 'approval' : run.status !== 'paused'
 }

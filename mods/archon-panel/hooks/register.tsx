@@ -1,12 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 
-import type { ArchonActions, ArchonData, ArchonView, Detail, GraphNode, LogWindow, Notice, Pending, Project, Run, Tab } from '../types'
-import { archonMessage, lastAnswer, platformName, recordLine, route } from './actions'
+import type { ArchonActions, ArchonData, ArchonView, Detail, LogWindow, Notice, Pending, Project, Run, Tab } from '../types'
+import { deliver, hasMoved, movedElsewhere, recordLine, REPLY_MS } from './actions'
 import { actionBody } from './actions-view'
 import { bodyWindow, lastPosition, pinnedRow, SETTINGS } from './chrome'
 import { candidates, findArchon, requirementLine } from './cli'
-import { workflowNodes } from './graph'
+import { readWorkflow } from './graph'
 import { drawNodes, graphBody } from './graph-view'
 import { EMPTY_WINDOW, isUnder, splitChunk, take, toolSteps } from './log'
 import { logBody } from './log-view'
@@ -15,12 +15,12 @@ import { claimKey, collapse, isClaimed, isMine, statusText, toastEvents } from '
 import type { Runner } from './cli'
 import { parseConfig } from './config'
 import type { Config } from './config'
-import { hasEnded, liveCount, needsYou, needsYouCount, sortRuns, standing, topRuns, waitNode } from './runs'
+import { hasEnded, liveCount, needsYou, needsYouCount, sortRuns, topRuns, waitNode } from './runs'
 import { runsBody } from './runs-view'
 import { capLines, expandHome, serveLine } from './serve-log'
 import type { Platform } from './scope'
-import { isTimedOut, listRuns, readDetail, serverText, signature, within } from './source'
-import { clockTime, dollars, duration, firstLine, lastLine } from './text'
+import { listRuns, readDetail, serverText, signature } from './source'
+import { clockTime, dollars, duration, firstLine } from './text'
 import type { DiskIo } from './source'
 
 const PANE = 'archon'
@@ -358,60 +358,12 @@ async function pick($: EngineInterface, config: Config, run: Run): Promise<void>
   await changeView($, config, (v): ArchonView => ({ ...v, tab: 'log', run: need.holder.id, node: waitNode(need.standing), file: '' }))
 }
 
-/** The files under `root` whose name ends `.yaml` or `.yml`, a few folders deep. */
-async function yamlFiles($: EngineInterface, root: string, depth = 0): Promise<string[]> {
-  const entries = await $.fs.list(root).catch(() => [])
-  const found: string[] = []
-  for (const entry of entries) {
-    const path = `${root}/${entry.name}`
-    if (entry.kind === 'dir' && depth < 5) found.push(...(await yamlFiles($, path, depth + 1)))
-    else if (entry.kind === 'file' && /\.ya?ml$/i.test(entry.name)) found.push(path)
-  }
-  return found
-}
-
-/** How a workflow of a frozen source ranks when two share a name: a project's over a global one over a bundled one. */
-function rankOf(path: string): number {
-  return /\/bundled\//.test(path) ? 0 : /\/global\//.test(path) ? 1 : 2
-}
-
-/**
- * Reads a run's graph once from its frozen workflow source
- * (`metadata.workflow_source.root`), which never changes: the workflow
- * `manifest.json` names, and any workflow it includes.
- */
+/** Reads a run's graph once from its frozen workflow source, which never changes. */
 async function ensureGraph($: EngineInterface, runId: string): Promise<void> {
   const current = await read($, data)
   const run = current.runs.find(r => r.id === runId)
   if (run === undefined || current.graphs[runId] !== undefined) return
-  let nodes: GraphNode[] | null = null
-  const root = run.sourceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
-  if (root !== '') {
-    const manifest = await $.fs.read(`${root}/manifest.json`).then(text => JSON.parse(text) as { workflow_name?: unknown }).catch(() => undefined)
-    const name = typeof manifest?.workflow_name === 'string' ? manifest.workflow_name : run.workflow
-    const files = await yamlFiles($, root)
-    const texts = new Map<string, string>()
-    const textOf = async (path: string) => {
-      if (!texts.has(path)) texts.set(path, await $.fs.read(path).catch(() => ''))
-      return texts.get(path)!
-    }
-    const nameIn = (text: string) => /^name:\s*["']?([^"'\n#]+?)["']?\s*$/m.exec(text)?.[1] ?? ''
-    // A workflow's file is usually named for it; any other file is read only when that misses.
-    const byName = new Map<string, { text: string; rank: number }>()
-    const consider = (path: string, text: string) => {
-      const found = nameIn(text)
-      const known = byName.get(found)
-      if (found !== '' && (known === undefined || rankOf(path) > known.rank)) byName.set(found, { text, rank: rankOf(path) })
-    }
-    const base = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.ya?ml$/i, '')
-    for (const path of files) if (base(path) === name || /^archon-/.test(base(path))) consider(path, await textOf(path))
-    if (!byName.has(name)) for (const path of files) consider(path, await textOf(path))
-    const main = byName.get(name)?.text
-    if (main !== undefined) {
-      const sync = new Map([...byName].map(([key, value]) => [key, value.text]))
-      nodes = workflowNodes(main, wanted => sync.get(wanted))
-    }
-  }
+  const nodes = await readWorkflow({ list: path => $.fs.list(path), read: path => $.fs.read(path) }, run.sourceRoot, run.workflow)
   await update($, data, (d): ArchonData => ({ ...d, graphs: { ...d.graphs, [runId]: nodes } }))
 }
 
@@ -674,25 +626,6 @@ async function mention($: EngineInterface): Promise<void> {
   }
 }
 
-/** How long Archon has to reply to an action, and how long after a `--detach` answer or resume the run is checked on. */
-const REPLY_MS = 30_000
-
-/** Whether a run, as fetched again, still waits on the pending action; else what happened elsewhere. */
-function raceOf(pending: Pending, run: Run | undefined, runs: readonly Run[], detail: Detail | undefined): string | undefined {
-  if (run === undefined) return undefined
-  if (hasEnded(run)) return 'Ended elsewhere'
-  const found = standing(run, runs, detail)
-  if (pending.kind === 'answer') {
-    if (found.kind === 'approval') return undefined
-    const answer = lastAnswer(detail)
-    return answer === undefined
-      ? 'Answered elsewhere'
-      : `Answered elsewhere · ${recordLine(answer.decision, answer.decision, answer.text, answer.at)}`
-  }
-  if (found.kind === 'action' || found.kind === 'stranded') return undefined
-  return run.status === 'paused' ? 'Answered elsewhere' : 'Resumed elsewhere'
-}
-
 function setNotices($: EngineInterface, runId: string, notices: Notice[]): Promise<unknown> {
   return update($, actions, (a): ArchonActions => ({ ...a, notices: { ...a.notices, [runId]: notices } }))
 }
@@ -713,14 +646,14 @@ async function send($: EngineInterface, config: Config): Promise<void> {
   try {
     const got = await refreshRun($, config, runId)
     const current = await read($, data)
-    const race = raceOf(pending, got?.run, current.runs, got?.detail)
+    const race = movedElsewhere(pending, got?.run, current.runs, got?.detail)
     if (race !== undefined) {
       await setNotices($, runId, [{ text: race, tone: 'dim' }])
       return
     }
     const run = got?.run ?? current.runs.find(r => r.id === runId)
     if (run === undefined) return
-    const reply = await deliver($, config, pending, run, text, current.source === 'server')
+    const reply = await deliver(io($), config.port, current.requirement.path, pending, run, text, current.source === 'server')
     if (reply.kind === 'silent') {
       await setNotices($, runId, [{ text: 'No reply from Archon in 30 s; it may still have gone through', tone: 'error' }])
       return
@@ -748,44 +681,6 @@ async function send($: EngineInterface, config: Config): Promise<void> {
     await update($, actions, (a): ArchonActions => ({ ...a, sending: a.sending === runId ? '' : a.sending }))
     await refreshRun($, config, runId)
   }
-}
-
-type Delivered =
-  | { kind: 'done'; via: 'cli' | 'server'; message: string; log: string }
-  | { kind: 'refused'; message: string }
-  | { kind: 'silent' }
-
-/** Makes the call the action routes to, raced against 30 s; a refusal naming a sub-run's id is followed to it once. */
-async function deliver($: EngineInterface, config: Config, pending: Pending, run: Run, text: string, isServer: boolean, isFollowed = false): Promise<Delivered> {
-  const archon = (await read($, data)).requirement.path
-  const routed = route(pending, run, text, isServer, archon)
-  if (routed.via === 'none') return { kind: 'refused', message: `resume it from ${platformName(run.platform)}` }
-  if (routed.via === 'cli') {
-    const out = await within(io($), REPLY_MS, runner($)(routed.argv, 2 * REPLY_MS)).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
-    if (isTimedOut(out)) return { kind: 'silent' }
-    if (out instanceof Error) return { kind: 'refused', message: out.message }
-    const said = archonMessage(out.stdout)
-    if (out.exitCode !== 0 || said.ok === false) return { kind: 'refused', message: said.message || lastLine(out.stderr) || `archon exited with ${out.exitCode}` }
-    return { kind: 'done', via: 'cli', message: said.message, log: said.logPath }
-  }
-  const reply = await within(io($), REPLY_MS, $.http.fetch(`http://localhost:${config.port}${routed.path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: routed.body })).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
-  if (isTimedOut(reply)) return { kind: 'silent' }
-  if (reply instanceof Error) return { kind: 'refused', message: reply.message }
-  const said = archonMessage(reply.text)
-  if (!reply.ok) {
-    if (pending.kind === 'answer' && said.subRunId !== '' && !isFollowed) {
-      return deliver($, config, { ...pending, runId: said.subRunId }, { ...run, id: said.subRunId }, text, isServer, true)
-    }
-    return { kind: 'refused', message: said.message || `Archon answered ${reply.status}` }
-  }
-  return { kind: 'done', via: 'server', message: pending.kind === 'answer' ? said.message : '', log: '' }
-}
-
-/** Whether a run moved on from what a sent action left it waiting at. */
-function hasMoved(run: Run | undefined, runs: readonly Run[], detail: Detail | undefined, kind: 'answer' | 'resume'): boolean {
-  if (run === undefined || hasEnded(run)) return true
-  const found = standing(run, runs, detail)
-  return kind === 'answer' ? found.kind !== 'approval' : run.status !== 'paused'
 }
 
 /** 30 s after a `--detach` answer or resume: a gate still unanswered, or a run still paused, says so, and the buttons come back with the text. */
@@ -821,7 +716,7 @@ async function settleActions($: EngineInterface): Promise<void> {
     const pending = a.pending
     if (pending !== null) {
       const run = current.runs.find(r => r.id === pending.runId)
-      const race = raceOf(pending, run, current.runs, current.details[pending.runId])
+      const race = movedElsewhere(pending, run, current.runs, current.details[pending.runId])
       if (race !== undefined) {
         const typed = a.text[pending.runId] ?? ''
         next = { ...next, pending: null, notices: { ...next.notices, [pending.runId]: [{ text: race, tone: 'dim' }, ...(typed === '' ? [] : [{ text: typed, tone: 'dim' as const }])] } }
