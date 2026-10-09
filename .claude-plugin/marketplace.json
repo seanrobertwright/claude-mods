@@ -43,6 +43,11 @@
       "description": "Before Claude uses a Word, Excel or PowerPoint file you have open, asks you to close it instead of letting the write fail."
     },
     {
+      "name": "branch-guard",
+      "source": "./mods/branch-guard",
+      "description": "Before Claude commits or pushes on the default branch, asks you whether to create a branch first."
+    },
+    {
       "name": "outputs",
       "source": "./mods/outputs",
       "description": "A pane listing the files this session has made or changed, newest first; click one to open it."

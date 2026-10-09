@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![11 mods](https://img.shields.io/badge/mods-11-6b5bd2)
+![12 mods](https://img.shields.io/badge/mods-12-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all eleven, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all twelve, or read the source and write your own.
 
 ## What is a mod?
 
@@ -32,6 +32,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
+| 🌿 [branch-guard](#-branch-guard) | Question dialog | Asks you before Claude commits or pushes on the default branch |
 | 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
@@ -306,6 +307,28 @@ It does not see one a script works out as it runs, nor one on a network location
 
 There is nothing to set: once installed, it guards every session.
 
+### 🌿 branch-guard
+
+When Claude is about to commit or push on the default branch, the mod asks you first, so work lands on a branch of its own.
+
+```text
+Claude is about to commit to main, the default branch. Create a branch first?
+
+  Branch first
+  Go ahead on main
+```
+
+- **Branch first**, **Dismissed**, or an answer in other words: the call is refused, and Claude is told to create a branch first.
+- **Go ahead on main**: the call goes on. A commit and a push in one command are asked about once.
+
+It sees `git commit` and `git push` in the text of a shell command, `git -C <folder> commit` too.
+It asks on the default branch, and from any branch before a push to it, such as `git push origin main` or `git push origin HEAD:main`.
+The default branch is the one the remote's HEAD names (`origin/HEAD`), else `main`, else `master`.
+Outside a repository, or where git cannot say the branch, the call goes on as it would without the mod.
+It reads the branch before the command runs, so a command that switches branch or folder before it commits, such as `git switch -c fix && git commit`, is judged by where it starts.
+
+There is nothing to set: once installed, it guards every session.
+
 ### 📂 outputs
 
 A pane listing the files this session has made or changed in the project folder, newest first.
@@ -514,6 +537,7 @@ claude plugin install github-panel@claude-mods
 claude plugin install shelf@claude-mods
 claude plugin install turn-chime@claude-mods
 claude plugin install open-file-guard@claude-mods
+claude plugin install branch-guard@claude-mods
 claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
 claude plugin install hud@claude-mods
@@ -534,7 +558,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 ## Configure the mods
 
 whats-next, quick-reply, auto-resume, github-panel, turn-chime and hud have settings, listed in each mod's section above with the key each one is stored under.
-shelf and sources are set up with their own commands, in the session; outputs and open-file-guard have nothing to set.
+shelf and sources are set up with their own commands, in the session; outputs, open-file-guard and branch-guard have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
 
