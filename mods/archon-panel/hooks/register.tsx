@@ -1,11 +1,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 
-import type { ArchonData, ArchonView, Detail, GraphNode, Project, Run, Tab } from '../types'
+import type { ArchonData, ArchonView, Detail, GraphNode, LogWindow, Project, Run, Tab } from '../types'
 import { bodyWindow, lastPosition, pinnedRow, SETTINGS } from './chrome'
 import { candidates, findArchon, requirementLine } from './cli'
 import { workflowNodes } from './graph'
 import { drawNodes, graphBody } from './graph-view'
+import { EMPTY_WINDOW, isUnder, splitChunk, take, toolSteps } from './log'
+import { logBody } from './log-view'
+import type { OpenedFile } from './log-view'
 import { claimKey, collapse, isClaimed, isMine, statusText, toastEvents } from './notify'
 import type { Runner } from './cli'
 import { parseConfig } from './config'
@@ -13,7 +16,8 @@ import type { Config } from './config'
 import { hasEnded, liveCount, needsYou, needsYouCount } from './runs'
 import { runsBody } from './runs-view'
 import type { Platform } from './scope'
-import { listRuns, readDetail, signature } from './source'
+import { listRuns, readDetail, serverText, signature } from './source'
+import { dollars, duration, firstLine } from './text'
 import type { DiskIo } from './source'
 
 const PANE = 'archon'
@@ -55,14 +59,23 @@ const data = atom({ plugin: 'archon-panel', key: 'data' } as const, EMPTY_DATA)
 const view = atom({ plugin: 'archon-panel', key: 'view' } as const, EMPTY_VIEW)
 const hasStartedUp = atom({ plugin: 'archon-panel', key: 'hasStartedUp' } as const, false)
 const startedAt = atom({ plugin: 'archon-panel', key: 'startedAt' } as const, 0)
+const logWindow = atom({ plugin: 'archon-panel', key: 'log' } as const, EMPTY_WINDOW)
 
 // Dies with the module on a reload; session.start or the next attach starts it again.
 let timer: Timer | undefined
 // Counts attaches, so a surfaces check answered before an attach cannot stop
 // the polling that attach kept going.
 let attaches = 0
+// The run log follower: one spawned `archon workflow logs <id> --follow`, for the one live run whose log is in front.
+let follower: { runId: string; stream: AsyncGenerator<unknown, unknown> } | undefined
+// The file open in Log's read view, fetched only when opened.
+let opened: OpenedFile | undefined
+// A line the read view shows under its buttons, such as the prompt box refusing.
+let fileNotice = ''
 // The furthest each sub-tab can scroll, as last drawn; a scroll never goes past it.
 const furthest: Record<Tab, number> = { 'runs': 0, 'graph': 0, 'log': 0, 'archon-log': 0 }
+// Whether each log sits at its end, and so follows its tail as rows arrive.
+const atEnd: Record<'log' | 'archon-log', boolean> = { 'log': true, 'archon-log': true }
 
 /**
  * Whether any surface shows the session right now. Asked before each action
@@ -276,6 +289,7 @@ async function load($: EngineInterface, config: Config): Promise<void> {
   if ((await read($, data)).loadId !== loadId) return
   await scheduleNext($, config)
   void notify($, config).catch(report($))
+  void syncLog($, config).catch(report($))
 }
 
 /** A moment for another session's claim on the same toast to land before this one reads its own back. */
@@ -320,7 +334,13 @@ async function prune($: EngineInterface, listed: readonly string[]): Promise<voi
 }
 
 /** Picks a run: one that needs you opens Log on its gate or wait node; any other opens its Graph. */
-async function pick($: EngineInterface, run: Run): Promise<void> {
+async function pick($: EngineInterface, config: Config, run: Run): Promise<void> {
+  // Picking a run, even the one in front, starts its window afresh, unless it is being followed.
+  if (follower?.runId !== run.id) {
+    stopFollower()
+    await update($, logWindow, () => EMPTY_WINDOW)
+    atEnd.log = true
+  }
   const current = await read($, data)
   const byId = new Map(current.runs.map(r => [r.id, r]))
   const need = needsYou(run, byId, current.details)
@@ -330,7 +350,7 @@ async function pick($: EngineInterface, run: Run): Promise<void> {
   }
   const found = need.attention
   const node = found.kind === 'approval' ? found.gate.nodeId : found.kind === 'action' ? found.wait.nodeId : found.kind === 'stranded' ? found.gate.nodeId : ''
-  await update($, view, (v): ArchonView => ({ ...v, tab: 'log', run: need.holder.id, node }))
+  await changeView($, config, (v): ArchonView => ({ ...v, tab: 'log', run: need.holder.id, node, file: '' }))
 }
 
 /** The files under `root` whose name ends `.yaml` or `.yml`, a few folders deep. */
@@ -391,14 +411,14 @@ async function ensureGraph($: EngineInterface, runId: string): Promise<void> {
 }
 
 /** Picks a box in the Graph: a node opens Log cut to it; a block, loop or sub-run box opens what it folds. */
-async function pickNode($: EngineInterface, runId: string, id: string): Promise<void> {
+async function pickNode($: EngineInterface, config: Config, runId: string, id: string): Promise<void> {
   const current = await read($, data)
   const shown = await read($, view)
   const run = current.runs.find(r => r.id === runId)
   const nodes = current.graphs[runId]
   if (run === undefined) return
   if (id.includes('.')) {
-    await update($, view, (v): ArchonView => ({ ...v, tab: 'log', node: id }))
+    await openNode($, config, run, id)
     return
   }
   const pickOf = nodes === undefined || nodes === null ? undefined : drawNodes(nodes, run, current.runs, current.details, shown).picks.get(id)
@@ -411,13 +431,40 @@ async function pickNode($: EngineInterface, runId: string, id: string): Promise<
   } else if (pickOf?.kind === 'workflow' && pickOf.children.length > 0) {
     const byId = new Map(current.runs.map(r => [r.id, r]))
     const waiting = pickOf.children.find(child => needsYou(child, byId, current.details) !== undefined)
-    if (waiting !== undefined) await pick($, waiting)
+    if (waiting !== undefined) await pick($, config, waiting)
     else if (pickOf.children.length > 1) {
       const key = `${runId}:${pickOf.id}`
       await update($, view, (v): ArchonView => ({ ...v, fanouts: v.fanouts.includes(key) ? v.fanouts.filter(f => f !== key) : [...v.fanouts, key] }))
     } else await openGraph($, pickOf.children[0]!.id)
   } else {
-    await update($, view, (v): ArchonView => ({ ...v, tab: 'log', node: id }))
+    await openNode($, config, run, id)
+  }
+}
+
+/**
+ * Opens Log cut to a node. A finished run whose window lost that node's rows
+ * off its top refills it with one replay of that node's rows.
+ */
+async function openNode($: EngineInterface, config: Config, run: Run, node: string): Promise<void> {
+  await changeView($, config, (v): ArchonView => ({ ...v, tab: 'log', run: run.id, node, file: '' }))
+  const win = await read($, logWindow)
+  if (hasEnded(run) && win.runId === run.id && win.dropped > 0 && !win.rows.some(row => row.nodes.includes(node))) await replay($, config, run, node)
+}
+
+/** `a`: Log widened to all nodes, back to the run's newest rows. */
+async function showAll($: EngineInterface, config: Config): Promise<void> {
+  await update($, view, (v): ArchonView => ({ ...v, node: '' }))
+  const current = await read($, data)
+  const picked = (await read($, view)).run
+  const run = current.runs.find(r => r.id === picked)
+  const win = await read($, logWindow)
+  if (run !== undefined && win.runId === run.id && win.node !== '') {
+    if (hasEnded(run)) await replay($, config, run)
+    else {
+      stopFollower()
+      await update($, logWindow, () => EMPTY_WINDOW)
+      await syncLog($, config)
+    }
   }
 }
 
@@ -425,6 +472,188 @@ async function pickNode($: EngineInterface, runId: string, id: string): Promise<
 async function openGraph($: EngineInterface, runId: string): Promise<void> {
   await update($, view, (v): ArchonView => ({ ...v, tab: 'graph', run: runId, node: '' }))
   await ensureGraph($, runId)
+}
+
+/** Reads one run again by id, keeping its row and detail: before an action, and when its follower ends. */
+async function refreshRun($: EngineInterface, config: Config, runId: string): Promise<{ run: Run; detail: Detail } | undefined> {
+  const current = await read($, data)
+  const known = current.runs.find(r => r.id === runId)
+  const got = await readDetail(io($), config.port, current.requirement.path, runId, current.source !== 'cli', known).catch(() => undefined)
+  if (got?.run === undefined) return undefined
+  const run = got.run
+  await update($, data, (d): ArchonData => ({
+    ...d,
+    runs: d.runs.some(r => r.id === run.id) ? d.runs.map(r => (r.id === run.id ? run : r)) : [...d.runs, run],
+    details: { ...d.details, [run.id]: got.detail },
+  }))
+  return { run, detail: got.detail }
+}
+
+/** A finished run's end line: `✓ completed 37m $4.12`, or how it failed. */
+function endLine(run: Run, detail: Detail | undefined): string {
+  const spent = duration(run.completedAt - run.startedAt)
+  const cost = run.costUsd > 0 ? ` ${dollars(run.costUsd)}` : ''
+  if (run.status === 'completed') return `✓ completed ${spent}${cost}`
+  if (run.status === 'cancelled') return `✗ cancelled ${spent}${cost}`
+  const failed = [...(detail?.events ?? [])].reverse().find(e => e.type === 'node_failed')
+  const error = firstLine(failed?.error ?? '')
+  return `✗ failed ${spent}${cost}${failed === undefined ? '' : ` at ${failed.step}`}${error === '' ? '' : `: ${error}`}`
+}
+
+function stopFollower(): void {
+  const own = follower
+  follower = undefined
+  void own?.stream.return(undefined).catch(() => {})
+}
+
+/**
+ * Follows a live run's log with `archon workflow logs <id> --follow`, which
+ * starts at line 1 and exits once the run reaches a final status. A spawn
+ * delivers chunks, not lines, so a partial last line waits for the next. A
+ * restart after a reload replays from line 1, skipping the lines already taken.
+ */
+async function follow($: EngineInterface, config: Config, runId: string): Promise<void> {
+  const archon = (await read($, data)).requirement.path
+  let win = await read($, logWindow)
+  if (win.runId !== runId || win.node !== '') {
+    win = { ...EMPTY_WINDOW, runId }
+    await update($, logWindow, () => win)
+  }
+  const skip = win.taken
+  const stream = $.process.spawn({ argv: [archon, 'workflow', 'logs', runId, '--follow'] })
+  const own = { runId, stream }
+  follower = own
+  let held = ''
+  let lineNo = 0
+  let isOver: boolean
+  let code: number | null = null
+  try {
+    for await (const chunk of stream) {
+      if (follower !== own) break
+      if (chunk.stream !== 'stdout') continue
+      const split = splitChunk(held, chunk.text)
+      held = split.held
+      const from = lineNo
+      lineNo += split.lines.length
+      if (split.lines.length > 0) await update($, logWindow, (w): LogWindow => (w.runId === runId ? take(w, split.lines, from, skip) : w))
+    }
+    isOver = follower === own
+    if (isOver) code = (await stream.result).code
+  } catch {
+    isOver = follower === own
+  } finally {
+    if (follower === own) follower = undefined
+  }
+  if (!isOver) return
+  if (code !== 0 && lineNo === 0) await update($, logWindow, (w): LogWindow => (w.runId === runId ? { ...w, isMissing: true } : w))
+  const got = await refreshRun($, config, runId)
+  if (got !== undefined && hasEnded(got.run)) {
+    await update($, logWindow, (w): LogWindow => (w.runId === runId ? { ...w, end: endLine(got.run, got.detail) } : w))
+  }
+}
+
+/** A finished run's log, in one `archon workflow logs <id>`; with `node`, only that node's rows are kept. */
+async function replay($: EngineInterface, config: Config, run: Run, node = ''): Promise<void> {
+  const archon = (await read($, data)).requirement.path
+  const out = await runner($)([archon, 'workflow', 'logs', run.id]).catch(() => undefined)
+  if ((await read($, data)).details[run.id] === undefined) await refreshRun($, config, run.id)
+  const detail = (await read($, data)).details[run.id]
+  const steps = toolSteps(detail?.events ?? [])
+  let win: LogWindow = { ...EMPTY_WINDOW, runId: run.id, node }
+  if (out?.exitCode === 0) win = take(win, out.stdout.replace(/\n$/, '').split('\n'), 0, 0, row => isUnder(row, node, steps))
+  else win = { ...win, isMissing: true }
+  const latest = (await read($, data)).runs.find(r => r.id === run.id) ?? run
+  if (hasEnded(latest)) win = { ...win, end: endLine(latest, detail) }
+  await update($, logWindow, () => win)
+}
+
+/**
+ * Keeps the run log in step with what the person sees: the follower runs only
+ * while a live run's log is in front, one run at a time; a finished run is
+ * replayed once, and its window kept until another run is picked.
+ */
+async function syncLog($: EngineInterface, config: Config): Promise<void> {
+  const current = await read($, data)
+  const shown = await read($, view)
+  const run = current.runs.find(r => r.id === shown.run)
+  const isWanted = run !== undefined && shown.tab === 'log' && current.requirement.state === 'ok' && (await isShown($)) && (await isInFront($))
+  if (!isWanted || run === undefined) return stopFollower()
+  if (!hasEnded(run)) {
+    if (follower?.runId !== run.id) {
+      stopFollower()
+      void follow($, config, run.id).catch(report($))
+    }
+    return
+  }
+  if (follower?.runId === run.id) return
+  stopFollower()
+  const win = await read($, logWindow)
+  if (win.runId !== run.id) await replay($, config, run)
+}
+
+/** Changes what the person sees, then brings the run log in step. */
+async function changeView($: EngineInterface, config: Config, change: (v: ArchonView) => ArchonView): Promise<void> {
+  await update($, view, change)
+  await syncLog($, config)
+}
+
+/** Where a run's file is on disk. */
+function filePath(run: Run, path: string): string {
+  return `${run.outputRoot.replace(/\\/g, '/').replace(/\/+$/, '')}/artifacts/runs/${run.id}/${path}`
+}
+
+/** Opens one of the run's files in Log's read view: from the server while it answers, else from disk. */
+async function openFile($: EngineInterface, config: Config, path: string): Promise<void> {
+  const current = await read($, data)
+  const shown = await read($, view)
+  const run = current.runs.find(r => r.id === shown.run)
+  await update($, view, (v): ArchonView => ({ ...v, tab: 'log', file: path }))
+  fileNotice = ''
+  if (run === undefined) return
+  const listed = current.details[run.id]?.files.find(file => file.path === path)
+  let text: string | undefined
+  if (current.source === 'server') {
+    const got = await serverText(io($), `http://localhost:${config.port}/api/artifacts/${encodeURIComponent(run.id)}/${path.split('/').map(encodeURIComponent).join('/')}`)
+    text = got?.text
+  }
+  if (text === undefined) text = await $.fs.read(filePath(run, path)).catch(() => undefined)
+  opened = { path, text: text ?? '', isBinary: text !== undefined && text.includes('\u0000'), size: listed?.size ?? text?.length ?? 0 }
+  if (text === undefined) fileNotice = "This file can't be read."
+  $.ui.invalidate('ui.render')
+}
+
+/** Opens the file with the platform's opener, in the terminal only; elsewhere, or when no opener starts, its path is copied. */
+async function openOutside($: EngineInterface, surface: string): Promise<void> {
+  const current = await read($, data)
+  const shown = await read($, view)
+  const run = current.runs.find(r => r.id === shown.run)
+  if (run === undefined || shown.file === '') return
+  const path = filePath(run, shown.file)
+  const windows = await isWindows($)
+  const native = windows ? path.replace(/\//g, '\\') : path
+  if (surface === 'terminal') {
+    const root = ((await $.env.get('SystemRoot')) ?? 'C:\\Windows').replace(/\\+$/, '')
+    const openers = windows ? [[`${root}\\explorer.exe`, native]] : [['open', path], ['xdg-open', path]]
+    for (const argv of openers) {
+      const ran = await $.process.run(argv).catch(() => undefined)
+      // explorer.exe can exit 1 when it opened the file, so its exit code is not trusted.
+      if (ran !== undefined && (windows || ran.exitCode === 0)) return
+    }
+  }
+  await $.ui.copy({ text: native }).catch(() => undefined)
+}
+
+/** Adds `@<absolute path>` to the prompt box, wherever a surface has one. */
+async function mention($: EngineInterface): Promise<void> {
+  const current = await read($, data)
+  const shown = await read($, view)
+  const run = current.runs.find(r => r.id === shown.run)
+  if (run === undefined || shown.file === '') return
+  const filled = await $.prompt.fill({ text: `@${filePath(run, shown.file)} `, mode: 'append' }).catch(() => undefined)
+  if (filled?.isFilled !== true) {
+    fileNotice = "can't reach the prompt here"
+    $.ui.invalidate('ui.render')
+  }
 }
 
 /** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
@@ -461,6 +690,9 @@ export const register: Register = (on, options) => {
       loadId: current.loadId + 1,
     }))
     stopPolling()
+    // The follower died with the old module; the load below starts it again from line 1 if a live run's log is in front.
+    stopFollower()
+    for (const tab of Object.keys(furthest) as Tab[]) furthest[tab] = 0
     // A headless session does nothing until a surface attaches (session.attach).
     if (await isShown($)) {
       const isFirst = !(await read($, hasStartedUp))
@@ -489,7 +721,10 @@ export const register: Register = (on, options) => {
   on('session.detach', async ($, e, next) => {
     const seen = attaches
     const done = await next(e)
-    if (!(await isShown($)) && attaches === seen) stopPolling()
+    if (!(await isShown($)) && attaches === seen) {
+      stopPolling()
+      stopFollower()
+    }
     return done
   })
 
@@ -511,7 +746,10 @@ export const register: Register = (on, options) => {
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     // The engine's window stays at 0 so the pinned row never scrolls away; the shown sub-tab moves itself.
     await update($, view, (v): ArchonView => {
-      const at = Math.min(Math.max(0, v.at[v.tab] + e.by), furthest[v.tab])
+      const isLog = v.tab === 'log' || v.tab === 'archon-log'
+      const from = isLog && atEnd[v.tab as 'log'] ? furthest[v.tab] : v.at[v.tab]
+      const at = Math.min(Math.max(0, from + e.by), furthest[v.tab])
+      if (isLog) atEnd[v.tab as 'log'] = at >= furthest[v.tab]
       return at === v.at[v.tab] ? v : { ...v, at: { ...v.at, [v.tab]: at } }
     })
     return next({ ...e, offset: 0 })
@@ -537,7 +775,7 @@ export const register: Register = (on, options) => {
         width,
         platform: await platformOf($),
         serverLine,
-        onPick: run => void pick($, run).catch(report($)),
+        onPick: run => void pick($, config, run).catch(report($)),
         onFanout: id => void update($, view, (v): ArchonView => ({ ...v, fanouts: v.fanouts.includes(id) ? v.fanouts.filter(f => f !== id) : [...v.fanouts, id] })).catch(report($)),
       })
     } else if (shown.tab === 'graph') {
@@ -553,15 +791,41 @@ export const register: Register = (on, options) => {
         now: await $.clock.now(),
         width,
         link: run !== undefined && current.source === 'server' && e.surface !== 'mobile' ? `http://localhost:${config.port}/console/r/${run.id}` : '',
-        onPick: id => void pickNode($, shown.run, id).catch(report($)),
+        onPick: id => void pickNode($, config, shown.run, id).catch(report($)),
         onFold: block => void update($, view, (v): ArchonView => ({ ...v, includes: v.includes.filter(entry => entry !== `${shown.run}:${block}`) })).catch(report($)),
         onRound: round => void update($, view, (v): ArchonView => ({ ...v, round })).catch(report($)),
         onParent: parent => void openGraph($, parent.id).catch(report($)),
         onChild: child => void openGraph($, child.id).catch(report($)),
       })
     } else if (shown.tab === 'archon-log') lines = [<Text dimColor wrap="wrap">No Archon's log at {config.archonLog}. Point Archon's log in the mod settings at the file archon serve writes to.</Text>]
-    else lines = [<Text dimColor>Pick a run in Runs.</Text>]
-    furthest[shown.tab] = lastPosition(lines.length, bodyRows)
+    else {
+      const run = current.runs.find(r => r.id === shown.run)
+      lines = logBody({
+        ui,
+        run,
+        runs: current.runs,
+        detail: run === undefined ? undefined : current.details[run.id],
+        window: await read($, logWindow),
+        view: shown,
+        width,
+        link: run !== undefined && current.source === 'server' && e.surface !== 'mobile' ? `http://localhost:${config.port}/console/r/${run.id}` : '',
+        filesFolder: run === undefined ? '' : filePath(run, '').replace(/\/$/, ''),
+        file: opened,
+        notice: fileNotice,
+        onFold: key => void update($, view, (v): ArchonView => ({ ...v, fold: v.fold === key ? '' : key })).catch(report($)),
+        onAll: () => void showAll($, config).catch(report($)),
+        onFiles: () => void update($, view, (v): ArchonView => ({ ...v, isFilesOpen: !v.isFilesOpen })).catch(report($)),
+        onFile: path => void openFile($, config, path).catch(report($)),
+        onBack: () => void update($, view, (v): ArchonView => ({ ...v, file: '' })).catch(report($)),
+        onOpen: () => void openOutside($, e.surface).catch(report($)),
+        onMention: () => void mention($).catch(report($)),
+      })
+    }
+    // The logs follow their tail while at their end.
+    const last = lastPosition(lines.length, bodyRows)
+    const isLog = shown.tab === 'log' || shown.tab === 'archon-log'
+    const at = isLog && atEnd[shown.tab as 'log'] ? last : shown.at[shown.tab]
+    furthest[shown.tab] = last
     return (
       <Box flexDirection="column" width={width}>
         {pinnedRow({
@@ -571,11 +835,11 @@ export const register: Register = (on, options) => {
           live: liveCount(current.runs),
           needsYou: needsYouCount(current.runs, current.details),
           hasSettings: await isSettingsInstalled($),
-          onTab: tab => void update($, view, (v): ArchonView => ({ ...v, tab })).catch(report($)),
+          onTab: tab => void changeView($, config, (v): ArchonView => ({ ...v, tab })).catch(report($)),
           onReload: () => void reload($, config).catch(report($)),
           onSettings: () => void $.command.run({ command: SETTINGS }).catch(report($)),
         })}
-        {bodyWindow(ui, lines, shown.at[shown.tab], bodyRows)}
+        {bodyWindow(ui, lines, at, bodyRows)}
       </Box>
     )
   })

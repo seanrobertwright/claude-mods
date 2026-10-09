@@ -78,6 +78,8 @@ export type World = {
   opened: string[]
   filled: string[]
   copied: string[]
+  /** Whether the prompt box takes a fill, or refuses it as a surface with no composer does. */
+  composer: 'ok' | 'no_composer'
   /** Where the engine's window was asked to go on each scroll. */
   scrolls: number[]
 }
@@ -113,6 +115,7 @@ export function world(over: Partial<World> = {}): World {
     filled: [],
     copied: [],
     scrolls: [],
+    composer: 'ok',
     ...over,
   }
 }
@@ -242,8 +245,9 @@ export function fake(on: On, w: World): void {
     return { value: { isCopied: true } } as never
   })
   on('prompt.fill', (_$, e) => {
+    if (w.composer !== 'ok') return { isFilled: false, refusal: w.composer } as never
     w.filled.push(e.text)
-    return { value: { isFilled: true, text: e.text, cursor: e.text.length } } as never
+    return { isFilled: true } as never
   })
   on('fs.read', (_$, e) => {
     const text = w.disk[e.path.replace(/\\/g, '/')]
@@ -293,7 +297,7 @@ export function fake(on: On, w: World): void {
     if (!isArchon(w, argv[0] ?? '')) throw new Error(`ENOENT: Command '${argv[0]}' not found or is in an unsafe location (current directory)`)
     return cli(w, argv, held)
   })
-  on('process.spawn', async function* (_$, e) {
+  on('process.spawn', async function* (_$, e, next) {
     const argv = [...e.argv]
     w.spawned.push(argv)
     const id = argv[3] ?? ''
@@ -320,7 +324,12 @@ export function fake(on: On, w: World): void {
           isEnded = true
           return { value: { code: feed.code, signal: null } }
         }
-        await new Promise<void>(resolve => (feed.wake = resolve))
+        // A child killed by the plugin (its loop left, the module unloaded) ends here.
+        if (next.signal.aborted) return { value: { code: null, signal: 'SIGTERM' } }
+        await new Promise<void>(resolve => {
+          feed.wake = resolve
+          next.signal.addEventListener('abort', () => resolve(), { once: true })
+        })
         feed.wake = undefined
       }
     } finally {
