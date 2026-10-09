@@ -133,7 +133,7 @@ function asks(sentence: string): boolean {
 }
 
 /** Whether `sentence` asks for a pass/fail verdict on a test or a check. */
-function asksForVerdict(sentence: string): boolean {
+function isVerdictQuestion(sentence: string): boolean {
   return (asks(sentence) && PASS_OR_FAIL.test(sentence)) || DID_IT_PASS.test(sentence) || TYPE_PASS.test(sentence)
 }
 
@@ -162,13 +162,13 @@ export function readAnswer(answer: string): Reading {
   const closing = closingSentences(text)
   const isQuestion = closing.some(sentence => asks(sentence.text))
   // A one-word code span is read as its word here only, so what counts as a question is unchanged.
-  const isVerdict = closingSentences(text.replace(ONE_WORD_CODE, '$1')).some(sentence => asksForVerdict(sentence.text))
+  const asksForVerdict = closingSentences(text.replace(ONE_WORD_CODE, '$1')).some(sentence => isVerdictQuestion(sentence.text))
   return {
     isQuestion,
-    asksForVerdict: isVerdict,
+    asksForVerdict,
     hasRecommendation: recommends(text),
     // A test's numbered lines are its steps, not choices: a verdict answers it.
-    options: isQuestion && !isVerdict && asksToChoose(closing) ? findOptions(text) : [],
+    options: isQuestion && !asksForVerdict && asksToChoose(closing) ? findOptions(text) : [],
   }
 }
 
