@@ -1224,7 +1224,8 @@ test('at the narrowest pane the pinned section fits, its long titles cut', async
     expect(Array.from(title).length + 1 + 'unpin'.length).toBeLessThanOrEqual(15)
     const next = (await pane.find({ key: 'pin-next' }))?.text ?? ''
     expect(next.startsWith('next: ')).toBe(true)
-    expect(Array.from(next).length).toBeLessThanOrEqual(15)
+    expect(await pane.find({ type: 'Text', text: 'decisi…' })).toBeDefined()
+    expect(Array.from(next).length + 1 + 'decisi…'.length).toBeLessThanOrEqual(15)
     expect(await pane.find({ key: 'work-next' })).toBeDefined()
     await pane.unmount()
   }

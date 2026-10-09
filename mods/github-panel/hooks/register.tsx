@@ -409,6 +409,8 @@ export const register: Register = (on, options) => {
     const isFillBeside = 2 + MIN_DETAIL + 1 + fillsWidth(config.fills) <= width
     const pin = wayfinder === undefined ? null : current.pin
     const map = pin === null ? undefined : frontier(pin.subIssues)
+    // The next ticket's type takes at most half its row, so the row fits the narrowest pane.
+    const nextType = fit(map?.next?.type ?? '', Math.floor(room / 2))
 
     return (
       <Box flexDirection="column" width={width}>
@@ -448,10 +450,10 @@ export const register: Register = (on, options) => {
                   <Button
                     key="pin-next"
                     plain
-                    label={fit(`next: ${map.next.title}`, map.next.type === '' ? room : Math.max(8, room - map.next.type.length - 1))}
+                    label={fit(`next: ${map.next.title}`, nextType === '' ? room : room - Array.from(nextType).length - 1)}
                     onPress={() => void openOnGitHub($, ['issue', 'view', String(map.next?.number)]).catch(report($))}
                   />
-                  {map.next.type !== '' && <Text dimColor wrap="truncate-end">{map.next.type}</Text>}
+                  {nextType !== '' && <Text dimColor>{nextType}</Text>}
                 </Box>
               ))}
             {(pin.subIssues.length === 0 || map.next !== undefined) && pin.url !== '' && (
