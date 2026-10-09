@@ -14,6 +14,9 @@ const OPTION_LINE =
 
 const ASKING = /\b(which|would you like|should i|do you want|shall i|let me know|prefer|choose|pick|ok to|okay to|go ahead)\b/i
 
+/** Asking for a verdict by setting pass against fail: "Pass or fail?", "passed/failed". */
+const PASS_OR_FAIL = /\bpass(?:ed|es)?\s*(?:\/|,|\bor\b)\s*fail(?:ed|s)?\b/i
+
 /** A `?` that ends a word, as a question's does. The one in `/search?q=mods` or `a?.b` does not. */
 const QUESTION_MARK = /\?(?!\.?\w)/
 
@@ -142,6 +145,7 @@ export function readAnswer(answer: string): Reading {
   const isQuestion = closing.some(sentence => asks(sentence.text))
   return {
     isQuestion,
+    asksForVerdict: closing.some(sentence => asks(sentence.text) && PASS_OR_FAIL.test(sentence.text)),
     hasRecommendation: recommends(text),
     options: isQuestion && asksToChoose(closing) ? findOptions(text) : [],
   }

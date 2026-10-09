@@ -4,6 +4,8 @@ export type ReplyOption = { marker: string; label: string }
 /** What the last answer asked for, as far as the band can tell. */
 export type Reading = {
   isQuestion: boolean
+  /** Whether it asks for a pass/fail verdict on a test or a check, as a UAT step does. */
+  asksForVerdict: boolean
   hasRecommendation: boolean
   options: ReplyOption[]
 }
