@@ -7,6 +7,7 @@ import {
   fit,
   fixPrompt,
   foldChecks,
+  frontier,
   issueDetail,
   LOG_LINES,
   logTail,
@@ -14,6 +15,8 @@ import {
   parseConfig,
   parseIssues,
   parsePrs,
+  parsePin,
+  pinArgument,
   prDetail,
   watchChecks,
 } from '../hooks/parse'
@@ -808,4 +811,106 @@ test('at the narrowest pane the fill buttons still show and fit', async ($, on) 
     await pane.unmount()
   }
   expect(filled).toEqual(['/wayfinder https://github.com/octo/widgets/issues/7', '/wayfinder https://github.com/octo/widgets/issues/7'])
+})
+
+/** The wayfinder skill's text as the engine expands `/wayfinder <args>`: the skill's body, then its arguments. */
+const skillText = (args: string) => `Wayfinding is about finding that way.\r\n\r\nARGUMENTS: noted in the body\r\n\n\nARGUMENTS: ${args}`
+
+test('pinArgument reads the issue from the ARGUMENTS line: a URL, #N or N of the pane repo, nothing else', () => {
+  expect(pinArgument(skillText('https://github.com/octo/widgets/issues/58'), 'octo/widgets')).toBe(58)
+  expect(pinArgument(skillText('https://github.com/Octo/Widgets/issues/58#issuecomment-1'), 'octo/widgets')).toBe(58)
+  expect(pinArgument(skillText('#58'), 'octo/widgets')).toBe(58)
+  expect(pinArgument(skillText('58 and then some prose'), 'octo/widgets')).toBe(58)
+  expect(pinArgument(skillText('https://github.com/octo/other/issues/58'), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText('https://github.com/octo/widgets/pull/58'), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText('plan the new onboarding flow'), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText('#0'), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText(''), 'octo/widgets')).toBeUndefined()
+  expect(pinArgument('Wayfinding is about finding that way.', 'octo/widgets')).toBeUndefined()
+  expect(pinArgument(skillText('58'), '')).toBeUndefined()
+})
+
+type Ticket = { number: number; title?: string; state?: string; assignees?: number; labels?: string[]; blockers?: string[] }
+
+/** `gh api graphql`'s answer for pinned issue #58 of octo/widgets, with its sub-issues in GitHub's order. */
+function pinReply(tickets: readonly Ticket[], state = 'OPEN'): string {
+  return JSON.stringify({
+    data: {
+      repository: {
+        issue: {
+          number: 58,
+          title: 'Chart the onboarding flow',
+          state,
+          url: 'https://github.com/octo/widgets/issues/58',
+          subIssues: {
+            nodes: tickets.map(ticket => ({
+              number: ticket.number,
+              title: ticket.title ?? `Ticket ${ticket.number}`,
+              state: ticket.state ?? 'OPEN',
+              url: `https://github.com/octo/widgets/issues/${ticket.number}`,
+              assignees: { totalCount: ticket.assignees ?? 0 },
+              labels: { nodes: (ticket.labels ?? []).map(name => ({ name })) },
+              blockedBy: { nodes: (ticket.blockers ?? []).map(blocker => ({ state: blocker })) },
+            })),
+          },
+        },
+      },
+    },
+  })
+}
+
+test('parsePin reads the pinned issue and its sub-issues in order; an issue that does not resolve is null', () => {
+  const pin = parsePin(pinReply([
+    { number: 61, state: 'CLOSED' },
+    { number: 60, assignees: 1, labels: ['wayfinder:decision', 'needs-triage'], blockers: ['CLOSED', 'OPEN'] },
+  ]))
+  expect(pin).toEqual({
+    number: 58,
+    title: 'Chart the onboarding flow',
+    url: 'https://github.com/octo/widgets/issues/58',
+    isOpen: true,
+    subIssues: [
+      { number: 61, title: 'Ticket 61', url: 'https://github.com/octo/widgets/issues/61', isOpen: false, isAssigned: false, labels: [], isBlocked: false },
+      {
+        number: 60,
+        title: 'Ticket 60',
+        url: 'https://github.com/octo/widgets/issues/60',
+        isOpen: true,
+        isAssigned: true,
+        labels: ['wayfinder:decision', 'needs-triage'],
+        isBlocked: true,
+      },
+    ],
+  })
+  expect(parsePin(pinReply([], 'CLOSED'))?.isOpen).toBe(false)
+  const missing = JSON.stringify({
+    data: { repository: { issue: null } },
+    errors: [{ type: 'NOT_FOUND', path: ['repository', 'issue'], message: 'Could not resolve to an Issue with the number of 99999.' }],
+  })
+  expect(parsePin(missing)).toBeNull()
+  expect(() => parsePin('{"data":{"repository":null}}')).toThrow()
+  expect(() => parsePin('[]')).toThrow()
+})
+
+const ticketsOf = (tickets: readonly Ticket[]) => parsePin(pinReply(tickets))?.subIssues ?? []
+
+test('frontier counts each sub-issue once and takes the first takeable one in sub-issue order, with its type', () => {
+  const tickets = ticketsOf([
+    { number: 70, state: 'CLOSED', blockers: ['OPEN'] },
+    { number: 69, assignees: 2 },
+    { number: 68, assignees: 1, blockers: ['OPEN'] },
+    { number: 67, blockers: ['CLOSED', 'OPEN'] },
+    { number: 66, title: 'Pick the store', blockers: ['CLOSED'], labels: ['needs-triage', 'wayfinder:decision'] },
+    { number: 65, title: 'Lower number, later in order' },
+  ])
+  expect(frontier(tickets)).toEqual({
+    done: 1,
+    takeable: 2,
+    claimed: 1,
+    blocked: 2,
+    next: { number: 66, title: 'Pick the store', url: 'https://github.com/octo/widgets/issues/66', type: 'decision' },
+  })
+  expect(frontier(ticketsOf([{ number: 65 }])).next).toEqual({ number: 65, title: 'Ticket 65', url: 'https://github.com/octo/widgets/issues/65', type: '' })
+  expect(frontier(ticketsOf([{ number: 69, assignees: 1 }, { number: 70, state: 'CLOSED' }]))).toEqual({ done: 1, takeable: 0, claimed: 1, blocked: 0 })
+  expect(frontier([])).toEqual({ done: 0, takeable: 0, claimed: 0, blocked: 0 })
 })
