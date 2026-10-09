@@ -6,11 +6,20 @@ import { currentPreset, findPreset, parseConfig, usage } from './presets'
 import type { Config } from './presets'
 
 const LABEL = 'Preset:'
+const HEADLESS = 'model-effort-presets switches nothing in a headless session.'
 
 const current = atom({ plugin: 'model-effort-presets', key: 'current' } as const, { model: '', effort: null } as Current)
 
 function report($: EngineInterface): (error: unknown) => void {
   return error => $.ui.toast(`model-effort-presets: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+/**
+ * Whether any surface shows the session right now. Asked before each switch
+ * and each drawing, never kept. Each mod carries its own copy (ADR-0001).
+ */
+async function isShown($: EngineInterface): Promise<boolean> {
+  return (await $.session.surfaces()).length > 0
 }
 
 /** Switches the session to the preset: its model, then its effort, each through the built-in command. */
@@ -30,13 +39,14 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({ name: 'preset', description: 'Switch the model and the effort to a preset', argumentHint: config.presets.map(preset => preset.name).join('|') })
-    if (rejected !== undefined) $.ui.toast(rejected)
+    if (rejected !== undefined && (await isShown($))) $.ui.toast(rejected)
     const model = await $.session.model()
     await update($, current, () => ({ model, effort: null }))
     return started
   })
 
   on('command.run', { command: 'preset' }, async ($, e) => {
+    if (!(await isShown($))) return { text: HEADLESS }
     if (rejected !== undefined) return { text: rejected }
     const preset = findPreset(config.presets, e.args)
     if (preset === undefined) return { text: usage(config.presets) }
@@ -48,7 +58,7 @@ export const register: Register = (on, options) => {
   on('command.run', async ($, e, next) => {
     const preset = config.commands.get(e.command)
     // A mod's run, this one's own among them, is not the person sending it.
-    if (preset === undefined || e.origin.kind === 'plugin') return next(e)
+    if (preset === undefined || e.origin.kind === 'plugin' || !(await isShown($))) return next(e)
     // Held until the preset is on, as /preset's switch is: then sent again as the person typed it.
     $.clock.after(0, () => {
       void (async () => {
@@ -61,7 +71,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const beneath = await next(e)
-    if (config.presets.length === 0 || e.props.hasSurvey || e.props.view.agentId !== undefined) return beneath
+    if (config.presets.length === 0 || e.props.hasSurvey || e.props.view.agentId !== undefined || !(await isShown($))) return beneath
     const marked = currentPreset(config.presets, await read($, current))
     const { Box, Text, Button } = $.ui.resolve(e)
 

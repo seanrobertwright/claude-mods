@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { On, RenderSurface } from 'claude-code'
 
 import { parseConfig } from '../hooks/presets'
 
@@ -29,7 +29,7 @@ const IDS: Readonly<Record<string, string>> = {
  * The engine beneath the mod: its own band, and the built-in /model and /effort,
  * which record what they were asked and set the session's model as core does.
  */
-function engineBeneath(on: On, startModel = IDS.sonnet ?? ''): { ran: string[]; toasts: string[] } {
+function engineBeneath(on: On, { model: startModel = IDS.sonnet ?? '', surfaces = ['terminal'] }: { model?: string; surfaces?: readonly RenderSurface[] } = {}): { ran: string[]; toasts: string[] } {
   const ran: string[] = []
   const toasts: string[] = []
   let model = startModel
@@ -39,6 +39,7 @@ function engineBeneath(on: On, startModel = IDS.sonnet ?? ''): { ran: string[]; 
     return { value: undefined }
   })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: surfaces }))
   on('session.model', () => ({ value: model }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('command.run', { command: 'model' }, (_$, e) => {
@@ -79,7 +80,7 @@ test('pressing plan sets its model and effort, and the band marks plan', async (
 })
 
 test('/preset execute switches to execute once it has answered, and /preset nope shows the usage line', async ($, on) => {
-  const { ran } = engineBeneath(on, IDS.opus)
+  const { ran } = engineBeneath(on, { model: IDS.opus })
   const clock = mock.clock(on)
   await $.session.start(INTERACTIVE)
   const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND })
@@ -152,4 +153,20 @@ test('the settings are parsed at load, and each malformed one is rejected with w
     [{ presets: 'plan=opus/high', commands: 'model=plan' }, '/model cannot be mapped: /model, /effort and /preset are how a preset switches.'],
   ]
   for (const [options, problem] of problems) expect(parseConfig(options), JSON.stringify(options)).toEqual({ kind: 'rejected', problem })
+})
+
+test('in a headless session there is no band and no switching', { options: { commands: 'lril:plan-feature=plan' } }, async ($, on) => {
+  const { ran, toasts } = engineBeneath(on, { surfaces: [] })
+  const clock = mock.clock(on)
+  await $.session.start({ cwd: '/work/repo', surface: null, isInteractive: false })
+
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Text', text: 'Preset:' })).toBeUndefined()
+  await band.unmount()
+
+  expect((await $.command.run({ command: 'preset', args: 'plan', ...COMPOSER })).text).toBe('model-effort-presets switches nothing in a headless session.')
+  await $.command.run({ command: 'lril:plan-feature', args: 'presets', ...COMPOSER })
+  await clock.settle()
+  expect(ran).toEqual(['/lril:plan-feature presets'])
+  expect(toasts).toEqual([])
 })
