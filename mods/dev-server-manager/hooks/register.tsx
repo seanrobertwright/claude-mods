@@ -1,11 +1,12 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, HookStream, ProcessSpawnChunk, ProcessSpawnResult, Register } from 'claude-code'
+import type { EngineInterface, HookStream, ProcessSpawnChunk, ProcessSpawnResult, Register, Timer } from 'claude-code'
 
 import type { OutputLine, PaneView, PeerEntry, RowDef, Rows, ServerRun } from '../types'
 import { ADD_USAGE, parseAdd } from './add'
 import type { AddedServer } from './add'
 import { detectRows, LOCKFILES, parseScripts } from './detect'
 import { endWords, errorLines, errorPrompt, findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
+import { COMPOSE_ID, composeText, otherSessions, peerKey, peerPrefix, REFRESH_MS } from './peers'
 import { checkPort } from './port'
 import { lineCount, OUTPUT_SPEC, OUTPUT_TOOL, outputText, RESTART_SPEC, RESTART_TOOL, RESTART_WAIT_MS } from './tools'
 import type { ToolServer } from './tools'
@@ -56,6 +57,8 @@ let pendingToasts: string[] = []
 let shownStatus: string | undefined
 // Claude's restarts waiting for a run's URL or end, by server.
 const waiters = new Map<string, (() => void)[]>()
+// Refreshes this session's store entries and reads the other sessions'; dies with the module.
+let ticker: Timer | undefined
 
 type Config = { isRestartOn: boolean; scripts: string[] }
 
@@ -204,6 +207,7 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
           const movedFrom = known > 0 && known !== found.port ? known : 0
           await setRun($, name, run => ({ ...run, status: 'running', url: found.url, movedFrom }))
           await learnPort($, name, found.port)
+          await recordRunning($, name)
           wake(name)
         }
       }
@@ -211,7 +215,9 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
   } catch (error) {
     if (live.get(name) === entry) live.delete(name)
     if (!entry.isStopping) wake(name)
-    if (entry.isStopping || hasStarted) return
+    if (entry.isStopping) return
+    await forgetRunning($, name)
+    if (hasStarted) return
     // A command that cannot start rejects the first pull: its message is the row's words.
     const message = (error instanceof Error ? error.message : String(error)).replace(/^dev-server-manager: \$\.process\.spawn: /, '')
     await setRun($, name, run => ({ ...run, status: 'stopped', problem: message }))
@@ -220,6 +226,7 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
   if (live.get(name) === entry) live.delete(name)
   if (entry.isStopping) return
   wake(name)
+  await forgetRunning($, name)
   const at = await $.clock.now()
   const rest = (['stdout', 'stderr'] as const).filter(stream => pending[stream] !== '')
   await addOutput($, name, rest.map(stream => ({ stream, text: stripAnsi(pending[stream]), at })))
@@ -228,6 +235,57 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
   if (code === 0 && signal === null) {
     await setRun($, name, run => ({ ...run, status: 'exited', endedAt: at, lastExit: 0, hasNote: false }))
   } else await die($, name, code, signal, at)
+}
+
+/** Records a server this session runs in the shared store, for the project's other sessions. */
+async function recordRunning($: EngineInterface, name: string): Promise<void> {
+  const def = await defOf($, name)
+  const run = (await read($, runsAtom))[name]
+  if (def === undefined || run === undefined || !isUp(run.status)) return
+  const port = Number(/:(\d+)$/.exec(run.url)?.[1] ?? def.port)
+  const entry: PeerEntry = { sessionId: await $.session.id(), name, command: commandText(def), port, url: run.url, refreshedAt: await $.clock.now() }
+  await $.store.set(peerKey(await $.session.root(), name), entry)
+}
+
+/** Clears this session's entry for a server that no longer runs. */
+async function forgetRunning($: EngineInterface, name: string): Promise<void> {
+  const key = peerKey(await $.session.root(), name)
+  const entry = (await $.store.get(key).catch(() => undefined)) as PeerEntry | undefined
+  if (entry?.sessionId === (await $.session.id())) await $.store.delete(key)
+}
+
+/** The servers the project's other sessions run, from their fresh store entries. */
+async function readPeers($: EngineInterface): Promise<PeerEntry[]> {
+  const prefix = peerPrefix(await $.session.root())
+  const keys = (await $.store.keys().catch(() => [])).filter(key => key.startsWith(prefix))
+  const values = await Promise.all(keys.map(key => $.store.get(key).catch(() => undefined)))
+  return otherSessions(values, await $.session.id(), await $.clock.now())
+}
+
+/** Every 30 s: this session's entries refreshed, the other sessions' read again (which redraws the pane's times too). */
+async function refresh($: EngineInterface): Promise<void> {
+  for (const name of live.keys()) await recordRunning($, name)
+  const peers = await readPeers($)
+  await update($, peersAtom, () => peers)
+}
+
+function startTicker($: EngineInterface): void {
+  ticker?.cancel()
+  ticker = $.clock.every(REFRESH_MS, () => void refresh($).catch(report($)))
+}
+
+/** The system prompt's section on what runs, here and in the project's other sessions; none while nothing runs. */
+async function composeSection($: EngineInterface): Promise<string | undefined> {
+  const { defs } = await read($, rowsAtom)
+  const runs = await read($, runsAtom)
+  const own = defs.flatMap(def => {
+    const run = runs[def.name]
+    return run !== undefined && isUp(run.status) ? [{ name: def.name, command: commandText(def), url: run.url, state: run.status }] : []
+  })
+  const others = (await readPeers($))
+    .filter(peer => !own.some(server => server.name === peer.name))
+    .map(peer => ({ name: peer.name, command: peer.command, url: peer.url, state: 'running in another session' }))
+  return composeText([...own, ...others])
 }
 
 /** Marks the lines a death picked as its error in the kept output. */
@@ -350,6 +408,7 @@ async function start($: EngineInterface, name: string, reason: StartReason): Pro
   }
   live.set(name, entry)
   void follow($, name, entry).catch(report($))
+  await recordRunning($, name)
   await offerTools($, name)
 }
 
@@ -388,6 +447,7 @@ async function stop($: EngineInterface, name: string): Promise<void> {
   live.delete(name)
   stoppedByMod.add(name)
   await entry.stream.return(undefined as never).catch(() => undefined)
+  await forgetRunning($, name)
   const now = await $.clock.now()
   await setRun($, name, run => ({ ...run, status: 'stopped', endedAt: now, hasNote: false, crashes: [], restarts: [], isGaveUp: false }))
 }
@@ -572,8 +632,26 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({ name: COMMAND, description: 'Open the dev servers pane: start, stop and watch the project dev servers' })
     await loadRows($, config)
+    await update($, peersAtom, () => [])
     await bringBack($)
+    const peers = await readPeers($)
+    await update($, peersAtom, () => peers)
+    if (await isShown($)) startTicker($)
     return started
+  })
+
+  on('session.attach', async ($, e, next) => {
+    const attached = await next(e)
+    startTicker($)
+    return attached
+  })
+
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    // A headless session hears nothing of the servers.
+    if (e.surfaces.length === 0) return composed
+    const text = await composeSection($)
+    return text === undefined ? composed : { ...composed, sections: [...composed.sections, { id: COMPOSE_ID, text, scope: 'session' as const }] }
   })
 
   on('session.end', async ($, e, next) => {
@@ -593,6 +671,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: COMMAND }, async ($, e) => {
     if (e.args.trim() !== '') return { text: await runSubcommand($, config, e.args) }
     await loadRows($, config)
+    await refresh($)
     await $.ui.open({ id: PANE, title: TITLE, focus: true })
     return { text: 'Dev servers pane opened.' }
   })
