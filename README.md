@@ -28,7 +28,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🧭 [whats-next](#-whats-next) | Pane in the side panel | Lists the next steps of your workflow, each with a prompt ready to paste |
 | ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered and the next wayfinder ticket |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
-| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt |
+| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt; a toast when your branch's checks turn green or red |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
@@ -191,7 +191,7 @@ Pull requests 2                        all
 #41 Add a drift check for copied guards
   draft · @octocat
 #40 Bring the asked pane to the front
-  @hubot
+  ✗ checks failing · @hubot           fix
 
 Issues 2                               all
 #39 Share the headless-session check
@@ -203,6 +203,12 @@ Issues 2                               all
 - An issue blocked by an open issue has a red line under it. Hover it to see what blocks it.
 - In a narrow pane the `implement` and `wayfinder` buttons take a line of their own.
 - The lists refresh on a timer, after a turn once they are a minute old, and on `r`.
+- The pull request of the branch you are on is watched: when its checks turn green or red, a toast says "Checks passed on #40" or "Checks failed on #40".
+  The first refresh, and the first after you switch branch, only notes where the checks stand.
+- While that pull request's checks fail, its row has a `fix` button.
+  It fills the prompt box with the failed checks' names, the last 40 lines of the failed run's log, and "Fix it."
+  Nothing is sent: you read it and send it yourself.
+  The log is fetched only when you press `fix`; when gh cannot fetch it, such as while the run is still going, the prompt holds the names alone.
 
 | Command or key | What it does |
 | --- | --- |
@@ -210,6 +216,7 @@ Issues 2                               all
 | `r` | Refresh |
 | `all` | Open the whole list on GitHub |
 | `implement`, `wayfinder` | Fill the command and the issue's URL into the prompt, without sending it |
+| `fix` | Fill a request to fix the current branch's failing checks into the prompt box |
 
 | Setting | Key | Default | Meaning |
 | --- | --- | --- | --- |

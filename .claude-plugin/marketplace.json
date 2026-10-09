@@ -25,7 +25,7 @@
     {
       "name": "github-panel",
       "source": "./mods/github-panel",
-      "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser, or fill /implement or /wayfinder with an issue."
+      "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser, or fill /implement or /wayfinder with an issue. A toast when your branch's pull request turns green or red, and a button that fills a fix on red."
     },
     {
       "name": "shelf",
