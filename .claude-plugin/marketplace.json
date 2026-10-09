@@ -88,6 +88,11 @@
       "description": "Runs the project's checks from a band button, and before Claude's git commit, and hands back only the failures."
     },
     {
+      "name": "chrome-tab-self-heal",
+      "source": "./mods/chrome-tab-self-heal",
+      "description": "When a Claude in Chrome tool says its tab is gone, tells Claude to fetch the current tab IDs before trying again."
+    },
+    {
       "name": "session-auto-namer",
       "source": "./mods/session-auto-namer",
       "description": "After a session's first prompt, a button above the prompt suggests a name for the session, such as an issue's number and title; one press renames it."
