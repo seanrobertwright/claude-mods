@@ -8,7 +8,7 @@ import { detectRows, LOCKFILES, parseScripts } from './detect'
 import { endWords, errorLines, errorPrompt, findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
 import { checkPort } from './port'
 import type { PortCheck } from './port'
-import { commandText, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS } from './servers'
+import { commandText, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS, statusLine } from './servers'
 import { renderPane } from './view'
 import type { PaneActions } from './view'
 
@@ -49,6 +49,8 @@ let isFlushPending = false
 const stoppedByMod = new Set<string>()
 // Death toasts raised in this tick, shown as one.
 let pendingToasts: string[] = []
+// The status line last shown, so an unchanged one is not set again.
+let shownStatus: string | undefined
 
 type Config = { isRestartOn: boolean; scripts: string[] }
 
@@ -136,6 +138,24 @@ async function flushOutput($: EngineInterface): Promise<void> {
 
 async function setRun($: EngineInterface, name: string, change: (run: ServerRun) => ServerRun): Promise<void> {
   await update($, runsAtom, runs => ({ ...runs, [name]: change(runs[name] ?? newRun()) }))
+  await showStatus($)
+}
+
+/** The status line from the servers as they stand, in row order; none in a headless session. */
+async function showStatus($: EngineInterface): Promise<void> {
+  if (!(await isShown($))) return
+  const runs = await read($, runsAtom)
+  const { defs } = await read($, rowsAtom)
+  const entries = defs.flatMap(def => {
+    const run = runs[def.name]
+    if (run === undefined || !(isUp(run.status) || run.status === 'crashed')) return []
+    const port = Number(/:(\d+)$/.exec(run.url)?.[1] ?? def.port)
+    return [{ name: def.name, port, isCrashed: run.status === 'crashed' }]
+  })
+  const line = statusLine(entries)
+  if (line === shownStatus) return
+  shownStatus = line
+  $.ui.status(line)
 }
 
 async function defOf($: EngineInterface, name: string): Promise<RowDef | undefined> {

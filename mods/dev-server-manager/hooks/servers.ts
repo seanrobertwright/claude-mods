@@ -158,3 +158,36 @@ export function portOf(row: Row): number {
 export function commandText(def: RowDef): string {
   return def.argv.filter(word => word !== '').map(word => (/\s/.test(word) ? `"${word}"` : word)).join(' ')
 }
+
+/** The status line's cut: about this many characters. */
+export const STATUS_CHARS = 60
+
+/** One server as the status line names it. */
+export type StatusEntry = { name: string; port: number; isCrashed: boolean }
+
+/**
+ * The mod's status line while any of its servers runs: `dev: web :5173 · api :8000`,
+ * a crashed one as `web crashed`. Past about 60 characters the later servers'
+ * ports drop first, then the running ones are counted; a crashed name stays.
+ * Undefined when nothing runs, which clears it.
+ */
+export function statusLine(entries: readonly StatusEntry[]): string | undefined {
+  const running = entries.filter(entry => !entry.isCrashed)
+  if (running.length === 0) return undefined
+  const crashed = entries.filter(entry => entry.isCrashed).map(entry => `${entry.name} crashed`)
+  let withPorts = running.filter(entry => entry.port > 0).length
+  for (;;) {
+    let left = withPorts
+    const parts = entries.map(entry => {
+      if (entry.isCrashed) return `${entry.name} crashed`
+      if (entry.port === 0) return entry.name
+      left -= 1
+      return left >= 0 ? `${entry.name} :${entry.port}` : entry.name
+    })
+    const line = `dev: ${parts.join(' · ')}`
+    if (line.length <= STATUS_CHARS) return line
+    if (withPorts === 0) break
+    withPorts -= 1
+  }
+  return `dev: ${[`${running.length} running`, ...crashed].join(' · ')}`
+}
