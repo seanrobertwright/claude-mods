@@ -138,8 +138,9 @@ export function defaultBranch(refs: string): string {
 /** The refs `defaultBranch` reads. */
 export const DEFAULT_BRANCH_REFS = [`${REMOTE_DEFAULT}HEAD`, 'refs/heads/main', 'refs/heads/master']
 
-/** The branches the call would change when run on `current`. */
-export function branchesChanged(call: GitCall, current: string): string[] {
-  if (call.action === 'commit' || call.destinations.length === 0) return [current]
-  return call.destinations.map(branch => (branch === 'HEAD' ? current : branch))
+/** The branches the call would change when run on `current`: undefined for a detached HEAD, which is no branch. */
+export function branchesChanged(call: GitCall, current: string | undefined): string[] {
+  const head = current === undefined ? [] : [current]
+  if (call.action === 'commit' || call.destinations.length === 0) return head
+  return call.destinations.flatMap(branch => (branch === 'HEAD' ? head : [branch]))
 }

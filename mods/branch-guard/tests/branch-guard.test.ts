@@ -104,6 +104,12 @@ test('branchesChanged is the current branch, unless a push names where it goes',
   expect(branchesChanged({ action: 'push', dirs: [], destinations: ['HEAD', 'main'] }, 'feat')).toEqual(['feat', 'main'])
 })
 
+test('branchesChanged on a detached HEAD is only the branches a push names', () => {
+  expect(branchesChanged({ action: 'commit', dirs: [] }, undefined)).toEqual([])
+  expect(branchesChanged({ action: 'push', dirs: [], destinations: [] }, undefined)).toEqual([])
+  expect(branchesChanged({ action: 'push', dirs: [], destinations: ['HEAD', 'main'] }, undefined)).toEqual(['main'])
+})
+
 test('on the default branch a commit is asked about, and "Go ahead" lets it run', async ($, on) => {
   const world = engineBeneath(on)
   world.answers.push('Go ahead on main')
@@ -187,6 +193,44 @@ test('when git cannot say the branch the call goes on untouched', async ($, on) 
   await $.tool.call({ tool: 'Bash', command: 'git commit -m y' })
   expect(world.asked).toEqual([])
   expect(world.ran).toEqual(['git commit -m x', 'git commit -m y'])
+})
+
+test('on a detached HEAD a dismissed push to the default branch is refused with a reason that names the branch', async ($, on) => {
+  const world = engineBeneath(on)
+  world.head = undefined
+  const ran = await $.tool.call({ tool: 'Bash', command: 'git push origin HEAD:main' })
+  expect(world.asked).toEqual(['Claude is about to push to main, the default branch. Create a branch first?'])
+  expect(ran.deny).toContain('main is the default branch')
+  expect(world.ran).toEqual([])
+})
+
+test('on a detached HEAD a push naming the default branch is asked about, and "Go ahead" lets it run', async ($, on) => {
+  const world = engineBeneath(on)
+  world.head = undefined
+  world.answers.push('Go ahead on main')
+  const ran = await $.tool.call({ tool: 'PowerShell', command: 'git push origin main' })
+  expect(world.asked).toEqual(['Claude is about to push to main, the default branch. Create a branch first?'])
+  expect(ran.deny).toBeUndefined()
+  expect(world.ran).toEqual(['git push origin main'])
+})
+
+test('on a detached HEAD a commit, a bare push and a push of HEAD run unasked', async ($, on) => {
+  const world = engineBeneath(on)
+  world.head = undefined
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m x' })
+  await $.tool.call({ tool: 'Bash', command: 'git push' })
+  await $.tool.call({ tool: 'Bash', command: 'git push origin HEAD' })
+  expect(world.asked).toEqual([])
+  expect(world.ran).toEqual(['git commit -m x', 'git push', 'git push origin HEAD'])
+})
+
+test('in a folder git cannot read even a push naming the default branch goes on unasked', async ($, on) => {
+  const world = engineBeneath(on)
+  world.isRepo = false
+  world.head = undefined
+  await $.tool.call({ tool: 'Bash', command: 'git push origin HEAD:main' })
+  expect(world.asked).toEqual([])
+  expect(world.ran).toEqual(['git push origin HEAD:main'])
 })
 
 test('in a headless session nothing is asked, git is not run, and every call goes on', async ($, on) => {

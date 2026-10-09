@@ -17,15 +17,18 @@ async function git($: EngineInterface, call: GitCall, args: readonly string[]): 
   return run === undefined || run.exitCode !== 0 ? undefined : run.stdout
 }
 
-/** The default branch when the call would change it; undefined when it would not, or git cannot say the branch. */
+/**
+ * The default branch when the call would change it; undefined when it would not, or git cannot read the folder.
+ * A readable folder whose HEAD names no branch is a detached HEAD: only a push naming the branch changes it.
+ */
 async function guardedBranch($: EngineInterface, call: GitCall): Promise<string | undefined> {
   const [current, refs] = await Promise.all([
     git($, call, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
     git($, call, ['for-each-ref', '--format=%(refname) %(symref)', ...DEFAULT_BRANCH_REFS]),
   ])
-  if (current === undefined || refs === undefined) return undefined
+  if (refs === undefined) return undefined
   const branch = defaultBranch(refs)
-  return branchesChanged(call, current.trim()).includes(branch) ? branch : undefined
+  return branchesChanged(call, current?.trim()).includes(branch) ? branch : undefined
 }
 
 /** Undefined when the person lets the call go ahead on the branch, or why it is refused. */
