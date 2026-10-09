@@ -68,11 +68,6 @@ On the first session of the day, a band with yesterday's merged PRs, the open PR
 
 ## Guards
 
-### env-guard (rank 11, issue #63)
-
-A tool-call hook that blocks Read, Grep and `cat` on `.env*` and key files, and points the model to keypick instead.
-One of the three "small ones" offered and not chosen.
-
 ### pre-pr-claims-check (rank 22, issue #65)
 
 Blocks `gh pr create` while the diff holds `file:line` citations, "(PR #NN)" placeholders, "TODO fill in" or counts typed by hand: the bans in your global rules.
@@ -139,4 +134,5 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **auto-resume**: rank 5, picked by you.
 - **github-panel**: your own request in `e2d3b04d`, close to rank 18 above.
 - **branch-guard**: rank 10 (issue #62), one of the three "small ones" offered and not chosen. hud already showed the git state, so it adds only the question before a commit or push on the default branch.
+- **env-guard**: rank 11 (issue #63), one of the three "small ones" offered and not chosen. It asks before a read rather than blocking it, and names keypick only when that skill is installed.
 - **bash-quoting-rescue**: rank 19 (issue #64). It asks the shell's own parser, bash or PowerShell, whether a command parses, instead of counting quotes.

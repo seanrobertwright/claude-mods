@@ -48,6 +48,11 @@
       "description": "Before Claude commits or pushes on the default branch, asks you whether to create a branch first."
     },
     {
+      "name": "env-guard",
+      "source": "./mods/env-guard",
+      "description": "Asks you before Claude reads a .env or key file, and refuses when no one is there to answer."
+    },
+    {
       "name": "bash-quoting-rescue",
       "source": "./mods/bash-quoting-rescue",
       "description": "Before a shell command runs, parses it with the shell's own parser and refuses one that does not parse, such as an unclosed quote or heredoc, so none of it runs."
