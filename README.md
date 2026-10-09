@@ -36,6 +36,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
 | ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
+| 🩹 [chrome-tab-self-heal](#-chrome-tab-self-heal) | Note after a browser tool's error | When a Claude in Chrome tab is gone, tells Claude to fetch the current tab IDs before it tries again |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
 
@@ -450,6 +451,25 @@ There is nothing to set: the dialog reads every mod's settings from Claude Code.
 
 **Needs:** nothing.
 
+### 🩹 chrome-tab-self-heal
+
+When a Claude in Chrome tab has been closed, Claude often tries again with the same tab ID and gets the same error.
+This mod adds one line after that error, for Claude to read:
+
+```text
+Tab 1786443 no longer exists
+Call tabs_context_mcp for the current tab IDs, then retry with one of them.
+```
+
+- It reacts to an error from a Claude in Chrome tool that says the tab no longer exists, that there is no tab with that ID, or that the tab ID is invalid.
+- The error itself reaches Claude word for word, and the line is added once.
+- Successful results, other errors, and the tools of every other MCP server pass unchanged. An error about a gone element or tab group is not about a gone tab, and Claude in Chrome already says what to do for those.
+- It does not retry for Claude: Claude makes the next call itself.
+
+There is nothing to set: once installed, it watches every session's Claude in Chrome tools.
+
+**Needs:** nothing. It acts only when the Claude in Chrome MCP server is connected.
+
 ## Quick start
 
 The fastest way is to let Claude do it. Paste this prompt into Claude Code:
@@ -482,6 +502,7 @@ claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
 claude plugin install hud@claude-mods
 claude plugin install mod-settings@claude-mods
+claude plugin install chrome-tab-self-heal@claude-mods
 ```
 
 To try a mod for one session only, with nothing installed:
@@ -498,7 +519,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 ## Configure the mods
 
 whats-next, quick-reply, auto-resume, github-panel, turn-chime and hud have settings, listed in each mod's section above with the key each one is stored under.
-shelf and sources are set up with their own commands, in the session; outputs and open-file-guard have nothing to set.
+shelf and sources are set up with their own commands, in the session; outputs, open-file-guard and chrome-tab-self-heal have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
 
