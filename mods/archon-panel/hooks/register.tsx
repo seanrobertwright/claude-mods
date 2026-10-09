@@ -82,6 +82,8 @@ let fileNotice = ''
 const furthest: Record<Tab, number> = { 'runs': 0, 'graph': 0, 'log': 0, 'archon-log': 0 }
 // Whether each log sits at its end, and so follows its tail as rows arrive.
 const atEnd: Record<'log' | 'archon-log', boolean> = { 'log': true, 'archon-log': true }
+// Whether the pane was in front when a tick or a draw last looked; undefined until one has.
+let wasInFront: boolean | undefined
 
 /**
  * Whether any surface shows the session right now. Asked before each action
@@ -200,7 +202,22 @@ function schedule($: EngineInterface, config: Config, ms: number): void {
 async function scheduleNext($: EngineInterface, config: Config): Promise<void> {
   const current = await read($, data)
   if (current.requirement.state !== 'ok') return stopPolling()
-  schedule($, config, interval(current.source, await isInFront($), hasLiveRun(current)))
+  const isFront = await isInFront($)
+  wasInFront = isFront
+  schedule($, config, interval(current.source, isFront, hasLiveRun(current)))
+}
+
+/**
+ * Loads at once when a draw finds the pane come forward since a tick or a
+ * draw last looked: no event fires when its tab is brought forward, and the
+ * tick it set while behind could be a minute off. A draw writes nothing, so
+ * the load starts from a timer of its own.
+ */
+async function loadIfForward($: EngineInterface, config: Config): Promise<void> {
+  const isFront = await isInFront($)
+  const was = wasInFront
+  wasInFront = isFront
+  if (was === false && isFront) $.clock.after(0, () => void load($, config).catch(report($)))
 }
 
 /** Whether a changed row's detail is worth reading: it is live, ended while this session watched, or picked. */
@@ -855,6 +872,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const { Box, Text } = ui
+    void loadIfForward($, config).catch(report($))
     const current = await read($, data)
     const shown = await read($, view)
     const line = requirementLine(current.requirement)

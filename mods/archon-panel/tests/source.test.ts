@@ -87,6 +87,33 @@ for (const tier of TIERS) {
   }
 }
 
+test('the pane brought forward loads at once, not at the next tick it set while behind', COLD, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const w = world({ rows: [row('mine-1')] })
+  fake(on, w)
+  await $.session.start(START)
+  await clock.settle()
+  // Another mod's tab in front, as the last tick saw it: the next one is 15 s off.
+  w.panes = [{ id: 'other', title: 'Other', isShown: true, isFocused: false, isPlaced: true }, { id: 'archon', title: 'Archon', isShown: false, isFocused: false, isPlaced: true }]
+  await clock.advance(2_000)
+  const pane = await $.ui.mount({ plugin: 'archon-panel', surface: 'terminal', component: 'Pane', requestId: 'archon', props: paneProps() })
+  await clock.settle()
+  const before = serverLists(w)
+
+  w.panes = IN_FRONT()
+  await pane.redraw()
+  await clock.settle()
+  expect(serverLists(w)).toBe(before + 1)
+  // Drawn again while still in front, it does not load again.
+  await pane.redraw()
+  await clock.settle()
+  expect(serverLists(w)).toBe(before + 1)
+  // A draw writes nothing itself, so the engine refused nothing.
+  expect(w.toasts).toEqual([])
+  await pane.unmount()
+})
+
 test('a headless session polls nothing, from either source', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
