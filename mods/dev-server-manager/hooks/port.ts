@@ -60,12 +60,10 @@ export function parseTasklist(text: string): string {
   return match?.[1] ?? ''
 }
 
-/** The row's words for a taken port: `:6006 taken by node.exe 18244`, the holder left out when unknown. */
+/** The row's words for a taken port: `:6006 taken by node.exe 18244`, the holder left out when it has no name. */
 export function holderWords(port: number, holder: Holder): string {
   const name = holder.pid === 4 && holder.name === '' ? 'System' : holder.name
-  if (name !== '') return `:${port} taken by ${name}${holder.pid > 0 ? ` ${holder.pid}` : ''}`
-  if (holder.pid > 0) return `:${port} taken by PID ${holder.pid}`
-  return `:${port} taken`
+  return name === '' ? `:${port} taken` : `:${port} taken by ${name}${holder.pid > 0 ? ` ${holder.pid}` : ''}`
 }
 
 /** The listeners on `port`, or undefined when no tool to list them could start. */

@@ -47,5 +47,5 @@ test('the row words name the holder when known, PID 4 as System, and leave it ou
   expect(holderWords(6006, { name: 'node.exe', pid: 18244 })).toBe(':6006 taken by node.exe 18244')
   expect(holderWords(80, { name: '', pid: 4 })).toBe(':80 taken by System 4')
   expect(holderWords(5432, { name: '', pid: 0 })).toBe(':5432 taken')
-  expect(holderWords(5432, { name: '', pid: 900 })).toBe(':5432 taken by PID 900')
+  expect(holderWords(5432, { name: '', pid: 900 })).toBe(':5432 taken')
 })

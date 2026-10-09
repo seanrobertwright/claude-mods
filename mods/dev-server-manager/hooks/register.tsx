@@ -7,6 +7,7 @@ import type { AddedServer } from './add'
 import { detectRows, LOCKFILES, parseScripts } from './detect'
 import { findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
 import { checkPort } from './port'
+import type { PortCheck } from './port'
 import { commandText, newRun } from './servers'
 import { renderPane } from './view'
 import type { PaneActions } from './view'
@@ -17,6 +18,9 @@ const TITLE = 'Dev servers'
 const COMMAND = 'dev-servers'
 /** Output reaches `$.state` at most about once a second. */
 const FLUSH_MS = 1000
+/** After its own stop the mod waits this long at most for the listener to let go, polling every POLL_MS. */
+const RELEASE_MS = 3000
+const POLL_MS = 100
 
 const rowsAtom = atom({ plugin: 'dev-server-manager', key: 'rows' } as const, { defs: [], hidden: [] } as Rows)
 const runsAtom = atom({ plugin: 'dev-server-manager', key: 'runs' } as const, {} as Record<string, ServerRun>)
@@ -39,6 +43,8 @@ let memory: Record<string, OutputLine[]> = {}
 let seq = 0
 let flushedAt = 0
 let isFlushPending = false
+// The servers the mod itself stopped, whose port may linger before the next start.
+const stoppedByMod = new Set<string>()
 
 type Config = { isRestartOn: boolean; scripts: string[] }
 
@@ -162,7 +168,9 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
         const found = lines.map(findLocalUrl).find(url => url !== undefined)
         if (found !== undefined) {
           isUrlSeen = true
-          await setRun($, name, run => ({ ...run, status: 'running', url: found.url }))
+          const known = (await defOf($, name))?.port ?? 0
+          const movedFrom = known > 0 && known !== found.port ? known : 0
+          await setRun($, name, run => ({ ...run, status: 'running', url: found.url, movedFrom }))
           await learnPort($, name, found.port)
         }
       }
@@ -189,6 +197,26 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
   }
 }
 
+/**
+ * The port check before a start. After the mod's own stop the listener lingers
+ * up to most of a second, so it polls until the port is free, about 3 s at most,
+ * and only then names a holder that is still there.
+ */
+async function portCheck($: EngineInterface, name: string, port: number): Promise<PortCheck> {
+  const run = (argv: readonly string[]) => $.process.run(argv)
+  const windows = await isWindows($)
+  if (stoppedByMod.delete(name)) {
+    const deadline = (await $.clock.now()) + RELEASE_MS
+    for (;;) {
+      const polled = await checkPort(run, windows, port, false)
+      if (polled.status !== 'taken') return polled
+      if ((await $.clock.now()) + POLL_MS > deadline) break
+      await $.clock.sleep(POLL_MS)
+    }
+  }
+  return checkPort(run, windows, port)
+}
+
 /** Starts a server: the port check first, then the child, with no shell. */
 async function start($: EngineInterface, name: string, divider: string): Promise<void> {
   if (live.has(name) || !(await isShown($))) return
@@ -196,7 +224,7 @@ async function start($: EngineInterface, name: string, divider: string): Promise
   if (def === undefined || def.blocked !== '') return
   let problem = ''
   if (def.port > 0) {
-    const check = await checkPort(argv => $.process.run(argv), await isWindows($), def.port)
+    const check = await portCheck($, name, def.port)
     if (check.status === 'taken') {
       await setRun($, name, run => ({ ...run, status: 'port taken', holder: check.words, problem: '' }))
       return
@@ -221,6 +249,7 @@ async function stop($: EngineInterface, name: string): Promise<void> {
   if (entry === undefined) return
   entry.isStopping = true
   live.delete(name)
+  stoppedByMod.add(name)
   await entry.stream.return(undefined as never).catch(() => undefined)
   const now = await $.clock.now()
   await setRun($, name, run => ({ ...run, status: 'stopped', endedAt: now, hasNote: false, crashes: [], restarts: [], isGaveUp: false }))
