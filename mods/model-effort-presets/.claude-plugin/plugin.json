@@ -1,0 +1,20 @@
+{
+  "name": "model-effort-presets",
+  "version": "0.1.0",
+  "description": "One press above the prompt switches the model and the effort together: a plan preset, an execute preset, or your own, also by /preset <name> or when you send a mapped command.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "presets": {
+      "type": "string",
+      "title": "Presets",
+      "description": "Comma-separated name=model/effort, one per preset. The model is what /model takes (opus, sonnet, haiku or an id); the effort is low, medium, high, xhigh or max.",
+      "default": "plan=opus/high, execute=sonnet/medium"
+    },
+    "commands": {
+      "type": "string",
+      "title": "Commands that switch",
+      "description": "Comma-separated command=preset (lril:plan-feature=plan). Sending one of these commands applies its preset before the command runs; empty switches on no command.",
+      "default": ""
+    }
+  }
+}

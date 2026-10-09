@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a question before Claude reads a `.env` or key file, a list of the files this session made, a list of the ones it read, a check that keeps banned claims out of a pull request, a gate that runs your checks and hands back only the failures, a nudge to fetch fresh tab IDs when a browser tab is gone, a name for the session from its first prompt, and one dialog for every mod's settings.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, presets that switch the model and the effort with one press, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a question before Claude reads a `.env` or key file, a list of the files this session made, a list of the ones it read, a check that keeps banned claims out of a pull request, a gate that runs your checks and hands back only the failures, a nudge to fetch fresh tab IDs when a browser tab is gone, a name for the session from its first prompt, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![19 mods](https://img.shields.io/badge/mods-19-6b5bd2)
+![20 mods](https://img.shields.io/badge/mods-20-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all nineteen, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all twenty, or read the source and write your own.
 
 ## What is a mod?
 
@@ -43,6 +43,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🚦 [lint-test-gate](#-lint-test-gate) | Band above the prompt | Runs your checks on a press and before Claude's `git commit`, and hands back only the failures |
 | 🔄 [chrome-tab-self-heal](#-chrome-tab-self-heal) | Note after a browser tool's error | When a Claude in Chrome tab is gone, tells Claude to fetch the current tab IDs before it tries again |
 | 🏷 [session-auto-namer](#-session-auto-namer) | Band above the prompt | Suggests a name for the session from its first prompt; one press renames it |
+| 🧠 [model-effort-presets](#-model-effort-presets) | Band above the prompt | Plan and execute presets: one press switches the model and the effort together |
 | ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
@@ -659,6 +660,40 @@ There is nothing to set.
 
 **Needs:** nothing. `gh`, logged in, lets an issue's title into the name.
 
+### 🧠 model-effort-presets
+
+One press above the prompt switches the model and the effort together, so moving between planning and executing is one click instead of `/model` and then `/effort`.
+
+```text
+Preset:  [plan]  [execute]
+```
+
+- Each preset is a model and an effort. Out of the box, `plan` is Opus at high effort and `execute` is Sonnet at medium.
+- The preset the session is on is marked. Until the first request or a switch shows the effort, the model alone marks it.
+- Press a preset, or run `/preset <name>`, and the mod runs `/model` and then `/effort` for you. Their lines show in the transcript, and both last for this session only.
+- Map a command to a preset and sending that command switches first. With `lril:plan-feature=plan`, `/lril:plan-feature` runs on the plan preset. Every other command changes nothing.
+- Claude Code does not let a command run `/model` while it is still running itself, so `/preset` answers first and the switch follows at once. A mapped command is held: the mod applies its preset, then sends the command again with what you typed.
+
+| Command | What it does |
+| --- | --- |
+| `/preset <name>` | Switch to a preset; with no name or an unknown one, list the presets |
+
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Presets | `presets` | `plan=opus/high, execute=sonnet/medium` | Comma-separated `name=model/effort`. The model is anything `/model` takes (`opus`, `sonnet`, `haiku` or an id); the effort is `low`, `medium`, `high`, `xhigh` or `max` |
+| Commands that switch | `commands` | empty: none | Comma-separated `command=preset`, the command with or without its slash |
+
+For example, a quick `fix` preset beside the two, and two commands that switch ([how to set it](#configure-the-mods)):
+
+```sh
+echo '{"presets": "plan=opus/high, execute=sonnet/medium, fix=haiku/low", "commands": "lril:plan-feature=plan, lril:execute=execute"}' | claude plugin configure model-effort-presets@claude-mods --values-stdin
+```
+
+- Settings that do not read cleanly are rejected whole, never half applied: an entry not in the shape above, an empty model, an unknown effort, a preset name with a space or used twice, a command mapped twice or to no preset, or a map of `/model`, `/effort` or `/preset`. The mod then draws no band and switches nothing. A toast at session start says what is wrong, and `/preset` says it again.
+- A preset's model is marked as the session's when it is the session's model id or one word of it, so `opus` marks `claude-opus-5-5`. A model named another way, such as `best`, still switches but is not marked.
+
+**Needs:** nothing.
+
 ### ⚙ mod-settings
 
 One dialog for the settings of every installed mod: pick a mod, change its settings, save.
@@ -753,6 +788,7 @@ claude plugin install pre-pr-claims-check@claude-mods
 claude plugin install lint-test-gate@claude-mods
 claude plugin install chrome-tab-self-heal@claude-mods
 claude plugin install session-auto-namer@claude-mods
+claude plugin install model-effort-presets@claude-mods
 claude plugin install mod-settings@claude-mods
 ```
 
@@ -769,7 +805,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 
 ## Configure the mods
 
-whats-next, quick-reply, auto-resume, github-panel, turn-chime, env-guard, hud and lint-test-gate have settings, listed in each mod's section above with the key each one is stored under.
+whats-next, quick-reply, auto-resume, github-panel, model-effort-presets, turn-chime, env-guard, hud and lint-test-gate have settings, listed in each mod's section above with the key each one is stored under.
 shelf and sources are set up with their own commands, in the session; outputs, open-file-guard, branch-guard, bash-quoting-rescue, pre-pr-claims-check, chrome-tab-self-heal and session-auto-namer have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
@@ -837,6 +873,7 @@ The values live in your user settings, `~/.claude/settings.json`, under `pluginC
 - `claude plugin configure` and `--config` refuse a value of the wrong type, and a choice that is not on the list, naming the setting: `Failed to save configuration: Colour theme must be one of: neon, ocean, ember, mono`.
 - The settings dialog refuses the same values, with the reason under the setting. Like `claude plugin configure`, it also refuses a text with a line break or over 64 KB. A number setting left blank is refused rather than cleared: delete its key in `settings.json` to put it back to its default.
 - A number outside the range in the mod's table, a fraction in any number setting but Grace after reset and Long turn, or a text setting in a shape the mod does not take, is passed over and the mod uses that setting's default. Nothing tells you, so check the table when a change seems to do nothing. The one exception is env-guard, which names a pattern it passes over in a toast.
+- model-effort-presets is an exception too: a setting it cannot read stops it, with a toast that says why, rather than run on a default you did not choose.
 
 ## Good manners, built in
 

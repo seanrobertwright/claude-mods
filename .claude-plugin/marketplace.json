@@ -98,6 +98,11 @@
       "description": "After a session's first prompt, a button above the prompt suggests a name for the session, such as an issue's number and title; one press renames it."
     },
     {
+      "name": "model-effort-presets",
+      "source": "./mods/model-effort-presets",
+      "description": "One press above the prompt switches the model and the effort together: a plan preset, an execute preset, or your own, also by /preset <name> or when you send a mapped command."
+    },
+    {
       "name": "mod-settings",
       "source": "./mods/mod-settings",
       "description": "A gear at the top right of each mod's pane opens one dialog for every claude-mods setting: pick a mod, change its settings, save."
