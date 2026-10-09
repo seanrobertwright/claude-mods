@@ -48,7 +48,8 @@ function parsePackage(text: string | undefined): Record<string, unknown> | undef
 function pickManager(field: unknown, lockfiles: readonly string[]): { manager: string; conflict: string[] } {
   if (typeof field === 'string' && field.trim() !== '') return { manager: field.trim().split('@')[0] ?? 'npm', conflict: [] }
   const present = LOCKFILES.filter(([file]) => lockfiles.includes(file))
-  if (present.length > 1) return { manager: '', conflict: present.map(([file]) => file) }
+  // bun.lock and bun.lockb are one manager's two lockfiles: only different managers conflict.
+  if (new Set(present.map(([, manager]) => manager)).size > 1) return { manager: '', conflict: present.map(([file]) => file) }
   return { manager: present[0]?.[1] ?? 'npm', conflict: [] }
 }
 

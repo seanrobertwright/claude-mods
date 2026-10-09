@@ -29,6 +29,17 @@ test('two lockfiles and no packageManager: the rows show, the conflict names bot
   expect(detected.conflict).toEqual(['package-lock.json', 'pnpm-lock.yaml'])
 })
 
+test('both bun lockfiles are one manager, not a conflict', () => {
+  expect(detectRows(PACKAGE, ['bun.lock', 'bun.lockb'], SCRIPTS)).toEqual({
+    rows: [
+      { name: 'dev', argv: ['bun', 'run', 'dev'] },
+      { name: 'preview', argv: ['bun', 'run', 'preview'] },
+    ],
+    conflict: [],
+  })
+  expect(detectRows(PACKAGE, ['bun.lockb', 'yarn.lock'], SCRIPTS).conflict).toEqual(['yarn.lock', 'bun.lockb'])
+})
+
 test('only the scripts the setting names become rows, in the setting order; a monorepo root fan-out script is an ordinary row', () => {
   const text = JSON.stringify({ scripts: { preview: 'vite preview', dev: 'turbo run dev', lint: 'eslint .' } })
   expect(detectRows(text, [], SCRIPTS).rows).toEqual([
