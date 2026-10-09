@@ -1,7 +1,7 @@
 {
   "name": "github-panel",
   "version": "0.1.0",
-  "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser, or fill /implement or /wayfinder with an issue. A toast when your branch's pull request turns green or red, and a button that fills a fix on red.",
+  "description": "A GitHub pane in the side panel: the repo's open pull requests and issues; click one to open it in the browser, or fill /implement or /wayfinder with an issue. The issue a /wayfinder run works on is pinned at the top, with its next takeable ticket. A toast when your branch's pull request turns green or red, and a button that fills a fix on red.",
   "types": "./types/index.d.ts",
   "userConfig": {
     "limit": {
@@ -25,7 +25,7 @@
     "wayfinderCommand": {
       "type": "string",
       "title": "Wayfinder button fills",
-      "description": "The slash command an issue's wayfinder button puts in the prompt, before the issue's URL; empty hides the button.",
+      "description": "The slash command an issue's wayfinder button and the pinned issue's work next button put in the prompt, before the issue's URL, and the skill whose runs pin an issue; empty hides the button and turns pinning off.",
       "default": "/wayfinder"
     }
   }
