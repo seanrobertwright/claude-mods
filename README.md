@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, a list of the ones it read, a gate that runs your checks and hands back only the failures, and one dialog for every mod's settings.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a question before Claude reads a `.env` or key file, a list of the files this session made, a list of the ones it read, a gate that runs your checks and hands back only the failures, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![13 mods](https://img.shields.io/badge/mods-13-6b5bd2)
+![15 mods](https://img.shields.io/badge/mods-15-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all thirteen, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all fifteen, or read the source and write your own.
 
 ## What is a mod?
 
@@ -28,10 +28,12 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🧭 [whats-next](#-whats-next) | Pane in the side panel | Lists the next steps of your workflow, each with a prompt ready to paste |
 | ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered and the next wayfinder ticket |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
-| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt |
+| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt; a toast when your branch's checks turn green or red |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
+| 🌿 [branch-guard](#-branch-guard) | Question dialog | Asks you before Claude commits or pushes on the default branch |
+| 🔑 [env-guard](#-env-guard) | Question dialog | Asks you before Claude reads a `.env` or key file, and refuses when no one is there to answer |
 | 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
@@ -191,7 +193,7 @@ Pull requests 2                        all
 #41 Add a drift check for copied guards
   draft · @octocat
 #40 Bring the asked pane to the front
-  @hubot
+  ✗ checks failing · @hubot           fix
 
 Issues 2                               all
 #39 Share the headless-session check
@@ -203,6 +205,12 @@ Issues 2                               all
 - An issue blocked by an open issue has a red line under it. Hover it to see what blocks it.
 - In a narrow pane the `implement` and `wayfinder` buttons take a line of their own.
 - The lists refresh on a timer, after a turn once they are a minute old, and on `r`.
+- The pull request of the branch you are on is watched: when its checks turn green or red, a toast says "Checks passed on #40" or "Checks failed on #40".
+  The first refresh, and the first after you switch branch, only notes where the checks stand.
+- While that pull request's checks fail, its row has a `fix` button.
+  It fills the prompt box with the failed checks' names, the last 40 lines of the failed run's log, and "Fix it."
+  Nothing is sent: you read it and send it yourself.
+  The log is fetched only when you press `fix`; when gh cannot fetch it, such as while the run is still going, the prompt holds the names alone.
 
 | Command or key | What it does |
 | --- | --- |
@@ -210,6 +218,7 @@ Issues 2                               all
 | `r` | Refresh |
 | `all` | Open the whole list on GitHub |
 | `implement`, `wayfinder` | Fill the command and the issue's URL into the prompt, without sending it |
+| `fix` | Fill a request to fix the current branch's failing checks into the prompt box |
 
 | Setting | Key | Default | Meaning |
 | --- | --- | --- | --- |
@@ -306,6 +315,59 @@ It sees a file named in a Write or Edit call or in the text of a shell command.
 It does not see one a script works out as it runs, nor one on a network location.
 
 There is nothing to set: once installed, it guards every session.
+
+### 🌿 branch-guard
+
+When Claude is about to commit or push on the default branch, the mod asks you first, so work lands on a branch of its own.
+
+```text
+Claude is about to commit to main, the default branch. Create a branch first?
+
+  Branch first
+  Go ahead on main
+```
+
+- **Branch first**, **Dismissed**, or an answer in other words: the call is refused, and Claude is told to create a branch first.
+- **Go ahead on main**: the call goes on. A commit and a push in one command are asked about once.
+
+It sees `git commit` and `git push` in the text of a shell command, `git -C <folder> commit` too.
+It asks on the default branch, and from any branch before a push to it, such as `git push origin main` or `git push origin HEAD:main`.
+The default branch is the one the remote's HEAD names (`origin/HEAD`), else `main`, else `master`.
+Outside a repository, or where git cannot say the branch, the call goes on as it would without the mod.
+It reads the branch before the command runs, so a command that switches branch or folder before it commits, such as `git switch -c fix && git commit`, is judged by where it starts.
+
+There is nothing to set: once installed, it guards every session.
+
+### 🔑 env-guard
+
+Before Claude reads a `.env` file or a private key, the mod asks you, so a secret reaches the model only when you let it.
+
+```text
+Let Claude read .env?
+
+  Allow once
+  Refuse
+```
+
+- **Allow once**: that one call goes on. The next read of the file asks again.
+- **Refuse**, or dismissed: the call is refused, and Claude is told the file holds secrets. When the keypick skill is installed, Claude is also pointed to it, to run a command with its keys without seeing them.
+- In a headless session (`claude -p`, or an SDK session nobody has opened) no one can answer, so the read is refused without a question.
+
+It guards these file names, in any letter case: `.env` and `.env.*` but not `.env.example`, `.env.sample` or `.env.template`; `*.pem`, `*.key`, `*.p12` and `*.pfx`; `id_rsa*` and `id_ed25519*` but not their `.pub`.
+
+- A Read is judged by the file it names; a Grep or Glob by the path it searches, and by a Glob pattern or Grep `glob` that names a guarded file (`**/.env`, `*.pem`).
+- A path is judged where it leads: `notes/../.env` is `.env`, and so is a link that points to it.
+- A Bash or PowerShell command is asked about when its text names a guarded file: `cat .env`, `Get-Content .env`, `grep KEY .env`. This is best effort: a command that reaches a file without naming it, such as `cat $(ls -a | head -1)`, is not seen.
+- A Grep or Glob over a whole folder is not asked about, even when the folder holds a guarded file. The Grep tool searches hidden files, but not the ones `.gitignore` names.
+- Writes and edits are not guarded.
+
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| More guarded files | `extraPatterns` | empty | File names to guard besides the list above, separated by commas, with `*` for any characters and `?` for one: `secrets.json, *.kdbx` |
+
+A pattern with a folder in it, or with `[ ]` or `{ }`, guards nothing: the mod names it in a toast at your next prompt and guards the rest.
+
+**Needs:** nothing. The refusal names keypick only when that skill is installed.
 
 ### 📂 outputs
 
@@ -549,9 +611,12 @@ claude plugin install github-panel@claude-mods
 claude plugin install shelf@claude-mods
 claude plugin install turn-chime@claude-mods
 claude plugin install open-file-guard@claude-mods
+claude plugin install branch-guard@claude-mods
+claude plugin install env-guard@claude-mods
 claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
 claude plugin install hud@claude-mods
+claude plugin install post-merge-cleanup@claude-mods
 claude plugin install lint-test-gate@claude-mods
 claude plugin install mod-settings@claude-mods
 ```
@@ -569,8 +634,8 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 
 ## Configure the mods
 
-whats-next, quick-reply, auto-resume, github-panel, turn-chime, hud and lint-test-gate have settings, listed in each mod's section above with the key each one is stored under.
-shelf and sources are set up with their own commands, in the session; outputs and open-file-guard have nothing to set.
+whats-next, quick-reply, auto-resume, github-panel, turn-chime, env-guard, hud and lint-test-gate have settings, listed in each mod's section above with the key each one is stored under.
+shelf and sources are set up with their own commands, in the session; outputs, open-file-guard and branch-guard have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
 
@@ -636,7 +701,7 @@ The values live in your user settings, `~/.claude/settings.json`, under `pluginC
 
 - `claude plugin configure` and `--config` refuse a value of the wrong type, and a choice that is not on the list, naming the setting: `Failed to save configuration: Colour theme must be one of: neon, ocean, ember, mono`.
 - The settings dialog refuses the same values, with the reason under the setting. Like `claude plugin configure`, it also refuses a text with a line break or over 64 KB. A number setting left blank is refused rather than cleared: delete its key in `settings.json` to put it back to its default.
-- A number outside the range in the mod's table, a fraction in any number setting but Grace after reset and Long turn, or a text setting in a shape the mod does not take, is passed over and the mod uses that setting's default. Nothing tells you, so check the table when a change seems to do nothing.
+- A number outside the range in the mod's table, a fraction in any number setting but Grace after reset and Long turn, or a text setting in a shape the mod does not take, is passed over and the mod uses that setting's default. Nothing tells you, so check the table when a change seems to do nothing. The one exception is env-guard, which names a pattern it passes over in a toast.
 
 ## Good manners, built in
 
