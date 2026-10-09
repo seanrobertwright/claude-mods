@@ -40,14 +40,14 @@ async function suggest($: EngineInterface, prompt: string): Promise<void> {
   await update($, suggestion, () => name ?? null)
 }
 
-/** Renames the session to `name`, as `/rename <name>` typed by the person does; the button goes first. */
-async function rename($: EngineInterface, name: string): Promise<void> {
-  await update($, suggestion, () => null)
-  await $.command.run({ command: 'rename', args: name })
-}
-
 async function dismiss($: EngineInterface): Promise<void> {
   await update($, suggestion, () => null)
+}
+
+/** Renames the session to `name`, as `/rename <name>` typed by the person does; the button goes first. */
+async function rename($: EngineInterface, name: string): Promise<void> {
+  await dismiss($)
+  await $.command.run({ command: 'rename', args: name })
 }
 
 function report($: EngineInterface): (error: unknown) => void {
@@ -63,7 +63,7 @@ export const register: Register = on => {
     const done = await next(e)
     if (e.reason === 'clear') {
       isCleared = true
-      await update($, suggestion, () => null)
+      await dismiss($)
     }
     return done
   })
