@@ -9,15 +9,18 @@ export function copyMismatches(source, copies) {
 /** The three fields every mod carrying a copy declares alike (#85, #86). */
 export const SHARED_FIELDS = ['jevApiKey', 'modelChoice', 'layaPort']
 
+/** The fields whose title #85 fixes to be the same in every mod; #86 sets none for `layaPort`. */
+const FIXED_TITLES = ['jevApiKey', 'modelChoice']
+
 /**
  * What must match of a field: everything but its description, since each mod's
- * `modelChoice` description says what that mod sends. The title is kept: #85
- * fixes it to be the same in every mod.
+ * `modelChoice` description says what that mod sends, and the title of a field
+ * no decision titles.
  */
-function comparable(field) {
+function comparable(name, field) {
   return JSON.stringify({
     type: field.type,
-    title: field.title,
+    title: FIXED_TITLES.includes(name) ? field.title : undefined,
     sensitive: field.sensitive === true,
     default: field.default,
     options: field.options,
@@ -39,7 +42,7 @@ export function fieldMismatches(manifests) {
         continue
       }
       const model = first.userConfig?.[name]
-      if (manifest !== first && model !== undefined && model !== null && comparable(field) !== comparable(model)) {
+      if (manifest !== first && model !== undefined && model !== null && comparable(name, field) !== comparable(name, model)) {
         problems.push(`${manifest.mod}: ${name} differs from ${first.mod}'s`)
       }
     }

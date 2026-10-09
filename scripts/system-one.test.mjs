@@ -36,6 +36,16 @@ test('fields that match in name, type, sensitive, default and choices pass, what
   assert.deepEqual(fieldMismatches(manifests), [])
 })
 
+test('layaPort may carry its own title, since no decision fixes it', () => {
+  const other = structuredClone(FIELDS)
+  other.layaPort.title = 'Port for Laya'
+  const manifests = [
+    { mod: 'whats-next', userConfig: { ...FIELDS, layaPort: { ...FIELDS.layaPort, title: 'Laya port' } } },
+    { mod: 'quick-reply', userConfig: other },
+  ]
+  assert.deepEqual(fieldMismatches(manifests), [])
+})
+
 test('names the mod and the field when a System One field differs from the first mod or is missing', () => {
   const changed = (edit) => {
     const fields = structuredClone(FIELDS)
