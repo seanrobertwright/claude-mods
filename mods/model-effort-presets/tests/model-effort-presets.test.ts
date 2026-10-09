@@ -1,6 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { parseConfig } from '../hooks/presets'
+
 const PLUGIN = 'model-effort-presets'
 
 const BAND = {
@@ -110,4 +112,44 @@ test('a mapped command switches to its preset before it runs; an unmapped one ch
   await $.command.run({ command: 'lril:plan-feature', args: 'presets', ...COMPOSER })
   await clock.settle()
   expect(ran).toEqual(['/lril:review the diff', '/model opus', '/effort high', '/lril:plan-feature presets'])
+})
+
+test('malformed settings are rejected with a message, and nothing is drawn or switched', { options: { presets: 'plan=opus/extreme, execute=sonnet/medium', commands: 'lril:plan-feature=plan' } }, async ($, on) => {
+  const { ran, toasts } = engineBeneath(on)
+  const clock = mock.clock(on)
+  await $.session.start(INTERACTIVE)
+  const rejected = 'model-effort-presets: settings not applied: the effort of plan is "extreme", not one of low, medium, high, xhigh, max.'
+  expect(toasts).toEqual([rejected])
+
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Text', text: 'Preset:' })).toBeUndefined()
+  expect(await band.find({ key: 'preset-execute' })).toBeUndefined()
+  await band.unmount()
+
+  expect((await $.command.run({ command: 'preset', args: 'execute', ...COMPOSER })).text).toBe(rejected)
+  await $.command.run({ command: 'lril:plan-feature', args: 'presets', ...COMPOSER })
+  await clock.settle()
+  expect(ran).toEqual(['/lril:plan-feature presets'])
+})
+
+test('the settings are parsed at load, and each malformed one is rejected with what is wrong', () => {
+  const plan = { name: 'plan', model: 'opus', effort: 'high' }
+  const execute = { name: 'execute', model: 'sonnet', effort: 'medium' }
+  const parsed = parseConfig({ presets: ' plan=opus/high ,execute = sonnet / medium', commands: '/lril:plan-feature=plan, lril:execute=Execute' })
+  expect(parsed).toEqual({ kind: 'ok', config: { presets: [plan, execute], commands: new Map([['lril:plan-feature', plan], ['lril:execute', execute]]) } })
+
+  const problems: [Record<string, string>, string][] = [
+    [{ presets: 'plan=/high' }, 'plan has no model.'],
+    [{ presets: 'plan=opus/extreme' }, 'the effort of plan is "extreme", not one of low, medium, high, xhigh, max.'],
+    [{ presets: 'plan=opus' }, '"plan=opus" is not name=model/effort.'],
+    [{ presets: 'opus/high' }, '"opus/high" is not name=model/effort.'],
+    [{ presets: 'my plan=opus/high' }, 'the preset name "my plan" is not one word.'],
+    [{ presets: 'plan=opus/high, Plan=sonnet/low' }, 'two presets are named plan.'],
+    [{ presets: '' }, 'no preset is set.'],
+    [{ presets: 'plan=opus/high', commands: 'lril:execute=execute' }, 'lril:execute is mapped to execute, which is not a preset; the presets are plan.'],
+    [{ presets: 'plan=opus/high', commands: 'lril:execute' }, '"lril:execute" is not command=preset.'],
+    [{ presets: 'plan=opus/high', commands: 'lril:a=plan, /lril:a=plan' }, 'lril:a is mapped twice.'],
+    [{ presets: 'plan=opus/high', commands: 'model=plan' }, '/model cannot be mapped: /model, /effort and /preset are how a preset switches.'],
+  ]
+  for (const [options, problem] of problems) expect(parseConfig(options), JSON.stringify(options)).toEqual({ kind: 'rejected', problem })
 })

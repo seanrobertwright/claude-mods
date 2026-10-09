@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Current, Preset } from '../types'
 import { currentPreset, findPreset, parseConfig, usage } from './presets'
+import type { Config } from './presets'
 
 const LABEL = 'Preset:'
 
@@ -21,17 +22,22 @@ async function apply($: EngineInterface, preset: Preset): Promise<void> {
 }
 
 export const register: Register = (on, options) => {
-  const config = parseConfig(options)
+  const parsed = parseConfig(options)
+  // Rejected settings run as no presets and no commands: nothing drawn, nothing switched.
+  const config: Config = parsed.kind === 'ok' ? parsed.config : { presets: [], commands: new Map() }
+  const rejected = parsed.kind === 'rejected' ? `model-effort-presets: settings not applied: ${parsed.problem}` : undefined
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({ name: 'preset', description: 'Switch the model and the effort to a preset', argumentHint: config.presets.map(preset => preset.name).join('|') })
+    if (rejected !== undefined) $.ui.toast(rejected)
     const model = await $.session.model()
     await update($, current, () => ({ model, effort: null }))
     return started
   })
 
   on('command.run', { command: 'preset' }, async ($, e) => {
+    if (rejected !== undefined) return { text: rejected }
     const preset = findPreset(config.presets, e.args)
     if (preset === undefined) return { text: usage(config.presets) }
     // The engine refuses a command run from inside another, so the switch follows this one's answer.
@@ -55,7 +61,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const beneath = await next(e)
-    if (e.props.hasSurvey || e.props.view.agentId !== undefined) return beneath
+    if (config.presets.length === 0 || e.props.hasSurvey || e.props.view.agentId !== undefined) return beneath
     const marked = currentPreset(config.presets, await read($, current))
     const { Box, Text, Button } = $.ui.resolve(e)
 
