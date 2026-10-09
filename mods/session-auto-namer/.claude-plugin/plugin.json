@@ -1,0 +1,6 @@
+{
+  "name": "session-auto-namer",
+  "version": "0.1.0",
+  "description": "After a session's first prompt, a button above the prompt suggests a name for the session, such as an issue's number and title; one press renames it.",
+  "types": "./types/index.d.ts"
+}
