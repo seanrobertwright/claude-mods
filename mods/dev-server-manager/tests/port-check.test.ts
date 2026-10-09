@@ -59,6 +59,7 @@ test('a holder that cannot be named is left out; a listener on another address s
 
 test('a missing port tool skips the check: the server starts and the row says port not checked', async ($, on) => {
   const w = world(on, KNOWN)
+  w.runs.delete('netstat -ano')
   script(w, 'npm run dev', { pieces: [{ text: 'Local: http://localhost:5173/\n' }] })
   await startSession($)
   const pane = await pressStart($)

@@ -41,6 +41,7 @@ export type World = {
   tools: string[]
   store: Map<string, unknown>
   stateWrites: string[]
+  logs: string[]
 }
 
 export type WorldOptions = {
@@ -76,7 +77,10 @@ export function world(on: On, options: WorldOptions = {}): World {
     tools: [],
     store: new Map(Object.entries(options.store ?? {})),
     stateWrites: [],
+    logs: [],
   }
+  // The machine's port tools: netstat answers with no listener unless a test says otherwise.
+  w.runs.set('netstat -ano', { stdout: '' })
   const packageJson = 'packageJson' in options ? options.packageJson : DEFAULT_PACKAGE
   const lockfiles = options.lockfiles ?? ['package-lock.json']
   mock.env(on, options.os === undefined ? { OS: 'Windows_NT' } : options.os === '' ? {} : { OS: options.os })
@@ -131,7 +135,12 @@ export function world(on: On, options: WorldOptions = {}): World {
   })
   on('prompt.fill', (_$, e) => {
     w.filled.push({ text: e.text, mode: e.mode })
-    return w.composer === 'ok' ? { isFilled: true, text: e.text, cursor: e.text.length } : { isFilled: false, refusal: 'no_composer' }
+    // The kit has no prompt box of its own, and a hook's refusal reaches the mod without its cause.
+    return w.composer === 'ok' ? { isFilled: true, text: e.text, cursor: e.text.length } : { isFilled: false }
+  })
+  on('ui.log', (_$, e) => {
+    w.logs.push(e.text)
+    return { value: undefined }
   })
   on('prompt.submit', (_$, e) => {
     w.sent.push(e.text)

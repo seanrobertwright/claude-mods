@@ -5,7 +5,7 @@ import type { OutputLine, PaneView, PeerEntry, RowDef, Rows, ServerRun } from '.
 import { ADD_USAGE, parseAdd } from './add'
 import type { AddedServer } from './add'
 import { detectRows, LOCKFILES, parseScripts } from './detect'
-import { endWords, errorLines, findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
+import { endWords, errorLines, errorPrompt, findLocalUrl, hhmm, keep, splitPiece, stripAnsi } from './output'
 import { checkPort } from './port'
 import type { PortCheck } from './port'
 import { commandText, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS } from './servers'
@@ -348,7 +348,7 @@ function paneActions($: EngineInterface, config: Config): PaneActions {
     start: name => void start($, name, { divider: 'started', isByHand: true }).catch(report($)),
     stop: name => void stop($, name).catch(report($)),
     restart: name => void restartByHand($, name).catch(report($)),
-    fillError: () => undefined,
+    fillError: name => void fillError($, name).catch(report($)),
     hide: name =>
       void (async () => {
         await setHidden($, config, name, true)
@@ -378,6 +378,27 @@ async function bringBack($: EngineInterface): Promise<void> {
     if (isShowing) await start($, name, { divider: 'restarted after reload', isAfterReload: true })
     else await setRun($, name, current => ({ ...current, status: 'stopped' }))
   }
+}
+
+/**
+ * error → prompt: appends the latest death's error to whatever is typed, after
+ * a blank line, and sends nothing. The prompt box needs the keyboard, and
+ * closing the pane is the one way a mod hands it back, so the pane is closed
+ * and opened again without the keys. On a running server the note and button go.
+ */
+async function fillError($: EngineInterface, name: string): Promise<void> {
+  const death = (await read($, runsAtom))[name]?.death
+  if (death === null || death === undefined) return
+  await $.ui.close({ id: PANE })
+  let isFilled = false
+  try {
+    isFilled = (await $.prompt.fill({ text: `\n\n${errorPrompt(name, death)}`, mode: 'append' })).isFilled
+  } finally {
+    await $.ui.open({ id: PANE, title: TITLE })
+  }
+  // Only the engine's own refusal names its cause (no_composer, dialog), so any refusal says the prompt is out of reach.
+  await update($, viewAtom, view => ({ ...view, isFillRefused: !isFilled }))
+  if (isFilled) await setRun($, name, run => (run.status === 'running' ? { ...run, hasNote: false } : run))
 }
 
 /** Hides a detected row, or shows it again; kept per project. */
