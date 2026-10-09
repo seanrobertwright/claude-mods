@@ -4,6 +4,7 @@ import type { EngineInterface, Register, RenderElement, Timer } from 'claude-cod
 import type { ArchonData, ArchonView, Detail, Project, Run, Tab } from '../types'
 import { bodyWindow, lastPosition, pinnedRow, SETTINGS } from './chrome'
 import { candidates, findArchon, requirementLine } from './cli'
+import { claimKey, collapse, isClaimed, isMine, statusText, toastEvents } from './notify'
 import type { Runner } from './cli'
 import { parseConfig } from './config'
 import type { Config } from './config'
@@ -260,7 +261,7 @@ async function load($: EngineInterface, config: Config): Promise<void> {
       source: listing.source,
       project: { ...project, ids: listing.ids, from: listing.from },
       runs: [...runs.values()],
-      others: { live: liveCount(others), needsYou: 0 },
+      others: { live: liveCount(others), needsYou: needsYouCount(others, {}) },
       listed: listing.all.map(run => run.id),
       seen,
       details,
@@ -270,7 +271,50 @@ async function load($: EngineInterface, config: Config): Promise<void> {
     const reason = error instanceof Error ? error.message : String(error)
     await finish(current => ({ ...current, status: 'idle', error: reason }))
   }
-  if ((await read($, data)).loadId === loadId) await scheduleNext($, config)
+  if ((await read($, data)).loadId !== loadId) return
+  await scheduleNext($, config)
+  void notify($, config).catch(report($))
+}
+
+/** A moment for another session's claim on the same toast to land before this one reads its own back. */
+const CLAIM_WAIT_MS = 300
+
+/**
+ * Sets the status line and raises this poll's toasts. Each toast is claimed
+ * in the shared store first, so one event toasts once across sessions, best
+ * effort: a session that is headless or has toasts off never claims.
+ */
+async function notify($: EngineInterface, config: Config): Promise<void> {
+  if (!(await isShown($))) return
+  const current = await read($, data)
+  $.ui.status(config.isStatusLine ? statusText(current.runs, current.details, current.others.needsYou) : undefined)
+  await prune($, current.listed)
+  if (config.toasts === 'off') return
+  const events = toastEvents(current.runs, current.details, await read($, startedAt))
+    .filter(event => config.toasts === 'all' || event.event === 'needs-you')
+  const session = await $.session.id()
+  const claimed = []
+  for (const event of events) {
+    if (isClaimed(event, await $.store.get(claimKey(event)))) continue
+    await $.store.set(claimKey(event), { session, gate: event.gate })
+    claimed.push(event)
+  }
+  if (claimed.length === 0) return
+  await $.clock.sleep(CLAIM_WAIT_MS)
+  const won = []
+  for (const event of claimed) if (isMine(await $.store.get(claimKey(event)), session)) won.push(event)
+  const toast = collapse(won)
+  if (toast !== undefined) $.ui.toast(toast.text, { timeoutMs: toast.timeoutMs })
+}
+
+/** Drops the toast claims of runs no longer among the listed rows. */
+async function prune($: EngineInterface, listed: readonly string[]): Promise<void> {
+  if (listed.length === 0) return
+  const ids = new Set(listed)
+  for (const key of await $.store.keys()) {
+    const [kind, runId] = key.split('/')
+    if (kind === 'toasted' && runId !== undefined && !ids.has(runId)) await $.store.delete(key)
+  }
 }
 
 /** Picks a run: one that needs you opens Log on its gate or wait node; any other opens its Graph. */

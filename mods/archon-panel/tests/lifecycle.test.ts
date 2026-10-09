@@ -152,3 +152,21 @@ test('a reload drops the load in flight and loads again from session.start', asy
   await clock.advance(2_000)
   expect(lists(w)).toBeGreaterThan(2)
 })
+
+test('an attach compares against the statuses kept from before the gap, so what changed meanwhile surfaces', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const w = world({ rows: [row('mine-1', { workflow_name: 'archon-plan', started_at: new Date(T0).toISOString() })] })
+  fake(on, w)
+  await $.session.start(START)
+  await clock.settle()
+  w.surfaces.length = 0
+  await $.session.detach({ ...PHONE, reason: 'detach' })
+  await clock.advance(5 * MINUTE)
+  w.rows = [row('mine-1', { workflow_name: 'archon-plan', status: 'completed', started_at: new Date(T0).toISOString(), completed_at: new Date(T0 + 4 * MINUTE).toISOString() })]
+  w.surfaces.push('mobile')
+  await $.session.attach(PHONE)
+  await clock.settle()
+  await clock.advance(1_000)
+  expect(w.toasts).toEqual([{ text: '✓ archon-plan finished in 4m', timeoutMs: 4_000 }])
+})
