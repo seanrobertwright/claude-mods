@@ -88,6 +88,11 @@
       "description": "Runs the project's checks from a band button, and before Claude's git commit, and hands back only the failures."
     },
     {
+      "name": "chrome-tab-self-heal",
+      "source": "./mods/chrome-tab-self-heal",
+      "description": "When a Claude in Chrome tool says its tab is gone, tells Claude to fetch the current tab IDs before trying again."
+    },
+    {
       "name": "mod-settings",
       "source": "./mods/mod-settings",
       "description": "A gear at the top right of each mod's pane opens one dialog for every claude-mods setting: pick a mod, change its settings, save."
