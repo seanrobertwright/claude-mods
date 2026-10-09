@@ -339,7 +339,7 @@ A run that needs you comes first, and the pane answers its approval, or resumes 
 | `y`, `n`, or a decision's letter | Answer an approval |
 | `x` | Abandon a run on action needed or stranded by its sub-run |
 | `b` | Back: from a confirmation, a file, or a sub-run's Graph to its parent's |
-| `a` | Log for all nodes |
+| `a` | Log for all nodes; in an approval, the whole run log instead of what it asks about |
 | `o` | Open the file you are reading outside the pane |
 | `@ prompt` | Add `@` and the file's path to the prompt |
 
