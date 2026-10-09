@@ -7,6 +7,13 @@ import type { On } from 'claude-code'
 import { CODEBASES, listBody, OUTPUT_ROOT, PRIMARY } from './runs'
 import type { Row } from './runs'
 
+/**
+ * A test that drives the engine: each test file runs in a child process of
+ * its own, and the first call on `$` loads the mod, which takes seconds when
+ * the files start side by side on a busy machine.
+ */
+export const COLD = { timeoutMs: 30_000 } as const
+
 export const VERSION = 'Archon CLI v0.11.1\n'
 export const OLD_VERSION = 'Archon CLI v0.10.1\n'
 export const HOME = 'C:/home'

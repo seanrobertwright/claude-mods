@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { MINUTE, row, T0 } from './fixtures/runs'
-import { fake, HOME_ARCHON, IN_FRONT, PHONE, TERMINAL, world } from './fixtures/world'
+import { COLD, fake, HOME_ARCHON, IN_FRONT, PHONE, TERMINAL, world } from './fixtures/world'
 import type { World } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
@@ -9,7 +9,7 @@ const HEADLESS = { cwd: 'D:/repos/widgets', surface: null, isInteractive: false 
 const lists = (w: World) => w.fetches.filter(f => f.url.startsWith('http://localhost:3090/api/dashboard/runs?limit=')).length
 const checks = (w: World) => w.argv.filter(argv => argv[0] === HOME_ARCHON && argv[1] === '--version').length
 
-test('a headless session polls, follows and checks nothing, and opens nothing', async ($, on) => {
+test('a headless session polls, follows and checks nothing, and opens nothing', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ surfaces: [], rows: [row('mine-1')] })
@@ -25,7 +25,7 @@ test('a headless session polls, follows and checks nothing, and opens nothing', 
   expect(w.toasts).toEqual([])
 })
 
-test('the first attach to a headless session checks the CLI, loads, and opens the pane where it docks with a live run', async ($, on) => {
+test('the first attach to a headless session checks the CLI, loads, and opens the pane where it docks with a live run', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ surfaces: [], rows: [row('mine-1')] })
@@ -40,7 +40,7 @@ test('the first attach to a headless session checks the CLI, loads, and opens th
   expect(w.opened).toEqual(['archon'])
 })
 
-test('a phone attaching first loads but waits for /archon to open the pane', async ($, on) => {
+test('a phone attaching first loads but waits for /archon to open the pane', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ surfaces: [], rows: [row('mine-1')] })
@@ -55,7 +55,7 @@ test('a phone attaching first loads but waits for /archon to open the pane', asy
   expect(w.opened).toEqual(['archon+focus'])
 })
 
-test('at start the pane opens unasked, without the keys, with a live run here', async ($, on) => {
+test('at start the pane opens unasked, without the keys, with a live run here', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('mine-1')] })
@@ -65,7 +65,7 @@ test('at start the pane opens unasked, without the keys, with a live run here', 
   expect(w.opened).toEqual(['archon'])
 })
 
-test('with nothing live here the pane stays closed at start', async ($, on) => {
+test('with nothing live here the pane stays closed at start', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('mine-1', { status: 'completed', completed_at: new Date(T0).toISOString() })] })
@@ -75,7 +75,7 @@ test('with nothing live here the pane stays closed at start', async ($, on) => {
   expect(w.opened).toEqual([])
 })
 
-test('/archon opens the pane in front with the keys, never asking for columns, and loads at once', async ($, on) => {
+test('/archon opens the pane in front with the keys, never asking for columns, and loads at once', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('mine-1', { status: 'completed' })] })
@@ -89,7 +89,7 @@ test('/archon opens the pane in front with the keys, never asking for columns, a
   expect(lists(w)).toBe(before + 1)
 })
 
-test('the last detach stops polling, and the next attach loads at once and starts it again', async ($, on) => {
+test('the last detach stops polling, and the next attach loads at once and starts it again', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('mine-1')], panes: IN_FRONT() })
@@ -112,7 +112,7 @@ test('the last detach stops polling, and the next attach loads at once and start
   expect(lists(w)).toBe(4)
 })
 
-test('a main-thread turn reloads when the runs are more than 10 s old; a subagent\'s turn never does', async ($, on) => {
+test('a main-thread turn reloads when the runs are more than 10 s old; a subagent\'s turn never does', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('mine-1')] })
@@ -134,7 +134,7 @@ test('a main-thread turn reloads when the runs are more than 10 s old; a subagen
   expect(lists(w)).toBe(2)
 })
 
-test('a reload drops the load in flight and loads again from session.start', async ($, on) => {
+test('a reload drops the load in flight and loads again from session.start', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('mine-1')], panes: IN_FRONT() })
@@ -153,7 +153,7 @@ test('a reload drops the load in flight and loads again from session.start', asy
   expect(lists(w)).toBeGreaterThan(2)
 })
 
-test('an attach compares against the statuses kept from before the gap, so what changed meanwhile surfaces', async ($, on) => {
+test('an attach compares against the statuses kept from before the gap, so what changed meanwhile surfaces', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('mine-1', { workflow_name: 'archon-plan', started_at: new Date(T0).toISOString() })] })

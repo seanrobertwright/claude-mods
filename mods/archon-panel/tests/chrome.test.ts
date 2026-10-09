@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 
 import { approval, iso, MINUTE, onChild, row, T0 } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
-import { fake, IN_FRONT, paneProps, world } from './fixtures/world'
+import { COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 import type { World } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
@@ -23,7 +23,7 @@ async function open($: Engine, on: On, rows: Row[], width = 80, bodyRows = 40, o
 const tabs = async (pane: { findAll: (q: { type: 'Button' }) => Promise<{ text: string; key: string | undefined; props: Record<string, unknown> }[]> }) =>
   (await pane.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('tab-')).map(b => `${String(b.props.hotkey)}: ${b.text}`)
 
-test('the pinned row names the four sub-tabs, Runs carrying the live count and the needs-you count', async ($, on) => {
+test('the pinned row names the four sub-tabs, Runs carrying the live count and the needs-you count', COLD, async ($, on) => {
   const { pane } = await open($, on, [
     row('a'),
     row('b', { status: 'paused', metadata: { approval: approval() } }),
@@ -36,19 +36,19 @@ test('the pinned row names the four sub-tabs, Runs carrying the live count and t
   await pane.unmount()
 })
 
-test('with nothing needing you the ⏸ count is left out', async ($, on) => {
+test('with nothing needing you the ⏸ count is left out', COLD, async ($, on) => {
   const { pane } = await open($, on, [row('a')])
   expect(await tabs(pane)).toEqual(['1: Runs 1', '2: Graph', '3: Log', "4: Archon's log"])
   await pane.unmount()
 })
 
-test('below about 40 columns the labels shorten', async ($, on) => {
+test('below about 40 columns the labels shorten', COLD, async ($, on) => {
   const { pane } = await open($, on, [row('a')], 36)
   expect(await tabs(pane)).toEqual(['1: Runs 1', '2: Graph', '3: Log', '4: Arch'])
   await pane.unmount()
 })
 
-test('the settings gear is drawn only while /mod-settings is listed, and runs it', async ($, on) => {
+test('the settings gear is drawn only while /mod-settings is listed, and runs it', COLD, async ($, on) => {
   const { pane, w } = await open($, on, [row('a')])
   expect(await pane.find({ key: 'mod-settings' })).toBeUndefined()
   w.commands = ['mod-settings']
@@ -60,7 +60,7 @@ test('the settings gear is drawn only while /mod-settings is listed, and runs it
   await pane.unmount()
 })
 
-test('the digits switch sub-tabs, and r reloads at once', async ($, on) => {
+test('the digits switch sub-tabs, and r reloads at once', COLD, async ($, on) => {
   const { pane, w } = await open($, on, [row('a')])
   await pane.press({ key: 'tab-archon-log' })
   expect(await pane.find({ type: 'Text', text: /serve\.log/ })).toBeDefined()
@@ -83,7 +83,7 @@ const many = Array.from({ length: 30 }, (_, i) => row(`r${String(i).padStart(2, 
 const scrollBy = ($: Engine, by: number) =>
   $.ui.scroll({ component: 'Pane', requestId: 'archon', offset: Math.max(0, by), by, bodyRows: 10, contentRows: 10, origin: { kind: 'person' } } as never)
 
-test('the pane scrolls for itself: the engine\'s window stays at 0, the body moves under the pinned row, with a more line in its height', async ($, on) => {
+test('the pane scrolls for itself: the engine\'s window stays at 0, the body moves under the pinned row, with a more line in its height', COLD, async ($, on) => {
   const { pane, w } = await open($, on, many, 80, 10)
   const names = async () => (await pane.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('pick-')).map(b => /wf-\d+/.exec(b.text)?.[0])
   // Newest first: wf-29 at the top; 10 rows are the pinned row, 8 runs and the more line.
@@ -100,7 +100,7 @@ test('the pane scrolls for itself: the engine\'s window stays at 0, the body mov
   await pane.unmount()
 })
 
-test('each sub-tab keeps its own position', async ($, on) => {
+test('each sub-tab keeps its own position', COLD, async ($, on) => {
   const { pane } = await open($, on, many, 80, 10)
   const first = async () => (await pane.findAll({ type: 'Button' })).find(b => b.key?.startsWith('pick-'))?.text ?? ''
   await scrollBy($, 5)

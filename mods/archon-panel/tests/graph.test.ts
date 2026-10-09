@@ -136,3 +136,52 @@ test('the run\'s nodes come from its workflow, includes expanded under their blo
   expect(nodes[3]!.body.map(node => node.id)).toEqual(['fix', 'recheck'])
   expect(nodes[5]!.workflow).toBe('archon-fix')
 })
+
+/** archon-ship with its includes folded, as the prototype on prototype/165-graph-width drew it: two waits skip a layer. */
+const shipFolded: DrawNode[] = [
+  box('triage', [], 'triage 3/3'),
+  box('inv', ['triage'], 'inv 4/4'),
+  box('gate-direct', ['triage']),
+  box('planned', ['triage'], 'planned 0/6'),
+  box('gate-rooted', ['inv']),
+  box('gate-planned', ['planned']),
+  box('deliver', ['gate-direct', 'gate-rooted', 'gate-planned'], 'deliver 12/53'),
+  box('outcome', ['triage', 'deliver']),
+]
+
+/** archon-ship with every include expanded: 61 nodes. */
+const shipExpanded: DrawNode[] = (() => {
+  const chain = (prefix: string, names: string[], deps: string[]) =>
+    names.map((name, i) => ({ ...box(`${prefix}__${name}`, i === 0 ? deps : [`${prefix}__${names[i - 1]}`]), block: prefix }))
+  const deliver = Array.from({ length: 44 }, (_, i) => `step-${i + 1}`)
+  return [
+    ...chain('triage', ['classify', 'size', 'route'], []),
+    ...chain('inv', ['reproduce', 'trace', 'hypothesis', 'report'], ['triage__route']),
+    box('gate-direct', ['triage__route']),
+    ...chain('planned', ['scope', 'explore', 'design', 'slice', 'review', 'write'], ['triage__route']),
+    box('gate-rooted', ['inv__report']),
+    box('gate-planned', ['planned__write']),
+    ...chain('deliver', deliver, ['gate-direct', 'gate-rooted', 'gate-planned']),
+    box('outcome', ['triage__route', 'deliver__step-44']),
+  ]
+})()
+
+/** The widest line of boxes and connectors; a skip edge's note is prose, and wraps. */
+const boxesWidest = (lines: { text: string }[][]) => widest(lines.filter(line => !line.some(seg => seg.text.includes('↑ '))))
+
+test('archon-ship, folded and expanded, fits at every width or turns into the list, its skip edges kept', () => {
+  expect(shipExpanded).toHaveLength(61)
+  for (let width = 12; width <= 160; width++) {
+    const folded = layout(shipFolded, width)
+    const lines = text(folded.lines)
+    if (folded.step <= 4) expect(boxesWidest(folded.lines)).toBeLessThanOrEqual(width)
+    if (folded.step >= 4) {
+      expect(lines).toContain('  ↑ outcome also waits on triage')
+      expect(lines).toContain('  ↑ deliver also waits on gate-direct')
+    }
+    const expanded = layout(shipExpanded, width)
+    if (expanded.step <= 4) expect(boxesWidest(expanded.lines)).toBeLessThanOrEqual(width)
+    if (expanded.step === 5) expect(text(expanded.lines).filter(line => /[✓●○]/.test(line))).toHaveLength(61)
+    if (expanded.step >= 4) expect(text(expanded.lines)).toContain('  ↑ outcome also waits on triage__route')
+  }
+})

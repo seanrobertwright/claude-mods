@@ -4,7 +4,7 @@ import { parseRun } from '../hooks/runs'
 import { normalize, projectFromCodebases, projectFromRows } from '../hooks/scope'
 import type { Run } from '../types'
 import { otherRow, row } from './fixtures/runs'
-import { fake, IN_FRONT, paneProps, world } from './fixtures/world'
+import { COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
 
@@ -46,7 +46,7 @@ test('the CLI path: a row names the project by its origin or its working path, n
   expect(projectFromRows([byOutputRootOnly], 'D:/repos/widgets', 'D:/repos/widgets', 'windows')).toEqual([])
 })
 
-test('Runs lists only this project, and counts other projects\' live runs once per parent', async ($, on) => {
+test('Runs lists only this project, and counts other projects\' live runs once per parent', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: 1_000 })
   mock.store(on)
   const w = world({
@@ -71,7 +71,7 @@ test('Runs lists only this project, and counts other projects\' live runs once p
   }
 })
 
-test('a folder in no project shows the no-project line above the count, and no rows', async ($, on) => {
+test('a folder in no project shows the no-project line above the count, and no rows', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: 1_000 })
   mock.store(on)
   const w = world({ codebases: [CB('cb-gadgets', 'D:\\repos\\gadgets')], rows: [otherRow('theirs-1')] })
@@ -87,7 +87,7 @@ test('a folder in no project shows the no-project line above the count, and no r
   await pane.unmount()
 })
 
-test('with the server down, an empty project set is tried again every tick, and a found one is kept until r', async ($, on) => {
+test('with the server down, an empty project set is tried again every tick, and a found one is kept until r', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: 1_000 })
   mock.store(on)
   const stray = row('stray', { codebase_id: 'cb-x', working_path: 'X:/a', metadata: { workflow_source: { origin: 'X:/a' } } })

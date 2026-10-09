@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import { capLines, serveLine } from '../hooks/serve-log'
 import { MINUTE, row, T0 } from './fixtures/runs'
 import { SERVE_LOG } from './fixtures/serve-log'
-import { fake, IN_FRONT, paneProps, world } from './fixtures/world'
+import { COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 import type { World } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
@@ -35,7 +35,7 @@ async function archonLog($: Engine, on: On, over: Partial<World> = {}) {
   return { clock, w, pane }
 }
 
-test('4: Archon\'s log shows the whole file, coloured by level, read only while it is in front', async ($, on) => {
+test('4: Archon\'s log shows the whole file, coloured by level, read only while it is in front', COLD, async ($, on) => {
   const { clock, w, pane } = await archonLog($, on, { disk: { [SERVE]: SERVE_LOG } })
   await clock.advance(10_000)
   expect(w.reads.filter(path => path === SERVE)).toEqual([])
@@ -52,7 +52,7 @@ test('4: Archon\'s log shows the whole file, coloured by level, read only while 
   await pane.unmount()
 })
 
-test('the archonLog setting names another file, with ~ expanded from the home folder', { options: { archonLog: '~/logs/archon.log' } }, async ($, on) => {
+test('the archonLog setting names another file, with ~ expanded from the home folder', { ...COLD, options: { archonLog: '~/logs/archon.log' } }, async ($, on) => {
   const { clock, pane } = await archonLog($, on, { disk: { 'C:/home/logs/archon.log': SERVE_LOG } })
   await pane.press({ key: 'tab-archon-log' })
   await clock.settle()
@@ -60,7 +60,7 @@ test('the archonLog setting names another file, with ~ expanded from the home fo
   await pane.unmount()
 })
 
-test('a missing file is a dim hint, not a Requirement', async ($, on) => {
+test('a missing file is a dim hint, not a Requirement', COLD, async ($, on) => {
   const { clock, pane } = await archonLog($, on)
   await pane.press({ key: 'tab-archon-log' })
   await clock.settle()
@@ -70,7 +70,7 @@ test('a missing file is a dim hint, not a Requirement', async ($, on) => {
   await pane.unmount()
 })
 
-test('the newest lines are kept under 60,000 characters', async ($, on) => {
+test('the newest lines are kept under 60,000 characters', COLD, async ($, on) => {
   const many = Array.from({ length: 1_000 }, (_, i) => `plain line ${String(i).padStart(4, '0')} ${'z'.repeat(80)}`).join('\n')
   const { clock, pane } = await archonLog($, on, { disk: { [SERVE]: `${many}\n` } })
   await pane.press({ key: 'tab-archon-log' })

@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { approval, event, MINUTE, row, T0 } from './fixtures/runs'
-import { archonCalls, fake, IN_FRONT, paneProps, world } from './fixtures/world'
+import { archonCalls, COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 import type { World } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
@@ -10,7 +10,7 @@ const SERVER_LINE = "Archon's server isn't answering on port 3090, so runs come 
 const serverLists = (w: World) => w.fetches.filter(f => f.url.startsWith('http://localhost:3090/api/dashboard/runs?limit=')).length
 const cliLists = (w: World) => archonCalls(w).filter(call => call.startsWith('workflow runs --json --all --limit 50')).length
 
-test('with the server answering, runs come from it and the CLI lists nothing', async ($, on) => {
+test('with the server answering, runs come from it and the CLI lists nothing', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('mine-1')], panes: IN_FRONT() })
@@ -27,7 +27,7 @@ test('with the server answering, runs come from it and the CLI lists nothing', a
 })
 
 for (const server of ['down', 'html'] as const) {
-  test(`a server that is ${server === 'down' ? 'refusing' : 'answering HTML'} falls back to the CLI in the same tick, with the dim server line`, async ($, on) => {
+  test(`a server that is ${server === 'down' ? 'refusing' : 'answering HTML'} falls back to the CLI in the same tick, with the dim server line`, COLD, async ($, on) => {
     const clock = mock.clock(on, { now: T0 })
     mock.store(on)
     const w = world({ server, rows: [row('mine-1')], panes: IN_FRONT() })
@@ -42,7 +42,7 @@ for (const server of ['down', 'html'] as const) {
   })
 }
 
-test('a server hanging past 2 s falls back to the CLI in the same tick', async ($, on) => {
+test('a server hanging past 2 s falls back to the CLI in the same tick', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ server: 'hang', rows: [row('mine-1')], panes: IN_FRONT() })
@@ -65,7 +65,7 @@ const TIERS = [
 
 for (const tier of TIERS) {
   for (const source of ['server', 'cli'] as const) {
-    test(`${tier.what}: the ${source} is polled every ${(source === 'server' ? tier.server : tier.cli) / 1000} s`, async ($, on) => {
+    test(`${tier.what}: the ${source} is polled every ${(source === 'server' ? tier.server : tier.cli) / 1000} s`, COLD, async ($, on) => {
       const clock = mock.clock(on, { now: T0 })
       mock.store(on)
       const w = world({ server: source === 'server' ? 'up' : 'down', rows: [...tier.rows], panes: tier.panes() })
@@ -87,7 +87,7 @@ for (const tier of TIERS) {
   }
 }
 
-test('a headless session polls nothing, from either source', async ($, on) => {
+test('a headless session polls nothing, from either source', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ surfaces: [], rows: [row('mine-1')] })
@@ -101,7 +101,7 @@ test('a headless session polls nothing, from either source', async ($, on) => {
 
 const details = (w: World, id: string) => w.fetches.filter(f => f.url === `http://localhost:3090/api/workflows/runs/${id}`).length
 
-test('a run\'s detail is fetched only when its row changed since the last tick', async ($, on) => {
+test('a run\'s detail is fetched only when its row changed since the last tick', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ rows: [row('a'), row('b', { workflow_name: 'archon-review' })], panes: IN_FRONT(), events: { a: [event('node_started', 'plan')] } })
@@ -127,7 +127,7 @@ test('a run\'s detail is fetched only when its row changed since the last tick',
   expect(details(w, 'b')).toBe(2)
 })
 
-test('on the CLI, a changed row\'s detail is read with workflow get, events and all', async ($, on) => {
+test('on the CLI, a changed row\'s detail is read with workflow get, events and all', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const w = world({ server: 'down', rows: [row('a')], panes: IN_FRONT() })
@@ -139,7 +139,7 @@ test('on the CLI, a changed row\'s detail is read with workflow get, events and 
   expect(calls).toContain('workflow get a --json')
 })
 
-test('a sub-run whose parent is not among the rows brings the parent in by id, once while nothing changes', async ($, on) => {
+test('a sub-run whose parent is not among the rows brings the parent in by id, once while nothing changes', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const parent = row('parent', { workflow_name: 'archon-ship' })

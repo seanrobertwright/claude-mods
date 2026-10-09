@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 
 import { approval, attention, event, iso, MINUTE, onChild, row, T0 } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
-import { archonCalls, fake, IN_FRONT, paneProps, world } from './fixtures/world'
+import { archonCalls, COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 import type { World } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
@@ -39,7 +39,7 @@ const texts = async (pane: Pane) => (await pane.findAll({ type: 'Text' })).map(t
 
 // ---------- the approval view ----------
 
-test('picking a run on an approval opens Log on its gate: header, message, what it asks about, files, then the answer area', async ($, on) => {
+test('picking a run on an approval opens Log on its gate: header, message, what it asks about, files, then the answer area', COLD, async ($, on) => {
   const { pane } = await open($, on, [gated('1a2b3c4d', { nodeId: 'review-gate', waitingSince: iso(NOW - 4 * MINUTE) })], '1a2b3c4d', {
     events: { '1a2b3c4d': [event('node_completed', 'plan', { node_output: 'The plan:\nstep one\nstep two' })] },
     artifacts: { '1a2b3c4d': [{ path: 'plan.md', size: 900, modifiedAt: iso(T0) }] },
@@ -57,7 +57,7 @@ test('picking a run on an approval opens Log on its gate: header, message, what 
   await pane.unmount()
 })
 
-test('what an approval asks about is the output of each node its gate waits on', async ($, on) => {
+test('what an approval asks about is the output of each node its gate waits on', COLD, async ($, on) => {
   const root = 'C:/home/.archon/workspaces/octo/widgets/workflow-source/runs/g'
   const { pane } = await open($, on, [gated('g')], 'g', {
     disk: {
@@ -73,7 +73,7 @@ test('what an approval asks about is the output of each node its gate waits on',
   await pane.unmount()
 })
 
-test('declared decisions take y, n, or the first free letter of their label, never r, a, b, o or x', async ($, on) => {
+test('declared decisions take y, n, or the first free letter of their label, never r, a, b, o or x', COLD, async ($, on) => {
   const { pane } = await open($, on, [gated('g', { decisions: [
     { id: 'approve', label: 'Approve' },
     { id: 'needs-revision', label: 'Needs revision' },
@@ -90,7 +90,7 @@ test('declared decisions take y, n, or the first free letter of their label, nev
   await pane.unmount()
 })
 
-test('a loop gate whose round said it is done finishes on a bare approve, and goes another round once there is text', async ($, on) => {
+test('a loop gate whose round said it is done finishes on a bare approve, and goes another round once there is text', COLD, async ($, on) => {
   const { pane } = await open($, on, [gated('g', { type: 'interactive_loop', roundDone: true })], 'g')
   expect((await pane.find({ key: 'decide-approve' }))?.text).toBe('y: Approve and finish')
   expect(await texts(pane)).toContain('A bare approve finishes the loop; with a comment it runs another round.')
@@ -99,7 +99,7 @@ test('a loop gate whose round said it is done finishes on a bare approve, and go
   await pane.unmount()
 })
 
-test('on the phone the buttons answer with no text, and a dim line says a comment needs the terminal or the desktop app', async ($, on) => {
+test('on the phone the buttons answer with no text, and a dim line says a comment needs the terminal or the desktop app', COLD, async ($, on) => {
   const { pane } = await open($, on, [gated('g')], 'g', {}, 'mobile')
   expect(await pane.find({ key: 'comment' })).toBeUndefined()
   expect((await pane.find({ type: 'Text', text: 'A comment needs the terminal or the desktop app.' }))?.props.dimColor).toBe(true)
@@ -108,7 +108,7 @@ test('on the phone the buttons answer with no text, and a dim line says a commen
 
 // ---------- confirming ----------
 
-test('a decision is confirmed with Send, restating the action, the run and the text; b goes back and keeps the text', async ($, on) => {
+test('a decision is confirmed with Send, restating the action, the run and the text; b goes back and keeps the text', COLD, async ($, on) => {
   const { w, pane } = await open($, on, [gated('1a2b3c4d')], '1a2b3c4d')
   await pane.input({ key: 'comment', text: 'looks good', kind: 'change' })
   await pane.press({ key: 'decide-approve' })
@@ -122,7 +122,7 @@ test('a decision is confirmed with Send, restating the action, the run and the t
   await pane.unmount()
 })
 
-test('a switch of sub-tab drops the pending action', async ($, on) => {
+test('a switch of sub-tab drops the pending action', COLD, async ($, on) => {
   const { pane } = await open($, on, [gated('g')], 'g')
   await pane.press({ key: 'decide-approve' })
   await pane.press({ key: 'tab-runs' })
@@ -133,7 +133,7 @@ test('a switch of sub-tab drops the pending action', async ($, on) => {
 
 // ---------- routing ----------
 
-test('a CLI-started run is answered through the CLI with --detach, and the answer becomes a record line', async ($, on) => {
+test('a CLI-started run is answered through the CLI with --detach, and the answer becomes a record line', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g')], 'g')
   w.cliReply = argv => {
     if (argv[2] === 'approve') {
@@ -153,7 +153,7 @@ test('a CLI-started run is answered through the CLI with --detach, and the answe
   await pane.unmount()
 })
 
-test('a reject is sent through reject, with its reason', async ($, on) => {
+test('a reject is sent through reject, with its reason', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g')], 'g')
   await pane.input({ key: 'comment', text: 'no', kind: 'change' })
   await pane.press({ key: 'decide-reject' })
@@ -163,7 +163,7 @@ test('a reject is sent through reject, with its reason', async ($, on) => {
   await pane.unmount()
 })
 
-test('a declared decision is sent through respond', async ($, on) => {
+test('a declared decision is sent through respond', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g', { decisions: [{ id: 'approve', label: 'Approve' }, { id: 'needs-revision', label: 'Needs revision' }] })], 'g')
   await pane.press({ key: 'decide-needs-revision' })
   await pane.press({ key: 'confirm' })
@@ -172,7 +172,7 @@ test('a declared decision is sent through respond', async ($, on) => {
   await pane.unmount()
 })
 
-test('a web-started run is answered through the server while it answers', async ($, on) => {
+test('a web-started run is answered through the server while it answers', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g', {}, { parent_conversation_id: 'conv-1' })], 'g')
   await pane.input({ key: 'comment', text: 'not this', kind: 'change' })
   await pane.press({ key: 'decide-reject' })
@@ -184,7 +184,7 @@ test('a web-started run is answered through the server while it answers', async 
   await pane.unmount()
 })
 
-test('with the server down a web-started run is answered through the CLI, and the confirming line says its chat won\'t show the rest', async ($, on) => {
+test('with the server down a web-started run is answered through the CLI, and the confirming line says its chat won\'t show the rest', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g', {}, { parent_conversation_id: 'conv-1' })], 'g', { server: 'down' })
   await pane.press({ key: 'decide-approve' })
   expect((await texts(pane)).some(t => t.includes("The server isn't answering, so the rest of this run won't show in its chat."))).toBe(true)
@@ -194,7 +194,7 @@ test('with the server down a web-started run is answered through the CLI, and th
   await pane.unmount()
 })
 
-test('a sub-run\'s approval is answered on the sub-run\'s own id, and says what a reject does to its parent', async ($, on) => {
+test('a sub-run\'s approval is answered on the sub-run\'s own id, and says what a reject does to its parent', COLD, async ($, on) => {
   const parent = row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } })
   const child = row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'paused', metadata: { approval: approval() } })
   const { clock, w, pane } = await open($, on, [parent, child], 'p')
@@ -207,7 +207,7 @@ test('a sub-run\'s approval is answered on the sub-run\'s own id, and says what 
   await pane.unmount()
 })
 
-test('when Archon still refuses with a childRunId, the answer follows that id', async ($, on) => {
+test('when Archon still refuses with a childRunId, the answer follows that id', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('p', {}, { parent_conversation_id: 'conv-1' })], 'p')
   w.httpReply = (method, path) => {
     if (method === 'POST' && path === '/api/workflows/runs/p/approve') return { status: 400, body: JSON.stringify({ error: 'Run is paused waiting on sub-run c2. Approve or reject the child run instead.', childRunId: 'c2' }) }
@@ -226,7 +226,7 @@ test('when Archon still refuses with a childRunId, the answer follows that id', 
 
 // ---------- refusals, silence and races ----------
 
-test('a refusal shows Archon\'s message in error, and the buttons come back while the run still needs you', async ($, on) => {
+test('a refusal shows Archon\'s message in error, and the buttons come back while the run still needs you', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g')], 'g')
   w.cliReply = argv => (argv[2] === 'approve' ? { exitCode: 1, stdout: JSON.stringify({ ok: false, runId: 'g', action: 'approve', error: 'Run g is not paused.' }) } : undefined)
   await pane.press({ key: 'decide-approve' })
@@ -237,7 +237,7 @@ test('a refusal shows Archon\'s message in error, and the buttons come back whil
   await pane.unmount()
 })
 
-test('no reply in 30 s says it may still have gone through', async ($, on) => {
+test('no reply in 30 s says it may still have gone through', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g')], 'g')
   w.cliReply = argv => (argv[2] === 'approve' ? 'hang' : undefined)
   await pane.press({ key: 'decide-approve' })
@@ -252,7 +252,7 @@ test('no reply in 30 s says it may still have gone through', async ($, on) => {
   await pane.unmount()
 })
 
-test('an answer Archon accepted but has not recorded after 30 s says so, names the detached log, and brings the buttons back with the text', async ($, on) => {
+test('an answer Archon accepted but has not recorded after 30 s says so, names the detached log, and brings the buttons back with the text', COLD, async ($, on) => {
   const { clock, pane } = await open($, on, [gated('g')], 'g')
   await pane.input({ key: 'comment', text: 'go', kind: 'change' })
   await pane.press({ key: 'decide-approve' })
@@ -266,7 +266,7 @@ test('an answer Archon accepted but has not recorded after 30 s says so, names t
   await pane.unmount()
 })
 
-test('answered elsewhere before sending: nothing is sent, and the answer found is shown', async ($, on) => {
+test('answered elsewhere before sending: nothing is sent, and the answer found is shown', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g')], 'g')
   await pane.press({ key: 'decide-approve' })
   w.rows = [row('g', { workflow_name: 'archon-plan', status: 'running' })]
@@ -278,7 +278,7 @@ test('answered elsewhere before sending: nothing is sent, and the answer found i
   await pane.unmount()
 })
 
-test('answered elsewhere during confirmation: a poll drops the pending action, the typed text stays, dim', async ($, on) => {
+test('answered elsewhere during confirmation: a poll drops the pending action, the typed text stays, dim', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [gated('g')], 'g')
   await pane.input({ key: 'comment', text: 'my words', kind: 'change' })
   await pane.press({ key: 'decide-approve' })
@@ -294,7 +294,7 @@ test('answered elsewhere during confirmation: a poll drops the pending action, t
 const actionNeeded = (over: Record<string, unknown> = {}) =>
   row('a', { workflow_name: 'archon-release', status: 'paused', ...over, metadata: { wait: { ...attention('Push the release tag, then resume.'), waitingSince: iso(NOW - 14 * MINUTE) } } })
 
-test('action needed offers resume and abandon, each confirmed with a button naming it', async ($, on) => {
+test('action needed offers resume and abandon, each confirmed with a button naming it', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded()], 'a')
   const all = await texts(pane)
   expect(all).toContain('⏸ Action needed · waiting 14m')
@@ -310,7 +310,7 @@ test('action needed offers resume and abandon, each confirmed with a button nami
   await pane.unmount()
 })
 
-test('abandon confirms with its own line and button, and goes through the CLI for a CLI-started run', async ($, on) => {
+test('abandon confirms with its own line and button, and goes through the CLI for a CLI-started run', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded()], 'a')
   await pane.press({ key: 'abandon' })
   expect(await texts(pane)).toContain("Abandon: ends this run and anything it started. It can't be resumed.")
@@ -322,7 +322,7 @@ test('abandon confirms with its own line and button, and goes through the CLI fo
   await pane.unmount()
 })
 
-test('a web-started run is resumed and abandoned through the server while it answers; resume is sent to its chat', async ($, on) => {
+test('a web-started run is resumed and abandoned through the server while it answers; resume is sent to its chat', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a')
   await pane.press({ key: 'resume' })
   await pane.press({ key: 'confirm' })
@@ -336,7 +336,7 @@ test('a web-started run is resumed and abandoned through the server while it ans
   await pane.unmount()
 })
 
-test('a web-started run is abandoned through the server while it answers', async ($, on) => {
+test('a web-started run is abandoned through the server while it answers', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a')
   await pane.press({ key: 'abandon' })
   await pane.press({ key: 'confirm' })
@@ -346,7 +346,7 @@ test('a web-started run is abandoned through the server while it answers', async
   await pane.unmount()
 })
 
-test('with the server down a web-started run is resumed through the CLI', async ($, on) => {
+test('with the server down a web-started run is resumed through the CLI', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a', { server: 'down' })
   await pane.press({ key: 'resume' })
   await pane.press({ key: 'confirm' })
@@ -355,7 +355,7 @@ test('with the server down a web-started run is resumed through the CLI', async 
   await pane.unmount()
 })
 
-test('a Slack run is never resumed from the pane, but can be abandoned, through the CLI', async ($, on) => {
+test('a Slack run is never resumed from the pane, but can be abandoned, through the CLI', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'slack-1', platform_type: 'slack' })], 'a')
   expect(await buttons(pane)).toEqual(['abandon=x  Abandon run'])
   expect((await pane.find({ type: 'Text', text: 'resume it from Slack' }))?.props.dimColor).toBe(true)
@@ -366,7 +366,7 @@ test('a Slack run is never resumed from the pane, but can be abandoned, through 
   await pane.unmount()
 })
 
-test('a run whose working path is gone offers only abandon', async ($, on) => {
+test('a run whose working path is gone offers only abandon', COLD, async ($, on) => {
   const { pane } = await open($, on, [actionNeeded({ working_path: 'D:/gone/worktree' })], 'a')
   expect(await buttons(pane)).toEqual(['abandon=x  Abandon run'])
   expect((await pane.find({ type: 'Text', text: "can't resume: D:/gone/worktree is gone" }))?.props.dimColor).toBe(true)
@@ -380,7 +380,7 @@ const STRANDS = [
 ] as const
 
 for (const strand of STRANDS) {
-  test(`a parent stranded by a ${strand.ending} sub-run names how it ended, and its resume follows`, async ($, on) => {
+  test(`a parent stranded by a ${strand.ending} sub-run names how it ended, and its resume follows`, COLD, async ($, on) => {
     const parent = row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } })
     const child = row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: strand.ending, completed_at: iso(T0 + 5 * MINUTE) })
     const { pane } = await open($, on, [parent, child], 'p')
@@ -394,7 +394,7 @@ for (const strand of STRANDS) {
   })
 }
 
-test('a resume raced: resumed elsewhere, or ended elsewhere, sends nothing', async ($, on) => {
+test('a resume raced: resumed elsewhere, or ended elsewhere, sends nothing', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded()], 'a')
   await pane.press({ key: 'resume' })
   w.rows = [actionNeeded({ status: 'running', metadata: {} })]
@@ -405,7 +405,7 @@ test('a resume raced: resumed elsewhere, or ended elsewhere, sends nothing', asy
   await pane.unmount()
 })
 
-test('an abandon raced by the run ending sends nothing', async ($, on) => {
+test('an abandon raced by the run ending sends nothing', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded()], 'a')
   await pane.press({ key: 'abandon' })
   w.rows = [actionNeeded({ status: 'cancelled', completed_at: iso(NOW) })]
@@ -416,7 +416,7 @@ test('an abandon raced by the run ending sends nothing', async ($, on) => {
   await pane.unmount()
 })
 
-test('a refused resume shows Archon\'s message', async ($, on) => {
+test('a refused resume shows Archon\'s message', COLD, async ($, on) => {
   const { clock, w, pane } = await open($, on, [actionNeeded({ parent_conversation_id: 'conv-1' })], 'a')
   w.httpReply = (method, path) => (method === 'POST' && path === '/api/workflows/runs/a/resume' ? { status: 400, body: JSON.stringify({ error: "Cannot resume run with status 'running'." }) } : undefined)
   await pane.press({ key: 'resume' })
@@ -426,7 +426,7 @@ test('a refused resume shows Archon\'s message', async ($, on) => {
   await pane.unmount()
 })
 
-test('a --detach resume the run has not moved on after 30 s says so', async ($, on) => {
+test('a --detach resume the run has not moved on after 30 s says so', COLD, async ($, on) => {
   const { clock, pane } = await open($, on, [actionNeeded()], 'a')
   await pane.press({ key: 'resume' })
   await pane.press({ key: 'confirm' })
@@ -439,7 +439,7 @@ test('a --detach resume the run has not moved on after 30 s says so', async ($, 
 
 // ---------- /archon ----------
 
-test('/archon opens Log on the run that has needed you longest, a sub-run\'s gate counted like any other', async ($, on) => {
+test('/archon opens Log on the run that has needed you longest, a sub-run\'s gate counted like any other', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   const w = world({

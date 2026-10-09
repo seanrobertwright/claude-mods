@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { row } from './fixtures/runs'
-import { archonCalls, fake, HOME_ARCHON, IN_FRONT, OLD_VERSION, paneProps, world } from './fixtures/world'
+import { archonCalls, COLD, fake, HOME_ARCHON, IN_FRONT, OLD_VERSION, paneProps, world } from './fixtures/world'
 
 const NEEDS_CLI = 'The Archon pane needs the Archon CLI, v0.11.0 or later. Install it from https://archon.diy, or set its path in the mod settings, then press r.'
 const NEEDS_NEWER = 'The Archon pane needs Archon v0.11.0 or later; this is v0.10.1. Update it, then press r.'
@@ -14,7 +14,7 @@ const WHERE = [
 ] as const
 
 for (const where of WHERE) {
-  test(`the CLI found by ${where.at} is the one every call runs`, { options: where.options }, async ($, on) => {
+  test(`the CLI found by ${where.at} is the one every call runs`, { ...COLD, options: where.options }, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000 })
     mock.store(on)
     const w = world({ archonAt: where.at, settingPath: where.settingPath, server: 'down', rows: [row('run-1')] })
@@ -33,7 +33,7 @@ for (const { why, version, archonAt, says } of [
   { why: 'missing', version: '', archonAt: 'none', says: NEEDS_CLI },
   { why: 'older than v0.11.0', version: OLD_VERSION, archonAt: 'home', says: NEEDS_NEWER },
 ] as const) {
-  test(`with the CLI ${why} the pane shows only the Requirement line, and nothing polls, toasts or goes on the status line`, async ($, on) => {
+  test(`with the CLI ${why} the pane shows only the Requirement line, and nothing polls, toasts or goes on the status line`, COLD, async ($, on) => {
     const clock = mock.clock(on, { now: 1_000 })
     mock.store(on)
     const w = world({ archonAt, ...(version === '' ? {} : { version }), rows: [row('run-1', { status: 'paused', metadata: { approval: { nodeId: 'g', type: 'approval', message: 'ok?' } } })] })
@@ -56,7 +56,7 @@ for (const { why, version, archonAt, says } of [
   })
 }
 
-test('once the CLI is installed, r checks it again and polling starts', async ($, on) => {
+test('once the CLI is installed, r checks it again and polling starts', COLD, async ($, on) => {
   const clock = mock.clock(on, { now: 1_000 })
   mock.store(on)
   const w = world({ archonAt: 'none', server: 'down', rows: [row('run-1')], panes: IN_FRONT() })

@@ -6,7 +6,7 @@ import { attention, parseRun } from '../hooks/runs'
 import type { Detail, Run } from '../types'
 import { approval, attention as attentionWait, iso, MINUTE, onChild, row, T0, WORKTREE } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
-import { fake, IN_FRONT, paneProps, world } from './fixtures/world'
+import { COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
 const parse = (r: Row) => parseRun(r) as Run
@@ -54,7 +54,7 @@ async function runsPane($: Engine, on: On, rows: Row[], over: Parameters<typeof 
 const labels = async (pane: { findAll: (q: { type: 'Box' }) => Promise<{ text: string; key: string | undefined }[]> }) =>
   (await pane.findAll({ type: 'Box' })).filter(b => b.key?.startsWith('run-')).map(b => b.text.trim())
 
-test('Runs puts runs that need you first, the longest waiting at the top, then the rest by latest activity', async ($, on) => {
+test('Runs puts runs that need you first, the longest waiting at the top, then the rest by latest activity', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('quiet', { workflow_name: 'archon-quiet', last_activity_at: iso(T0 + MINUTE) }),
     row('busy', { workflow_name: 'archon-busy', last_activity_at: iso(T0 + 3 * MINUTE) }),
@@ -68,7 +68,7 @@ test('Runs puts runs that need you first, the longest waiting at the top, then t
   await pane.unmount()
 })
 
-test('each row reads glyph, workflow, status word and time, with a dim detail line', async ($, on) => {
+test('each row reads glyph, workflow, status word and time, with a dim detail line', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('a', { workflow_name: 'archon-approve', status: 'paused', metadata: { approval: approval() } }),
     row('b', { workflow_name: 'archon-act', status: 'paused', metadata: { wait: attentionWait('Push the tag\nthen resume') } }),
@@ -96,13 +96,13 @@ test('each row reads glyph, workflow, status word and time, with a dim detail li
   await pane.unmount()
 })
 
-test('a gate Archon cannot read links its run in Archon while the server answers', async ($, on) => {
+test('a gate Archon cannot read links its run in Archon while the server answers', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [row('odd', { workflow_name: 'archon-odd', status: 'paused', metadata: {} })])
   expect((await pane.find({ type: 'Link' }))?.props.href).toBe('http://localhost:3090/console/r/odd')
   await pane.unmount()
 })
 
-test('a stranded parent reads stuck, with its sub-run\'s ending beside it', async ($, on) => {
+test('a stranded parent reads stuck, with its sub-run\'s ending beside it', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } }),
     row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'failed', completed_at: iso(T0 + 5 * MINUTE) }),
@@ -112,7 +112,7 @@ test('a stranded parent reads stuck, with its sub-run\'s ending beside it', asyn
   await pane.unmount()
 })
 
-test('a parent waiting on a sub-run is dim, or reads approval in sub-run and sorts first when the sub-run is on one', async ($, on) => {
+test('a parent waiting on a sub-run is dim, or reads approval in sub-run and sorts first when the sub-run is on one', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('busy', { workflow_name: 'archon-busy', last_activity_at: iso(T0 + 19 * MINUTE) }),
     row('p', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: onChild('c') } }),
@@ -126,7 +126,7 @@ test('a parent waiting on a sub-run is dim, or reads approval in sub-run and sor
   await pane.unmount()
 })
 
-test('one sub-run is one indented line; a fan-out folds to its counts and opens and folds on a pick', async ($, on) => {
+test('one sub-run is one indented line; a fan-out folds to its counts and opens and folds on a pick', COLD, async ($, on) => {
   const kids = Array.from({ length: 5 }, (_, i) => row(`k${i}`, {
     workflow_name: 'archon-item',
     parent_run_id: 'fan',
@@ -150,7 +150,7 @@ test('one sub-run is one indented line; a fan-out folds to its counts and opens 
   await pane.unmount()
 })
 
-test('an ended parent\'s sub-runs fold the same way', async ($, on) => {
+test('an ended parent\'s sub-runs fold the same way', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('p', { workflow_name: 'archon-ship', status: 'completed', completed_at: iso(T0 + 9 * MINUTE) }),
     row('c', { workflow_name: 'archon-fix', parent_run_id: 'p', status: 'completed', completed_at: iso(T0 + 8 * MINUTE) }),
@@ -159,7 +159,7 @@ test('an ended parent\'s sub-runs fold the same way', async ($, on) => {
   await pane.unmount()
 })
 
-test('in a linked worktree its runs are pinned first under the branch, the rest under the project line, each pinned one marked here', async ($, on) => {
+test('in a linked worktree its runs are pinned first under the branch, the rest under the project line, each pinned one marked here', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('mine', { workflow_name: 'archon-newer', last_activity_at: iso(T0 + 9 * MINUTE) }),
     row('here-old', { workflow_name: 'archon-here-old', working_path: WORKTREE, status: 'completed', started_at: iso(T0), completed_at: iso(T0 + MINUTE) }),
@@ -174,7 +174,7 @@ test('in a linked worktree its runs are pinned first under the branch, the rest 
   await pane.unmount()
 })
 
-test('a session in the primary checkout pins nothing', async ($, on) => {
+test('a session in the primary checkout pins nothing', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [row('a', { working_path: 'D:/repos/widgets' })])
   const texts = (await pane.findAll({ type: 'Text' })).map(t => t.text)
   expect(texts.includes('─ project ─')).toBe(false)
@@ -182,7 +182,7 @@ test('a session in the primary checkout pins nothing', async ($, on) => {
   await pane.unmount()
 })
 
-test('adoption lines name the other run, or its short id alone when it is not listed', async ($, on) => {
+test('adoption lines name the other run, or its short id alone when it is not listed', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [
     row('1a2b3c4d5e', { workflow_name: 'archon-plan', status: 'completed', completed_at: iso(T0 + MINUTE) }),
     row('9f8e7d6c5b', { workflow_name: 'archon-deliver', adopted_from_run_id: '1a2b3c4d5e' }),
@@ -195,7 +195,7 @@ test('adoption lines name the other run, or its short id alone when it is not li
   await pane.unmount()
 })
 
-test('a project with no runs says so', async ($, on) => {
+test('a project with no runs says so', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [])
   expect(await pane.find({ type: 'Text', text: 'No workflow runs here yet.' })).toBeDefined()
   await pane.unmount()

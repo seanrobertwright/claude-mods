@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import { approval, event, iso, MINUTE, OUTPUT_ROOT, row, T0 } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
 import { DELIVER, SHIP } from './fixtures/workflows'
-import { fake, IN_FRONT, paneProps, world } from './fixtures/world'
+import { COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
 import type { World } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
@@ -52,7 +52,7 @@ const CHILD_ROW = row('child-1', { workflow_name: 'archon-fix', parent_run_id: '
 
 const shown = async (pane: { findAll: (q: { type: 'Box' }) => Promise<{ text: string }[]> }) => (await pane.findAll({ type: 'Box' })).map(box => box.text).join('\n')
 
-test('picking a run that does not need you opens its Graph, read from its frozen source', async ($, on) => {
+test('picking a run that does not need you opens its Graph, read from its frozen source', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW, CHILD_ROW])
   expect((await pane.find({ key: 'tab-graph' }))?.props.dimColor).toBe(false)
   const all = await shown(pane)
@@ -65,7 +65,7 @@ test('picking a run that does not need you opens its Graph, read from its frozen
   await pane.unmount()
 })
 
-test('an include block folds to one box, expands in place when picked, and folds from its header', async ($, on) => {
+test('an include block folds to one box, expands in place when picked, and folds from its header', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW])
   await pane.press({ key: 'node-block:deliver' })
   let all = await shown(pane)
@@ -78,7 +78,7 @@ test('an include block folds to one box, expands in place when picked, and folds
   await pane.unmount()
 })
 
-test('a loop group shows its current round when picked, and steps back through earlier ones', async ($, on) => {
+test('a loop group shows its current round when picked, and steps back through earlier ones', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW])
   await pane.press({ key: 'node-fix-cycle' })
   let all = await shown(pane)
@@ -95,7 +95,7 @@ test('a loop group shows its current round when picked, and steps back through e
   await pane.unmount()
 })
 
-test('a workflow node opens its sub-run\'s Graph, which leads back to its parent', async ($, on) => {
+test('a workflow node opens its sub-run\'s Graph, which leads back to its parent', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW, CHILD_ROW], {
     disk: {
       ...SOURCE,
@@ -112,7 +112,7 @@ test('a workflow node opens its sub-run\'s Graph, which leads back to its parent
   await pane.unmount()
 })
 
-test('a sub-run on an approval gives its workflow box the warning border, and picking it opens the gate in Log', async ($, on) => {
+test('a sub-run on an approval gives its workflow box the warning border, and picking it opens the gate in Log', COLD, async ($, on) => {
   const child = row('child-1', { workflow_name: 'archon-fix', parent_run_id: 'ship-1', status: 'paused', metadata: { parent_node_id: 'child', approval: approval({ nodeId: 'ok' }) } })
   const parent = row('ship-1', { workflow_name: 'archon-ship', status: 'paused', metadata: { approval: { nodeId: 'child', type: 'child_workflow', childRunId: 'child-1' } } })
   const clock = mock.clock(on, { now: at(20) })
@@ -135,26 +135,26 @@ test('a sub-run on an approval gives its workflow box the warning border, and pi
   await pane.unmount()
 })
 
-test('picking a node opens Log cut to that node', async ($, on) => {
+test('picking a node opens Log cut to that node', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW])
   await pane.press({ key: 'node-plan' })
   expect((await pane.find({ key: 'tab-log' }))?.props.dimColor).toBe(false)
   await pane.unmount()
 })
 
-test('↗ Archon links the run\'s page while the server answers, never from the CLI or on the phone', async ($, on) => {
+test('↗ Archon links the run\'s page while the server answers, never from the CLI or on the phone', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW])
   expect((await pane.find({ type: 'Link' }))?.props.href).toBe('http://localhost:3090/console/r/ship-1')
   await pane.unmount()
 })
 
-test('no ↗ Archon link while the CLI answers', async ($, on) => {
+test('no ↗ Archon link while the CLI answers', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW], { server: 'down' })
   expect(await pane.find({ type: 'Link' })).toBeUndefined()
   await pane.unmount()
 })
 
-test('no ↗ Archon link on the phone, where localhost is the phone', async ($, on) => {
+test('no ↗ Archon link on the phone, where localhost is the phone', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW], {}, 'mobile')
   expect(await pane.find({ type: 'Link' })).toBeUndefined()
   await pane.unmount()
