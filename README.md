@@ -26,7 +26,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | Mod | Where it shows | What it does |
 | --- | --- | --- |
 | 🧭 [whats-next](#-whats-next) | Pane in the side panel | Lists the next steps of your workflow, each with a prompt ready to paste |
-| ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered and the next wayfinder ticket |
+| ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered, Pass, Fail and Skip for a verdict, and the next wayfinder ticket |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
 | 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
@@ -118,6 +118,16 @@ Reply:  [a: Keep the copies]  [b: Add a sync script]  [Yes]  [Go with your recom
 - A numbered report before a yes-or-no question ("Shall I commit?") is not offered as choices.
 - When the answer recommends something, the "recommend" reply is the highlighted one. Advice against something does not count.
 - The band stays out of the way while Claude is working, and after a subagent's turn.
+
+**Verdicts.** When Claude asks for a pass/fail verdict on a test or a check, as a UAT or `/gsd:verify-work` step does ("Pass or fail?", "Did it pass?", "Type `pass` or describe what's wrong"), the band offers a verdict in place of your replies:
+
+```text
+Reply:  [Pass]  [Fail…]  [Skip]
+```
+
+Pass sends "pass" and Skip sends "skip", as your own message.
+Fail… sends nothing: it puts "Fail: " in the prompt, where you say what went wrong and can paste a screenshot.
+A test's numbered steps are not offered as choices, and a question that only mentions passing ("Shall I make the tests pass?") gets your usual replies.
 
 **Next ticket.** When you work a map with the `wayfinder` skill, the band leads with the next ticket after each turn that closes one or charts the map:
 
