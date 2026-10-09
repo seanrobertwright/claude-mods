@@ -377,7 +377,8 @@ Claude is about to commit to main, the default branch. Create a branch first?
 It sees `git commit` and `git push` in the text of a shell command, `git -C <folder> commit` too.
 It asks on the default branch, and from any branch before a push to it, such as `git push origin main` or `git push origin HEAD:main`.
 The default branch is the one the remote's HEAD names (`origin/HEAD`), else `main`, else `master`.
-Outside a repository, or where git cannot say the branch, the call goes on as it would without the mod.
+On a detached HEAD there is no current branch, so it asks only before a push that names the default branch, such as `git push origin HEAD:main`; a commit, a bare `git push` and `git push origin HEAD` go on.
+Outside a repository, or in a folder git cannot read, the call goes on as it would without the mod.
 It reads the branch before the command runs, so a command that switches branch or folder before it commits, such as `git switch -c fix && git commit`, is judged by where it starts.
 
 There is nothing to set: once installed, it guards every session.
