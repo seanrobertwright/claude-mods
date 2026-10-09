@@ -3,12 +3,12 @@
 > Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a question before Claude reads a `.env` or key file, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![14 mods](https://img.shields.io/badge/mods-14-6b5bd2)
+![15 mods](https://img.shields.io/badge/mods-15-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all fourteen, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all fifteen, or read the source and write your own.
 
 ## What is a mod?
 
@@ -34,6 +34,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
 | 🌿 [branch-guard](#-branch-guard) | Question dialog | Asks you before Claude commits or pushes on the default branch |
 | 🔑 [env-guard](#-env-guard) | Question dialog | Asks you before Claude reads a `.env` or key file, and refuses when no one is there to answer |
+| 🩹 [bash-quoting-rescue](#-bash-quoting-rescue) | Refused tool call | Stops a shell command that does not parse, such as an unclosed quote, before any of it runs |
 | 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
@@ -368,6 +369,28 @@ A pattern with a folder in it, or with `[ ]` or `{ }`, guards nothing: the mod n
 
 **Needs:** nothing. The refusal names keypick only when that skill is installed.
 
+### 🩹 bash-quoting-rescue
+
+Before a Bash or PowerShell command runs, the mod parses it with the shell's own parser.
+A command that does not parse, such as one with an unclosed quote or heredoc, is refused before any of it runs, and Claude is told why and how to fix it.
+Without the mod, the lines before the broken one would already have run when the shell gives up.
+
+```text
+bash-quoting-rescue: bash cannot parse this command, so none of it ran.
+bash: line 1: unexpected EOF while looking for matching `"'
+Close the quote or bracket left open. For long multi-line text, quote the heredoc delimiter (<<'EOF') so nothing inside it is expanded, or write the text to a file first.
+```
+
+- **Bash**: `bash -n` parses the command. A heredoc that runs to the end of the command is refused too, since everything after it would be swallowed into it.
+- **PowerShell**: PowerShell's own parser reads the command, in `pwsh`, or in Windows PowerShell where `pwsh` is not installed.
+- The command reaches the parser only on its standard input, never in its arguments, so the check runs none of it.
+- A parser that is missing, takes longer than five seconds or answers in a way the mod does not know lets the command through, as it would go without the mod.
+- In a headless session nothing is parsed.
+
+It checks only that the command parses: it does not rewrite the command, and it does not lint it.
+
+There is nothing to set: once installed, it guards every session.
+
 ### 📂 outputs
 
 A pane listing the files this session has made or changed in the project folder, newest first.
@@ -578,6 +601,7 @@ claude plugin install turn-chime@claude-mods
 claude plugin install open-file-guard@claude-mods
 claude plugin install branch-guard@claude-mods
 claude plugin install env-guard@claude-mods
+claude plugin install bash-quoting-rescue@claude-mods
 claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
 claude plugin install hud@claude-mods
@@ -599,7 +623,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 ## Configure the mods
 
 whats-next, quick-reply, auto-resume, github-panel, turn-chime, env-guard and hud have settings, listed in each mod's section above with the key each one is stored under.
-shelf and sources are set up with their own commands, in the session; outputs, open-file-guard and branch-guard have nothing to set.
+shelf and sources are set up with their own commands, in the session; outputs, open-file-guard, branch-guard and bash-quoting-rescue have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
 
