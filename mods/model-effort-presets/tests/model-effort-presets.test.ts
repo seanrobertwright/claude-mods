@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 const PLUGIN = 'model-effort-presets'
@@ -13,6 +13,8 @@ const BAND = {
 } as const
 
 const INTERACTIVE = { cwd: '/work/repo', surface: 'terminal', isInteractive: true } as const
+
+const COMPOSER = { origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } } as const
 
 /** The ids `/model` resolves its aliases to, as Claude Code 2.1.295 does. */
 const IDS: Readonly<Record<string, string>> = {
@@ -64,5 +66,27 @@ test('pressing plan sets its model and effort, and the band marks plan', async (
   expect(ran).toEqual(['/model opus', '/effort high'])
   expect(await variantOf(band, 'preset-plan')).toBe('primary')
   expect(await variantOf(band, 'preset-execute')).toBeUndefined()
+  await band.unmount()
+})
+
+test('/preset execute switches to execute once it has answered, and /preset nope shows the usage line', async ($, on) => {
+  const { ran } = engineBeneath(on, IDS.opus)
+  const clock = mock.clock(on)
+  await $.session.start(INTERACTIVE)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND })
+
+  const answered = await $.command.run({ command: 'preset', args: 'execute', ...COMPOSER })
+  expect(answered.text).toBe('Switching to execute: sonnet, medium effort.')
+  // The engine refuses /model from inside a command, so the switch follows the answer.
+  await clock.settle()
+  expect(ran).toEqual(['/model sonnet', '/effort medium'])
+  expect(await variantOf(band, 'preset-execute')).toBe('primary')
+  expect(await variantOf(band, 'preset-plan')).toBeUndefined()
+
+  for (const args of ['nope', '']) {
+    expect((await $.command.run({ command: 'preset', args, ...COMPOSER })).text).toBe('Usage: /preset <plan|execute>')
+  }
+  await clock.settle()
+  expect(ran).toEqual(['/model sonnet', '/effort medium'])
   await band.unmount()
 })

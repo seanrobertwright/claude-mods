@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Current, Preset } from '../types'
-import { currentPreset, parseConfig } from './presets'
+import { currentPreset, findPreset, parseConfig, usage } from './presets'
 
 const LABEL = 'Preset:'
 
@@ -25,9 +25,18 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    await $.command.register({ name: 'preset', description: 'Switch the model and the effort to a preset', argumentHint: config.presets.map(preset => preset.name).join('|') })
     const model = await $.session.model()
     await update($, current, () => ({ model, effort: null }))
     return started
+  })
+
+  on('command.run', { command: 'preset' }, async ($, e) => {
+    const preset = findPreset(config.presets, e.args)
+    if (preset === undefined) return { text: usage(config.presets) }
+    // The engine refuses a command run from inside another, so the switch follows this one's answer.
+    $.clock.after(0, () => void apply($, preset).catch(report($)))
+    return { text: `Switching to ${preset.name}: ${preset.model}, ${preset.effort} effort.` }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

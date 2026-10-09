@@ -36,3 +36,13 @@ export function isModel(id: string, model: string): boolean {
 export function currentPreset(presets: readonly Preset[], current: Current): Preset | undefined {
   return presets.find(preset => isModel(current.model, preset.model) && (current.effort === null || current.effort === preset.effort))
 }
+
+/** The preset `/preset` was given, by name in any case. */
+export function findPreset(presets: readonly Preset[], name: string): Preset | undefined {
+  const wanted = name.trim().toLowerCase()
+  return presets.find(preset => preset.name.toLowerCase() === wanted)
+}
+
+export function usage(presets: readonly Preset[]): string {
+  return `Usage: /preset <${presets.map(preset => preset.name).join('|')}>`
+}
