@@ -29,6 +29,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered, Pass, Fail and Skip for a verdict, and the next wayfinder ticket |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
 | 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt; the issue a `/wayfinder` run works on, pinned with its next ticket; a toast when your branch's checks turn green or red |
+| 🏛️ [archon-panel](#️-archon-panel) | Pane in the side panel | This project's Archon workflow runs, their graphs and logs, and the approvals that wait on you, answered from the pane |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
@@ -294,6 +295,65 @@ echo '{"limit": "50", "refreshMinutes": "0"}' | claude plugin configure github-p
 ```
 
 **Needs:** the [GitHub CLI](https://cli.github.com), logged in, and a folder with a GitHub remote.
+
+### 🏛️ archon-panel
+
+An Archon pane in the side panel: this project's [Archon](https://archon.diy) workflow runs, their graphs and logs, and the approvals that wait on you.
+A run that needs you comes first, and the pane answers its approval, or resumes or abandons it, without leaving the session.
+
+```text
+1: Runs 3 ⏸1  2: Graph  3: Log  4: Archon's log    ↻ ⚙️
++2 live in other projects
+⏸ archon-interactive-prd  needs your approval  4m
+  Draft the PRD for the widget pane
+● archon-deliver  running  37m
+  Ship the widget pane · continues archon-plan 1a2b3c4
+   ↳ 3 sub-runs · 1 running · 2 done
+✓ archon-plan  completed  12m
+  Plan the widget pane · continued by archon-deliver 9f8e7d6
+```
+
+- **1: Runs** lists this project's runs, the ones that need you first: an approval (`⏸`), action needed or a run its sub-run left paused (`!`), and a gate Archon can't read (`?`). Then the rest, newest activity first.
+  Sub-runs nest under the run that started them; a fan-out folds to its counts until you pick it.
+  In a linked worktree, the runs working in it are pinned first, under its branch.
+  Picking a run that needs you opens Log on its gate; any other run opens its Graph.
+- **2: Graph** draws the run's nodes from the workflow it froze when it started, coloured by state.
+  An include block, a loop group and a sub-run each fold to one box; pick one to open it.
+  A graph wider than the pane gives way a step at a time: shorter names, then waits that skip a layer as notes, then a list. Pick a node to open Log on it.
+- **3: Log** is the run's log: its model text, tool calls, node markers and each node's output, cut to the picked node, `a` for all of them.
+  A live run's log is followed as it is written; the newest 60,000 characters are kept.
+  The files the run kept are listed at the top; pick one to read it in the pane, `o` to open it outside, `@ prompt` to add its path to the prompt.
+- **4: Archon's log** is what `archon serve` writes, for the whole machine, warnings and errors in colour.
+- A run on an approval shows the gate's message, the output it asks about and its files, then one button per decision it declares (`y` approves, `n` rejects) and a box for a comment.
+  Action needed and a run stranded by its sub-run offer `r` resume and `x` abandon.
+  Every action asks you to confirm it first, and is sent where the run lives: the Archon CLI for a run started from the CLI, Archon's server for one started from its web UI or a chat.
+  Nothing else is ever done to a run.
+- A toast says when this project's runs need you, fail or finish, once across all your open sessions; the status line counts what runs and what needs you.
+- The runs refresh every 2 to 60 seconds, faster while the pane is in front and a run is live, from Archon's server when it answers and the CLI when it doesn't. A headless session reads nothing.
+
+| Command or key | What it does |
+| --- | --- |
+| `/archon` | Bring the pane to the front, on the run that has needed you longest |
+| `1`–`4` | Show Runs, Graph, Log or Archon's log |
+| `r` | Refresh, and check the CLI and the project again; on action needed, resume |
+| `y`, `n`, or a decision's letter | Answer an approval |
+| `x` | Abandon a run on action needed or stranded by its sub-run |
+| `b` | Back: from a confirmation, a file, or a sub-run's Graph to its parent's |
+| `a` | Log for all nodes |
+| `o` | Open the file you are reading outside the pane |
+| `@ prompt` | Add `@` and the file's path to the prompt |
+
+| Setting | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Archon command | `archonPath` | empty | The Archon CLI to run. Empty finds it on your PATH or in `~/.archon/bin` |
+| Archon server port | `archonPort` | `3090` | Where `archon serve` answers on this machine (1-65535). Runs come from the CLI when nothing answers |
+| Archon's log file | `archonLog` | `~/.archon/logs/serve.log` | The file `archon serve` writes to, shown in Archon's log |
+| Toasts | `toasts` | `all` | Which run events raise a toast: `all`, `needs you`, or `off` |
+| Status line | `statusLine` | `true` | Show live runs and runs that need you under the prompt |
+
+What it sends where: nothing leaves the machine. The pane talks only to Archon's server on `localhost` and to the Archon CLI, and keeps its toast claims in Claude Code's store for this mod.
+
+**Needs:** the [Archon](https://archon.diy) CLI v0.11.0 or later; `archon serve` makes it faster.
 
 ### 📚 shelf
 
@@ -819,7 +879,7 @@ cost,folder
 [ Save ]  Saved 2 settings.
 ```
 
-- The gear shows on the panes of whats-next, github-panel, outputs, sources and dev-server-manager while mod-settings is installed.
+- The gear shows on the panes of whats-next, github-panel, archon-panel, outputs, sources and dev-server-manager while mod-settings is installed.
 - Mods with no settings are not listed.
 - Each setting shows its current value. Change the ones you want and press Save, or Enter in a text field: only the settings you changed are saved, and the mod reloads with them at once.
 - A value Claude Code refuses is shown in red under its setting, with what you typed kept so you can fix it. The other settings still save.
@@ -893,7 +953,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 
 ## Configure the mods
 
-whats-next, quick-reply, auto-resume, github-panel, model-effort-presets, turn-chime, env-guard, hud and lint-test-gate have settings, listed in each mod's section above with the key each one is stored under.
+whats-next, quick-reply, auto-resume, github-panel, archon-panel, model-effort-presets, turn-chime, env-guard, hud and lint-test-gate have settings, listed in each mod's section above with the key each one is stored under.
 shelf and sources are set up with their own commands, in the session; outputs, open-file-guard, branch-guard, bash-quoting-rescue, pre-pr-claims-check, chrome-tab-self-heal and session-auto-namer have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
