@@ -1,6 +1,8 @@
 // Checks every mod under mods/: tsc, ESLint, claude plugin validate, claude plugin test.
 // First, whatever is staged, it checks that each mod's copy of the System One
 // client matches shared/system-one.ts and that those mods' System One fields agree.
+// Then, on a full run or when shared/ or a copy of the client is staged, it
+// type-checks, lints and tests shared/ (the client's own tests).
 // Usage: node scripts/check-mods.mjs [--staged]
 //   --staged  only the mods with staged changes (what the pre-commit hook runs);
 //             the System One check then reads the files as staged
@@ -120,6 +122,25 @@ function checkSystemOne(isStaged) {
   if (problems.length > 0) fail('system-one', 'field check', problems.join('; '))
 }
 
+/** Whether a staged path is under shared/ or is a mod's copy of the client. */
+function isSharedPath(path) {
+  return path.startsWith('shared/') || /^mods\/[^/]+\/hooks\/system-one\.ts$/.test(path)
+}
+
+/**
+ * Type-checks, lints and tests shared/: the client's rules are proved there once
+ * (CONTEXT.md, System One client), not through each mod that carries a copy.
+ * `node --test` strips the types, so it needs Node 22.18 or later.
+ */
+function checkShared() {
+  const dir = join(ROOT, 'shared')
+  if (!existsSync(dir)) return
+  const tests = readdirSync(dir).filter(name => name.endsWith('.test.ts')).map(name => join('shared', name))
+  step('shared', 'tsc', process.execPath, [TSC, '-p', 'shared', '--noEmit', '--strict'])
+  step('shared', 'eslint', process.execPath, [ESLINT, '--max-warnings', '0', 'shared'])
+  if (tests.length > 0) step('shared', 'node --test', process.execPath, ['--test', ...tests])
+}
+
 function checkMod(mod) {
   const dir = join('mods', mod)
   ensureTypes(mod)
@@ -131,8 +152,18 @@ function checkMod(mod) {
 
 const isStaged = process.argv.includes('--staged')
 checkSystemOne(isStaged)
+const staged = isStaged ? stagedPaths() : []
+if (!isStaged || staged.some(isSharedPath)) {
+  for (const tool of [TSC, ESLINT]) {
+    if (!existsSync(tool)) {
+      console.error(`check-mods: ${tool} is missing; run npm install first`)
+      process.exit(1)
+    }
+  }
+  checkShared()
+}
 const all = listMods()
-const mods = isStaged ? modsForPaths(stagedPaths(), all) : all
+const mods = isStaged ? modsForPaths(staged, all) : all
 if (mods.length === 0) {
   console.log(isStaged ? 'check-mods: no staged changes under mods/' : 'check-mods: no mods under mods/')
 } else {

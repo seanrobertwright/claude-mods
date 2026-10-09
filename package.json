@@ -2,6 +2,9 @@
   "name": "claude-mods",
   "version": "0.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
   "description": "A collection of Claude Code mods.",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
@@ -9,10 +12,12 @@
     "check:secrets": "sh .githooks/check-personal-data.sh",
     "check": "node scripts/check-mods.mjs",
     "sync:system-one": "node scripts/sync-system-one.mjs",
-    "test:scripts": "node --test \"scripts/*.test.mjs\""
+    "test:scripts": "node --test \"scripts/*.test.mjs\"",
+    "test:shared": "node --test \"shared/*.test.ts\""
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
     "eslint": "10.12.0",
     "markdownlint-cli2": "0.18.1",
     "typescript": "6.0.3",
