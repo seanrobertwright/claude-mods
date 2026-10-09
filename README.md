@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![12 mods](https://img.shields.io/badge/mods-12-6b5bd2)
+![14 mods](https://img.shields.io/badge/mods-14-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all twelve, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all fourteen, or read the source and write your own.
 
 ## What is a mod?
 
@@ -28,14 +28,16 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🧭 [whats-next](#-whats-next) | Pane in the side panel | Lists the next steps of your workflow, each with a prompt ready to paste |
 | ⚡ [quick-reply](#-quick-reply) | Band above the prompt | One-click replies, including the options Claude just offered and the next wayfinder ticket |
 | ⏳ [auto-resume](#-auto-resume) | Band and status line | Counts down to a rate limit's reset, then sends "continue" |
-| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser |
+| 🐙 [github-panel](#-github-panel) | Pane in the side panel | The repo's open pull requests and issues, one click from the browser or from `/implement` and `/wayfinder` in the prompt; a toast when your branch's checks turn green or red |
 | 📚 [shelf](#-shelf) | Band above the prompt | Named folders and files; one click drops a path into what you are typing |
 | 🔔 [turn-chime](#-turn-chime) | Sound and toast | Tells you when a long turn ends or Claude stops to ask you something |
 | 🔒 [open-file-guard](#-open-file-guard) | Question dialog | Asks you to close a Word, Excel or PowerPoint file before Claude uses it |
+| 🌿 [branch-guard](#-branch-guard) | Question dialog | Asks you before Claude commits or pushes on the default branch |
 | 🩹 [bash-quoting-rescue](#-bash-quoting-rescue) | Refused tool call | Stops a shell command that does not parse, such as an unclosed quote, before any of it runs |
 | 📂 [outputs](#-outputs) | Pane in the side panel | The files this session made or changed, newest first; click one to open it |
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
+| 🧹 [post-merge-cleanup](#-post-merge-cleanup) | Question dialog and toast | After a PR merges, `/cleanup` switches to the default branch, pulls and deletes the branch |
 | ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
@@ -180,6 +182,7 @@ echo '{"text": "continue where you left off", "graceSeconds": "120"}' | claude p
 
 A GitHub pane beside What's next listing the repo's open pull requests and issues.
 Click one to open it in the browser.
+Under each issue, `implement` and `wayfinder` put `/implement` or `/wayfinder` and the issue's URL in the prompt. Nothing is sent.
 
 ```text
 octocat/hello-world                refresh
@@ -189,28 +192,41 @@ Pull requests 2                        all
 #41 Add a drift check for copied guards
   draft · @octocat
 #40 Bring the asked pane to the front
-  @hubot
+  ✗ checks failing · @hubot           fix
 
 Issues 2                               all
 #39 Share the headless-session check
-  blocked by #12 · ready-for-agent · @octocat
+  blocked by #12 · ready… implement wayfinder
 #12 Decide how shared code is copied
-  needs-triage · @hubot
+  needs-triage · @hubot implement wayfinder
 ```
 
 - An issue blocked by an open issue has a red line under it. Hover it to see what blocks it.
+- In a narrow pane the `implement` and `wayfinder` buttons take a line of their own.
 - The lists refresh on a timer, after a turn once they are a minute old, and on `r`.
+- The pull request of the branch you are on is watched: when its checks turn green or red, a toast says "Checks passed on #40" or "Checks failed on #40".
+  The first refresh, and the first after you switch branch, only notes where the checks stand.
+- While that pull request's checks fail, its row has a `fix` button.
+  It fills the prompt box with the failed checks' names, the last 40 lines of the failed run's log, and "Fix it."
+  Nothing is sent: you read it and send it yourself.
+  The log is fetched only when you press `fix`; when gh cannot fetch it, such as while the run is still going, the prompt holds the names alone.
 
 | Command or key | What it does |
 | --- | --- |
 | `/github` | Bring the pane to the front and refresh it |
 | `r` | Refresh |
 | `all` | Open the whole list on GitHub |
+| `implement`, `wayfinder` | Fill the command and the issue's URL into the prompt, without sending it |
+| `fix` | Fill a request to fix the current branch's failing checks into the prompt box |
 
 | Setting | Key | Default | Meaning |
 | --- | --- | --- | --- |
 | Most items per list | `limit` | `30` | How many open pull requests and issues to list each (1-100) |
 | Refresh every (minutes) | `refreshMinutes` | `5` | How often to refresh (0-120); `0` refreshes only on open, after turns and on `r` |
+| Implement button fills | `implementCommand` | `/implement` | The slash command the `implement` button fills before the issue's URL; empty hides the button |
+| Wayfinder button fills | `wayfinderCommand` | `/wayfinder` | The slash command the `wayfinder` button fills before the issue's URL; empty hides the button |
+
+A command must start with `/` and hold no spaces. Any other value falls back to the default, and a message says so when the session starts. A button is labelled with its command, without the `/`.
 
 For example, to list fifty of each and stop the timer ([how to set it](#configure-the-mods)):
 
@@ -296,6 +312,28 @@ Close it so a write to it can go through?
 
 It sees a file named in a Write or Edit call or in the text of a shell command.
 It does not see one a script works out as it runs, nor one on a network location.
+
+There is nothing to set: once installed, it guards every session.
+
+### 🌿 branch-guard
+
+When Claude is about to commit or push on the default branch, the mod asks you first, so work lands on a branch of its own.
+
+```text
+Claude is about to commit to main, the default branch. Create a branch first?
+
+  Branch first
+  Go ahead on main
+```
+
+- **Branch first**, **Dismissed**, or an answer in other words: the call is refused, and Claude is told to create a branch first.
+- **Go ahead on main**: the call goes on. A commit and a push in one command are asked about once.
+
+It sees `git commit` and `git push` in the text of a shell command, `git -C <folder> commit` too.
+It asks on the default branch, and from any branch before a push to it, such as `git push origin main` or `git push origin HEAD:main`.
+The default branch is the one the remote's HEAD names (`origin/HEAD`), else `main`, else `master`.
+Outside a repository, or where git cannot say the branch, the call goes on as it would without the mod.
+It reads the branch before the command runs, so a command that switches branch or folder before it commits, such as `git switch -c fix && git commit`, is judged by where it starts.
 
 There is nothing to set: once installed, it guards every session.
 
@@ -418,6 +456,34 @@ echo '{"theme": "ember", "animate": "false", "hide": "cost,folder"}' | claude pl
 
 **Needs:** nothing. Git state shows when `git` is on the PATH and the folder is a repository.
 
+### 🧹 post-merge-cleanup
+
+After your branch's pull request merges, `/cleanup` puts the checkout back on the default branch, up to date, with the merged branch gone. It asks once before it changes anything:
+
+```text
+PR #12 merged. Clean up: switch to main, pull main, delete feat/x (PR #12 merged),
+prune remote-tracking branches?
+
+  Go
+  Cancel
+```
+
+- **Go** runs the steps in order: `git switch`, `git pull --ff-only`, `git worktree remove` when the branch has a worktree of its own, `git branch -D`, then `git fetch --prune`. A failed step stops the rest, and a toast names it. A last toast says what was done.
+- **Cancel**, or closing the question, changes nothing.
+- **`/cleanup <branch>`** cleans up a branch checked out in another worktree. Run it from the main checkout: it removes that worktree, then deletes the branch.
+- **It refuses, and says why,** when:
+  - the branch has no pull request, or its PR is still open or was closed without merging;
+  - the working tree, or the worktree it would remove, has uncommitted or untracked changes;
+  - the branch has a commit that is not in the PR;
+  - the session runs inside the branch's own worktree.
+- **A squash-merged branch is deleted too.** git sees such a branch as unmerged, so the mod deletes it with `-D`. It does so only when gh reports the PR merged and the branch's tip is the commit the PR merged, so no local work is lost.
+- **At session start**, when your branch's PR has merged, a toast suggests `/cleanup`. That is one gh call, made only when a surface shows the session. A headless session makes none. The mod never cleans up on its own, and never polls.
+- It doesn't delete the remote branch: GitHub's "Automatically delete head branches" setting does that.
+
+There is nothing to set.
+
+**Needs:** `git`, and the [GitHub CLI](https://cli.github.com) (`gh`) logged in (`gh auth login`), in a folder with a GitHub remote. `/cleanup` names whichever is missing.
+
 ### ⚙ mod-settings
 
 One dialog for the settings of every installed mod: pick a mod, change its settings, save.
@@ -426,7 +492,7 @@ Press ⚙ at the top right of a mod's pane, or run `/mod-settings`.
 ```text
 Mod settings                         close
 auto-resume  4 settings
-github-panel  2 settings
+github-panel  4 settings
 hud  4 settings
 quick-reply  2 settings
 turn-chime  1 setting
@@ -501,6 +567,7 @@ claude plugin install github-panel@claude-mods
 claude plugin install shelf@claude-mods
 claude plugin install turn-chime@claude-mods
 claude plugin install open-file-guard@claude-mods
+claude plugin install branch-guard@claude-mods
 claude plugin install bash-quoting-rescue@claude-mods
 claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
@@ -522,7 +589,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 ## Configure the mods
 
 whats-next, quick-reply, auto-resume, github-panel, turn-chime and hud have settings, listed in each mod's section above with the key each one is stored under.
-shelf and sources are set up with their own commands, in the session; outputs, open-file-guard and bash-quoting-rescue have nothing to set.
+shelf and sources are set up with their own commands, in the session; outputs, open-file-guard, branch-guard and bash-quoting-rescue have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
 
