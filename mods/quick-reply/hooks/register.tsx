@@ -2,13 +2,14 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import { optionReply, parseReplies, readAnswer } from './detect'
-import { buildEndingAsk, readSettled } from './ending'
-import { askSystemOne, parseSystemOne } from './system-one'
+import { buildEndingAsk, keyMessage, readSettled } from './ending'
+import { askSystemOne, keyProblem, parseSystemOne } from './system-one'
 import type { SystemOneIo, SystemOneSettings } from './system-one'
 import { mapFromArgs, nextMap, readBash, skillArgs } from './wayfinder'
 
 const reading = atom({ plugin: 'quick-reply', key: 'reading' } as const, null)
 const offer = atom({ plugin: 'quick-reply', key: 'offer' } as const, null)
+const keyNote = atom({ plugin: 'quick-reply', key: 'keyNote' } as const, null)
 
 async function send($: EngineInterface, text: string): Promise<void> {
   await update($, reading, () => null)
@@ -25,6 +26,7 @@ async function fail($: EngineInterface): Promise<void> {
 async function takeNext($: EngineInterface, map: number): Promise<void> {
   await update($, reading, () => null)
   await update($, offer, () => null)
+  await update($, keyNote, () => null)
   await $.command.run({ command: 'clear' })
   await $.command.run({ command: 'wayfinder', args: String(map) })
 }
@@ -61,11 +63,14 @@ function systemOneIo($: EngineInterface): SystemOneIo {
 /**
  * Asks a System One model how `answer` ends and, while `isCurrent` still says
  * nothing has moved the band on, draws the parts it settled in place of the
- * regexes'. No answer, or one too unsure, leaves the regexes' reading drawn.
+ * regexes'. No answer, or one too unsure, leaves the regexes' reading drawn. A
+ * key the ask found rejected is named under the replies.
  */
 async function readWithModel($: EngineInterface, systemOne: SystemOneSettings, answer: string, isCurrent: () => boolean): Promise<void> {
   const asked = await askSystemOne(systemOneIo($), systemOne, buildEndingAsk(answer))
-  if (asked === undefined || !isCurrent()) return
+  if (!isCurrent()) return
+  await update($, keyNote, () => keyProblem(systemOne) ?? null)
+  if (asked === undefined) return
   const settled = readSettled(asked)
   await update($, reading, current => (current === null || !isCurrent() ? current : readAnswer(answer, settled)))
 }
@@ -130,6 +135,7 @@ export const register: Register = (on, options) => {
     await update($, reading, () => (e.reason === 'answer' ? readAnswer(e.answer) : null))
     await update($, offer, () => shown ?? null)
     if (e.reason === 'answer') {
+      await update($, keyNote, () => keyProblem(systemOne) ?? null)
       const at = moves
       void readWithModel($, systemOne, e.answer, () => moves === at).catch(report($))
     }
@@ -140,6 +146,7 @@ export const register: Register = (on, options) => {
     moves += 1
     await update($, reading, () => null)
     await update($, offer, () => null)
+    await update($, keyNote, () => null)
     return next(e)
   })
 
@@ -148,6 +155,7 @@ export const register: Register = (on, options) => {
     const beneath = await next(e)
     const current = await read($, reading)
     const nextTicket = await read($, offer)
+    const note = await read($, keyNote)
     if ((current === null && nextTicket === null) || e.props.hasSurvey || e.props.isWorking || e.props.view.agentId !== undefined) {
       return beneath
     }
@@ -155,7 +163,7 @@ export const register: Register = (on, options) => {
     // A verdict question is answered with a verdict: the verdict buttons stand in for the replies.
     const asksForVerdict = current?.asksForVerdict === true
     const replies = current === null || asksForVerdict ? [] : current.isQuestion ? questionReplies : idleReplies
-    if (nextTicket === null && choices.length === 0 && replies.length === 0 && !asksForVerdict) return beneath
+    if (nextTicket === null && choices.length === 0 && replies.length === 0 && !asksForVerdict && note === null) return beneath
 
     const { Box, Text, Button } = $.ui.resolve(e)
 
@@ -194,6 +202,7 @@ export const register: Register = (on, options) => {
             />
           ))}
         </Box>
+        {note !== null && <Text dimColor wrap="wrap">{keyMessage(note)}</Text>}
         {beneath}
       </Box>
     )

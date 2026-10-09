@@ -3,7 +3,7 @@
 // enough to take the place of the regexes' reading.
 import { findOptions } from './detect'
 import type { Settled } from './detect'
-import type { Answers, Ask, Backend, Question } from './system-one'
+import type { Answers, Ask, Backend, KeyProblem, Question } from './system-one'
 
 /** How long the band waits for a model: past this a reading would move the buttons under the person's eye. */
 export const ENDING_BOUND_MS = 2_000
@@ -99,6 +99,17 @@ export function buildEndingAsk(answer: string): Ask {
     questions,
     state: { jev: tail(answer, JEV_ANSWER_CHARS), laya: closingLines(answer) },
   }
+}
+
+/**
+ * What the band says under the replies when the "System One models" setting
+ * allows TypeSafe's hosted Jev and the "Jev API key" setting holds no key Jev accepts.
+ */
+export function keyMessage(problem: KeyProblem): string {
+  const fix = `Set a key from console.typesafe.ai in quick-reply's "Jev API key" setting, or set "System One models" to local only.`
+  if (problem === 'absent') return `quick-reply may ask TypeSafe's hosted Jev, but no "Jev API key" is set, so it reads answers with Laya or by itself. ${fix}`
+  if (problem === 'malformed') return `quick-reply's "Jev API key" is not a key (a key is printable ASCII with no spaces), so it is never sent and quick-reply reads answers with Laya or by itself. ${fix}`
+  return `TypeSafe rejected quick-reply's "Jev API key", so quick-reply reads answers with Laya or by itself until it reloads. ${fix}`
 }
 
 /** What of a model's answers is sure enough to take the place of the regexes' reading. */

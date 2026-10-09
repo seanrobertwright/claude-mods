@@ -451,3 +451,70 @@ test('Laya is sent the answer\'s closing lines, where the question is, and at mo
   expect(labels[0]).toBe('Option 1 with a label that runs well pa…')
   for (const label of labels) expect(Array.from(label).length).toBeLessThanOrEqual(40)
 })
+
+/** The band's lines of text, in the order drawn. */
+async function texts(band: Mounted<'terminal', 'AbovePrompt'>): Promise<{ text: string; isDim: boolean }[]> {
+  return (await band.findAll({ type: 'Text' })).map(text => ({ text: text.text ?? '', isDim: text.props.dimColor === true }))
+}
+
+test('under a choice that allows Jev, an absent key is named on a dim line under the replies, gone at the next prompt', { options: { modelChoice: 'local first' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world = newWorld()
+  fakeEngine(on, world)
+  const band = await mountBand($)
+
+  await $.turn.complete(turn(REPORT_OR))
+  await clock.advance(2_000)
+  const [reply, note] = await texts(band)
+  expect(reply?.text).toBe('Reply:')
+  expect(note?.isDim).toBe(true)
+  expect(note?.text).toMatch(/quick-reply may ask TypeSafe's hosted Jev, but no "Jev API key" is set/)
+  expect(fetched(world, JEV)).toEqual([])
+
+  await $.prompt.submit(submit('Push it.'))
+  await $.turn.complete({ ...turn(REPORT_OR), reason: 'aborted' })
+  expect(await band.find({ type: 'Text', text: /Jev API key/ })).toBeUndefined()
+  await band.unmount()
+})
+
+test('a key that is not a key is named, and never sent', { options: { modelChoice: 'hosted first', jevApiKey: 'ts test key' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world = newWorld()
+  fakeEngine(on, world)
+  const band = await mountBand($)
+
+  await $.turn.complete(turn(REPORT_OR))
+  await clock.advance(2_000)
+  expect(await band.find({ type: 'Text', text: /quick-reply's "Jev API key" is not a key/ })).toBeDefined()
+  expect(fetched(world, JEV)).toEqual([])
+  await band.unmount()
+})
+
+test('a key Jev rejects is named after the answer the rejection came on, and gone at the next prompt', { options: { modelChoice: 'hosted first', jevApiKey: 'ts-test-key' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world = newWorld()
+  fakeEngine(on, world)
+  world.jev = () => ({ status: 401, body: { detail: 'invalid api key' } })
+  const band = await mountBand($)
+
+  await $.turn.complete(turn(REPORT_OR))
+  await clock.settle()
+  expect(await keys(band)).toEqual(REGEX_KEYS)
+  expect(await band.find({ type: 'Text', text: /TypeSafe rejected quick-reply's "Jev API key"/ })).toBeDefined()
+
+  await $.prompt.submit(submit('Push it.'))
+  expect(await band.find({ type: 'Text', text: /Jev API key/ })).toBeUndefined()
+  await band.unmount()
+})
+
+test('under local only no key is named, whatever the key setting holds', { options: { jevApiKey: 'ts test key' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const world = newWorld()
+  fakeEngine(on, world)
+  const band = await mountBand($)
+
+  await $.turn.complete(turn(REPORT_OR))
+  await clock.advance(2_000)
+  expect(await texts(band)).toEqual([{ text: 'Reply:', isDim: true }])
+  await band.unmount()
+})
