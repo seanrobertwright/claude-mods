@@ -6,6 +6,9 @@ import {
   buildAsk,
   buildJudge,
   DENIED_TOOLS,
+  FINISHED,
+  FINISHED_QUESTION,
+  fitJudgeForLaya,
   hasSkill,
   isDone,
   isMissingSkillReply,
@@ -16,12 +19,16 @@ import {
   parseCached,
   parseConfig,
   parseSteps,
+  readFinished,
   shimmer,
   skillNotForHeadless,
+  systemOneKeyMessage,
   toolFlags,
   withIds,
 } from './parse'
 import type { Config, Prime } from './parse'
+import { askSystemOne, keyProblem, parseSystemOne } from './system-one'
+import type { SystemOneIo, SystemOneSettings } from './system-one'
 
 const PANE = 'whats-next'
 const TITLE = "What's next"
@@ -33,6 +40,8 @@ const PROBE_MS = 60_000
 /** How often the active step's shimmer moves. */
 const GLOW_MS = 120
 const WORKING = 'working on it'
+/** How long the judge waits for a System One model before the Haiku fallback. */
+const JUDGE_BOUND_MS = 5_000
 
 const EMPTY: NextList = { status: 'idle', steps: [], updatedAt: 0, error: '', runId: 0, activeId: null }
 const list = atom({ plugin: 'whats-next', key: 'list' } as const, EMPTY)
@@ -147,8 +156,39 @@ async function finishStep($: EngineInterface, step: NextStep): Promise<void> {
   $.ui.toast(`What's next: done with "${step.title}".`)
 }
 
-/** Asks a small model whether the turn that just ended finished the active step. */
-async function judge($: EngineInterface, step: NextStep, answer: string): Promise<void> {
+/**
+ * The engine calls the System One client makes, handed over as closures: the
+ * shared client never touches `$` (ADR-0004). The bound's sleep takes no signal
+ * (see SystemOneIo.sleep): the judge runs after turn.complete has returned.
+ */
+function systemOneIo($: EngineInterface): SystemOneIo {
+  return {
+    fetch: (url, init) => $.http.fetch(url, init),
+    sleep: ms => $.clock.sleep(ms),
+    now: () => $.clock.now(),
+    exists: path => $.fs.exists(path),
+    folder: () => $.session.cwd(),
+    isShown: () => isShown($),
+  }
+}
+
+/**
+ * Asks whether the turn that just ended finished the active step: a System One
+ * model first, as the model choice allows, and Haiku when none answers surely
+ * enough. A key that turns out rejected is named in the pane from then on.
+ */
+async function judge($: EngineInterface, systemOne: SystemOneSettings, step: NextStep, answer: string): Promise<void> {
+  const before = keyProblem(systemOne)
+  const asked = await askSystemOne(systemOneIo($), systemOne, {
+    boundMs: JUDGE_BOUND_MS,
+    questions: { [FINISHED]: FINISHED_QUESTION },
+    state: { jev: buildJudge(step, answer), laya: fitJudgeForLaya(step, answer) },
+  })
+  if (keyProblem(systemOne) !== before) $.ui.invalidate('ui.render')
+  const finished = asked?.answers[FINISHED]
+  const verdict = asked !== undefined && finished?.type === 'noul' ? readFinished(asked.backend, finished.noul) : undefined
+  if (verdict === 'not done') return
+  if (verdict === 'done') return void (await finishStep($, step))
   const reply = await $.model.complete({
     model: 'haiku',
     system: JUDGE_SYSTEM,
@@ -366,6 +406,7 @@ async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
 
 export const register: Register = (on, options) => {
   const config = parseConfig(options)
+  const systemOne = parseSystemOne(options)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -441,7 +482,7 @@ export const register: Register = (on, options) => {
     }
     if (e.reason !== 'answer' || !(await isShown($))) return done
     const step = activeStep(await read($, list))
-    if (step !== null) void judge($, step, e.answer).catch(report($))
+    if (step !== null) void judge($, systemOne, step, e.answer).catch(report($))
     return done
   })
 
@@ -472,6 +513,8 @@ export const register: Register = (on, options) => {
     const [before, lit, after] = shimmer(WORKING, beat)
     // A step a refresh or a finish dropped is no longer shown: its id is gone.
     const shown = stepWithId(current, await read($, shownId))
+    const problem = keyProblem(systemOne)
+    const keyNote = problem === undefined ? undefined : systemOneKeyMessage(problem)
 
     if (shown !== null) {
       const back = () => update($, shownId, () => null)
@@ -547,6 +590,7 @@ export const register: Register = (on, options) => {
         {(current.status === 'error' || current.status === 'unavailable') && (
           <Text color="red" wrap="wrap">{current.error}</Text>
         )}
+        {keyNote !== undefined && <Text color="red" wrap="wrap">{keyNote}</Text>}
         {current.status !== 'loading' && current.updatedAt > 0 && (
           <Text dimColor>updated {ago(now - current.updatedAt)}</Text>
         )}

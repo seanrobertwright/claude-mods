@@ -366,6 +366,7 @@ test('with a prime command set, the fill waits for the prime turn to end, and th
 
   // The turn after it is the step's own again.
   await $.turn.complete(turn('Labelled two of the three.'))
+  await clock.settle()
   expect(desk.judged).toBe(1)
   await pane.unmount()
 })
@@ -401,6 +402,7 @@ test('a prime turn that ends interrupted or failed, or a prime command that cann
   // No wait is left behind: the next turn is the step's own and is judged.
   await $.prompt.submit(submit('/triage'))
   await $.turn.complete(turn('Labelled two of the three.'))
+  await clock.settle()
   expect(desk.judged).toBe(1)
   await pane.unmount()
 })
@@ -656,9 +658,11 @@ test('a submitted step glows until the judge calls it done, then leaves the list
   expect(await lit()).not.toBe(first)
 
   await $.turn.complete(turn('Labelled two of the three.'))
+  await clock.settle()
   expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
 
   await $.turn.complete(turn('All three are triaged.'))
+  await clock.settle()
   expect(await stepButton(pane, 2)).toBeUndefined()
   expect(await pane.find({ type: 'Text', text: 'working on it' })).toBeUndefined()
   expect(toasts).toContain(`What's next: done with "Triage incoming bugs".`)
@@ -725,7 +729,7 @@ const TWINS = [
 ].join('\n')
 
 test('finishing a step drops only that step, not another with the same prompt', async ($, on) => {
-  mock.clock(on, { now: 1_000 })
+  const clock = mock.clock(on, { now: 1_000 })
   const verdicts = ['DONE']
   const stored = new Map<string, unknown>()
   fakeEngine(on, verdicts, [], stored, ['terminal'], TWINS)
@@ -734,6 +738,7 @@ test('finishing a step drops only that step, not another with the same prompt', 
   await pane.press({ key: 'refresh' })
   await $.prompt.submit(submit('/triage'))
   await $.turn.complete(turn('Fixed the login bug.'))
+  await clock.settle()
   expect(await stepButton(pane, 2)).toBeUndefined()
   expect((await stepButton(pane, 1))?.text).toContain('Triage the new reports')
   const kept = stored.get('list:/work/repo') as { steps: { title: string }[] }
@@ -906,7 +911,7 @@ test('with steps kept from before, a missing skill still lets the pane open for 
 })
 
 test('with no surface an answered turn is not judged; once one is back, the next is', async ($, on) => {
-  mock.clock(on, { now: 1_000 })
+  const clock = mock.clock(on, { now: 1_000 })
   const verdicts = ['DONE']
   const toasts: string[] = []
   const stored = new Map<string, unknown>()
@@ -927,6 +932,7 @@ test('with no surface an answered turn is not judged; once one is back, the next
 
   surfaces.push('terminal')
   await $.turn.complete(turn('All three are triaged.'))
+  await clock.settle()
   expect(verdicts).toEqual([])
   expect(await stepButton(pane, 2)).toBeUndefined()
   await pane.unmount()
@@ -946,6 +952,7 @@ test('a shown step that a finish or a refresh drops gives way to the list', asyn
   await pressStep(pane, 2)
   expect(await pane.find({ key: 'paste' })).toBeDefined()
   await $.turn.complete(turn('All three are triaged.'))
+  await clock.settle()
   expect(await pane.find({ key: 'paste' })).toBeUndefined()
   expect((await stepButton(pane, 1))?.text).toContain('Push the auth branch')
   expect(await stepButton(pane, 2)).toBeUndefined()

@@ -39,6 +39,26 @@
       "title": "Prime command",
       "description": "A slash command, with any arguments, that /clear + paste runs after the clear (such as /lril:prime). The step's prompt is filled once the turn it starts ends. Empty runs none.",
       "default": ""
+    },
+    "modelChoice": {
+      "type": "string",
+      "title": "System One models",
+      "description": "Which System One model judges whether a turn finished the active step. Local only: Laya on this machine, or Haiku as before. Local first: Laya, and TypeSafe's hosted Jev while Laya is unavailable. Hosted first: Jev, and Laya while Jev is unavailable. Jev receives the active step's title, reason and prompt and the last 8,000 characters of Claude's answer, once after each answered turn while a step is active.",
+      "options": ["local only", "local first", "hosted first"],
+      "default": "local only"
+    },
+    "jevApiKey": {
+      "type": "string",
+      "title": "Jev API key",
+      "description": "Your key for TypeSafe's hosted Jev, from console.typesafe.ai. Sent only to api.typesafe.ai, and only while System One models allows Jev. A changed key takes effect once the mod reloads.",
+      "sensitive": true,
+      "default": ""
+    },
+    "layaPort": {
+      "type": "number",
+      "title": "Laya port",
+      "description": "The port laya-serve listens on at 127.0.0.1 (its LAYA_PORT).",
+      "default": 8000
     }
   }
 }
