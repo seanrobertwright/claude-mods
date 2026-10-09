@@ -93,6 +93,11 @@
       "description": "When a Claude in Chrome tool says its tab is gone, tells Claude to fetch the current tab IDs before trying again."
     },
     {
+      "name": "session-auto-namer",
+      "source": "./mods/session-auto-namer",
+      "description": "After a session's first prompt, a button above the prompt suggests a name for the session, such as an issue's number and title; one press renames it."
+    },
+    {
       "name": "model-effort-presets",
       "source": "./mods/model-effort-presets",
       "description": "One press above the prompt switches the model and the effort together: a plan preset, an execute preset, or your own, also by /preset <name> or when you send a mapped command."
