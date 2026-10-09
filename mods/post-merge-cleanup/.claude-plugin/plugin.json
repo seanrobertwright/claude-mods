@@ -1,0 +1,6 @@
+{
+  "name": "post-merge-cleanup",
+  "version": "0.1.0",
+  "description": "/cleanup after a PR merges: switch to the default branch, pull, and delete the merged branch and its worktree, after one confirmation.",
+  "types": "./types/index.d.ts"
+}
