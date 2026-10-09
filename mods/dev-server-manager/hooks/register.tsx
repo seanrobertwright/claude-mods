@@ -12,7 +12,7 @@ import { lineCount, OUTPUT_SPEC, OUTPUT_TOOL, outputText, RESTART_SPEC, RESTART_
 import type { ToolServer } from './tools'
 import type { PortCheck } from './port'
 import { commandText, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS, statusLine } from './servers'
-import { renderPane } from './view'
+import { moveOf, paneGeometry, renderPane, scrollAnchor } from './view'
 import type { PaneActions } from './view'
 
 const PLUGIN = 'dev-server-manager'
@@ -59,6 +59,8 @@ let shownStatus: string | undefined
 const waiters = new Map<string, (() => void)[]>()
 // Refreshes this session's store entries and reads the other sessions'; dies with the module.
 let ticker: Timer | undefined
+// The pane's width at its last drawing, which a scroll event does not carry.
+let paneColumns = 60
 
 type Config = { isRestartOn: boolean; scripts: string[] }
 
@@ -472,7 +474,7 @@ function paneActions($: EngineInterface, config: Config): PaneActions {
       })().catch(report($)),
     unhide: name => void setHidden($, config, name, false).catch(report($)),
     toggleHidden: () => void update($, viewAtom, view => ({ ...view, isShowingHidden: !view.isShowingHidden })),
-    latest: () => undefined,
+    latest: () => void update($, viewAtom, view => ({ ...view, anchor: null })),
     settings: () => void $.command.run({ command: 'mod-settings' }).catch(report($)),
   }
 }
@@ -676,7 +678,27 @@ export const register: Register = (on, options) => {
     return { text: 'Dev servers pane opened.' }
   })
 
+  // The output pages under a title and table that never move: the engine's window stays put
+  // (no next) while the mod moves its own slice; below the floor the engine scrolls the body.
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const data = {
+      rows: await read($, rowsAtom),
+      runs: await read($, runsAtom),
+      output: await read($, outputAtom),
+      view: await read($, viewAtom),
+      peers: await read($, peersAtom),
+      now: await $.clock.now(),
+    }
+    const geometry = paneGeometry(data, paneColumns, e.bodyRows)
+    if (!geometry.isBounded) return next(e)
+    if (e.pointer !== undefined && e.pointer.row < geometry.used) return {}
+    const anchor = scrollAnchor(geometry.lines, geometry.outputRows, data.view.anchor, moveOf(e.by, e.bodyRows, e.contentRows))
+    await update($, viewAtom, view => ({ ...view, anchor }))
+    return {}
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    paneColumns = e.props.bodyColumns
     const hasSettings = (await $.command.list().catch(() => [])).some(command => command.name === 'mod-settings')
     return renderPane($.ui.resolve(e), e.props.bodyColumns, e.props.scroll.bodyRows, {
       rows: await read($, rowsAtom),

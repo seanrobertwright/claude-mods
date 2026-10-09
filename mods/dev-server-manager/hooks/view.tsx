@@ -100,6 +100,63 @@ export function outputWindow(lines: readonly OutputLine[], rows: number, anchor:
   return { drawn: lines.slice(Math.max(0, lines.length - rows)), isPinned: false }
 }
 
+/** Where the output sits: the rows above it, its own rows, whether it is bounded, and the picked server's lines. */
+export type Geometry = { used: number; outputRows: number; isBounded: boolean; lines: OutputLine[] }
+
+/**
+ * The pane's rows above the output (title, table, hidden line, hint or detail
+ * block), the output box's height (one row under the body, so the engine has
+ * nothing to scroll and keeps its window at the top), and whether it is at
+ * least the floor; below it the engine scrolls the whole body.
+ */
+export function paneGeometry(data: Omit<PaneData, 'actions' | 'hasSettings'>, columns: number, bodyRows: number): Geometry {
+  const width = Math.max(20, columns)
+  const { shown, hidden } = paneRows(data)
+  const picked = shown.find(row => row.def.name === data.view.picked)
+  const empty = shown.length === 0 && hidden.length === 0
+  let used = 1 + shown.length + (hidden.length > 0 ? 1 : 0) + (empty ? rowsOf(EMPTY_TEXT, width) : 0)
+  let lines: OutputLine[] = []
+  if (picked === undefined) {
+    if (!empty) used += rowsOf(HINT_TEXT, width)
+  } else {
+    const isPeer = isPeerRow(picked)
+    const url = isPeer ? picked.peer?.url ?? '' : picked.run?.url ?? ''
+    const head = !isPeer && statusOf(picked) === 'crashed' ? errorHead(picked.run) : ''
+    used += 4 + (url !== '' ? 1 : 0) + (head !== '' ? 1 : 0) + rowsOf(rowWords(picked, data.now).text, width) + (data.view.isFillRefused ? 1 : 0)
+    lines = data.output[picked.def.name] ?? []
+  }
+  const outputRows = bodyRows - 1 - used
+  return { used, outputRows, isBounded: picked !== undefined && outputRows >= OUTPUT_FLOOR, lines }
+}
+
+/** A move of the person's, in the pane's own terms: lines, a page of the box, or the first line or the end. */
+export type Move = { lines: number } | { pages: number } | 'first' | 'end'
+
+/**
+ * What a `ui.scroll` move means for the output box. The engine sizes page keys
+ * by its own body (`bodyRows`) and Home and End by the whole tree (`contentRows`),
+ * which the bounded pane keeps one row under the body.
+ */
+export function moveOf(by: number, bodyRows: number, contentRows: number): Move {
+  if (contentRows !== bodyRows && Math.abs(by) === contentRows) return by < 0 ? 'first' : 'end'
+  if (Math.abs(by) >= bodyRows) return { pages: Math.sign(by) }
+  return { lines: by }
+}
+
+/** Where the output's view goes after a move: the seq of its first drawn line, or null to follow the tail again. */
+export function scrollAnchor(lines: readonly OutputLine[], rows: number, anchor: number | null, move: Move): number | null {
+  const last = Math.max(0, lines.length - rows)
+  const pinnedAt = anchor === null ? -1 : lines.findIndex(line => line.seq >= anchor)
+  const first = pinnedAt < 0 ? last : pinnedAt
+  let next: number
+  if (move === 'first') next = 0
+  else if (move === 'end') next = last
+  else if ('pages' in move) next = first + move.pages * Math.max(1, rows - 1)
+  else next = first + move.lines
+  next = Math.max(0, Math.min(last, next))
+  return next >= last ? null : lines[next]?.seq ?? null
+}
+
 /** The elements the pane draws with, as `$.ui.resolve(e)` gives them on every surface. */
 export type Kit = Pick<Elements['mobile'], 'Box' | 'Text' | 'Button' | 'Link'>
 
@@ -113,7 +170,7 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
   const portWidth = Math.max(0, ...shown.map(row => (portOf(row) > 0 ? `:${portOf(row)}`.length : 0)))
   const picked = shown.find(row => row.def.name === view.picked)
 
-  let used = 1
+  const geometry = paneGeometry(data, columns, bodyRows)
   const table = shown.map(row => {
     const name = row.def.name
     const port = portOf(row) > 0 ? `:${portOf(row)}` : ''
@@ -121,7 +178,6 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
     const middle = ` ${pad(port, portWidth)}  `
     const words = tableWords(row, now)
     const room = width - Array.from(lead).length - nameWidth - Array.from(middle).length
-    used += 1
     return (
       <Box key={`line-${name}`} flexDirection="row">
         <Text>{lead}</Text>
@@ -141,15 +197,10 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
       onPress={() => act.toggleHidden()}
     />
   )
-  if (hidden.length > 0) used += 1
   const empty = shown.length === 0 && hidden.length === 0
-  if (empty) used += rowsOf(EMPTY_TEXT, width)
 
   let detail = null
-  let lines: OutputLine[] = []
-  if (picked === undefined) {
-    if (!empty) used += rowsOf(HINT_TEXT, width)
-  } else {
+  if (picked !== undefined) {
     const name = picked.def.name
     const run = picked.run
     const isPeer = isPeerRow(picked)
@@ -160,7 +211,6 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
     const buttons = actions(picked, now)
     const rule = '─'.repeat(width)
     const hiddenRow = picked.def.source === 'detected' && data.rows.hidden.includes(name)
-    used += 4 + (url !== '' ? 1 : 0) + (head !== '' ? 1 : 0) + rowsOf(words.text, width) + (view.isFillRefused ? 1 : 0)
     detail = (
       <Box key="detail" flexDirection="column">
         <Text dimColor>{rule}</Text>
@@ -191,12 +241,9 @@ export function renderPane(kit: Kit, columns: number, bodyRows: number, data: Pa
         <Text dimColor>{rule}</Text>
       </Box>
     )
-    lines = data.output[name] ?? []
   }
 
-  // One row under the body, so the engine has nothing to scroll and keeps its window at the top.
-  const outputRows = bodyRows - 1 - used
-  const isBounded = outputRows >= OUTPUT_FLOOR
+  const { lines, outputRows, isBounded } = geometry
   const window = isBounded ? outputWindow(lines, outputRows, view.anchor) : { drawn: lines.slice(-UNBOUNDED_LINES), isPinned: false }
   const drawLine = (line: OutputLine) => (
     <Text
