@@ -746,12 +746,19 @@ async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
   return (await $.command.list().catch(() => [])).some(command => command.name === SETTINGS)
 }
 
-/** Rechecks the CLI and the project, then loads: at start, on attach, on reload and on r. */
+/**
+ * Rechecks the CLI and the project, then loads: at start, on attach, on reload
+ * and on r. A missing Requirement stops polling and takes down a status line
+ * set while the CLI was there.
+ */
 async function reload($: EngineInterface, config: Config): Promise<void> {
   const project = await findProject($)
   await update($, data, current => ({ ...current, project }))
   if (await checkCli($, config)) await load($, config)
-  else stopPolling()
+  else {
+    stopPolling()
+    $.ui.status(undefined)
+  }
 }
 
 /** The start-up work: loads, then opens the pane unasked when `isPaneWanted` and this project has a live run. */

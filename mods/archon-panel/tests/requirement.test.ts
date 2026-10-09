@@ -78,3 +78,27 @@ test('once the CLI is installed, r checks it again and polling starts', COLD, as
   expect(lists()).toBeGreaterThan(first)
   await pane.unmount()
 })
+
+test('a CLI lost on r clears the status line it had set, and polling stops', COLD, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  mock.store(on)
+  const w = world({ server: 'down', rows: [row('run-1')], panes: IN_FRONT() })
+  fake(on, w)
+
+  await $.session.start(START)
+  await clock.settle()
+  expect(w.status.at(-1)).toBe('Archon · 1 running')
+
+  const pane = await $.ui.mount({ plugin: 'archon-panel', surface: 'terminal', component: 'Pane', requestId: 'archon', props: paneProps() })
+  w.archonAt = 'none'
+  await pane.press({ key: 'reload' })
+  await clock.settle()
+  expect(await pane.find({ type: 'Text', text: NEEDS_CLI })).toBeDefined()
+  expect(w.status.at(-1)).toBeUndefined()
+
+  const before = w.argv.length + w.fetches.length
+  await clock.advance(10 * 60_000)
+  expect(w.argv.length + w.fetches.length).toBe(before)
+  expect(w.status.at(-1)).toBeUndefined()
+  await pane.unmount()
+})
