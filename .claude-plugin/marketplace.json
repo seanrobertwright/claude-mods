@@ -88,6 +88,11 @@
       "description": "Runs the project's checks from a band button, and before Claude's git commit, and hands back only the failures."
     },
     {
+      "name": "chrome-tab-self-heal",
+      "source": "./mods/chrome-tab-self-heal",
+      "description": "When a Claude in Chrome tool says its tab is gone, tells Claude to fetch the current tab IDs before trying again."
+    },
+    {
       "name": "model-effort-presets",
       "source": "./mods/model-effort-presets",
       "description": "One press above the prompt switches the model and the effort together: a plan preset, an execute preset, or your own, also by /preset <name> or when you send a mapped command."
