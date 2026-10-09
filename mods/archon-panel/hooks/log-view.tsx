@@ -181,6 +181,10 @@ export function logBody(props: LogProps): RenderElement[] {
       }
     }
   }
+  // A skipped node never starts, so the transcript has no row for it: the events give it, with its cause.
+  for (const skipped of events.filter(e => e.type === 'node_skipped' && (view.node === '' || view.node === e.step))) {
+    lines.push(<Box key={`log-skip-${skipped.step}`}><Text dimColor wrap="wrap">{`– ${skipped.step} skipped${skipped.reason === '' ? '' : `: ${skipped.reason}`}`}</Text></Box>)
+  }
   // Output and errors of nodes whose end marker is not in the window, as with a missing transcript.
   const seen = new Set(events.filter(e => e.type === 'node_completed' || e.type === 'node_failed').map(e => e.step))
   for (const node of seen) if (!ended.has(node) && (view.node === '' || view.node === node)) outputOf(node, `ev-${node}`)

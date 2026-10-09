@@ -333,3 +333,26 @@ test('where no prompt box can take it, @ says so', COLD, async ($, on) => {
   expect((await pane.find({ type: 'Text', text: "can't reach the prompt here" }))?.props.dimColor).toBe(true)
   await pane.unmount()
 })
+
+test('a node skipped is marked with its cause, from the events of the run', COLD, async ($, on) => {
+  const { pane } = await logOf($, on, [done('chain-1')], 'chain-1', {
+    transcripts: { 'chain-1': CHAIN },
+    events: { 'chain-1': [event('node_skipped', 'revise', { reason: 'when: decision is not needs-revision' })] },
+  })
+  const skipped = (await lines(pane)).find(text => text.startsWith('– revise skipped'))
+  expect(skipped).toBe('– revise skipped: when: decision is not needs-revision')
+  await pane.unmount()
+})
+
+test('a binary file shows only its size', COLD, async ($, on) => {
+  const { pane } = await logOf($, on, [done('chain-1')], 'chain-1', {
+    transcripts: { 'chain-1': CHAIN },
+    artifacts: { 'chain-1': [{ path: 'shot.png', size: 2_048, modifiedAt: iso(T0) }] },
+    artifactText: { 'chain-1/shot.png': 'PNG\u0000\u0000IHDR' },
+  })
+  await pane.press({ key: 'files' })
+  await pane.press({ key: 'file-shot.png' })
+  expect(await pane.find({ type: 'Text', text: 'A binary file, 2 KB.' })).toBeDefined()
+  expect(await pane.find({ type: 'Code' })).toBeUndefined()
+  await pane.unmount()
+})
