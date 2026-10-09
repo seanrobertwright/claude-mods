@@ -92,6 +92,7 @@ A session started without a surface becomes interactive when one is attached.
 **Headless session**:
 A session shown on no surface: a `claude -p` process, or an SDK session nobody has opened.
 A mod stays quiet in a headless session: it draws nothing, polls nothing, asks no System One model and starts nothing new, so no prompt and no headless run of its own.
+A guard on the model's own tool call may still run its check, such as the `git diff` pre-pr-claims-check runs before a pull request is opened: it asks no one, and starts no prompt and no headless run.
 Work set going while the session was shown, such as a resume after a rate limit, still finishes.
 _Avoid_: Background session, child session
 

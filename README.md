@@ -1,14 +1,14 @@
 # 🧩 claude-mods
 
-> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a question before Claude reads a `.env` or key file, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
+> Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a question before a commit or push on the default branch, a question before Claude reads a `.env` or key file, a list of the files this session made, a list of the ones it read, a check that keeps banned claims out of a pull request, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![15 mods](https://img.shields.io/badge/mods-15-6b5bd2)
+![16 mods](https://img.shields.io/badge/mods-16-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all fifteen, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all sixteen, or read the source and write your own.
 
 ## What is a mod?
 
@@ -39,6 +39,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
 | 🧹 [post-merge-cleanup](#-post-merge-cleanup) | Question dialog and toast | After a PR merges, `/cleanup` switches to the default branch, pulls and deletes the branch |
+| 🧾 [pre-pr-claims-check](#-pre-pr-claims-check) | Refusal Claude reads | Refuses `gh pr create` and `gh pr edit` while the pull request cites a file and line, holds a placeholder, or spells out a count |
 | ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
@@ -516,6 +517,37 @@ There is nothing to set.
 
 **Needs:** `git`, and the [GitHub CLI](https://cli.github.com) (`gh`) logged in (`gh auth login`), in a folder with a GitHub remote. `/cleanup` names whichever is missing.
 
+### 🧾 pre-pr-claims-check
+
+Before Claude opens or edits a pull request with `gh pr create` or `gh pr edit`, the mod reads what the pull request will say, and refuses the call while it breaks one of the claims bans. Claude reads the list, fixes the text and runs the command again:
+
+```text
+pre-pr-claims-check: this pull request breaks the claims bans. Fix each of these, then run the command again:
+- PR body: file:line citation "paths.ts:42"
+- docs/guide.md, line 12: placeholder "TODO fill in"
+- PR body: count in words "forty-four entries"
+Name a file without its line number, fill in or drop each placeholder, and leave out counts typed by hand.
+```
+
+It looks for these, by exact pattern, outside fenced code blocks:
+
+```text
+paths.ts:42   register.tsx:12-30       a file:line citation
+(PR #NN)   #NN   #XX   TODO fill in     a placeholder, in any case
+forty-four entries                      a count spelled out from eleven up, before a plural noun
+```
+
+- **What it reads:** the title; the body, given inline, in a heredoc or a PowerShell here-string, or in the file `--body-file` names (`-` takes the heredoc); and the lines the branch adds to Markdown files since it left its base, which is `--base` or else the repo's default branch. Lines the branch did not add are left alone.
+- **What it lets through:** a count in digits, a count up to ten, and a number word not followed by a plural noun. Telling a hand-typed count in digits from any other number would refuse good pull requests, so it does not try.
+- **Any finding refuses the call.** No finding lets it through.
+- **It checks in a headless session too.** It asks no one, and agents working on their own open many of the pull requests it is for. It runs `git diff`, and `gh` when there is no `--base`, but starts no prompt and no headless run.
+- When git cannot compare the branch with the base on `origin`, for instance before the base is fetched, it checks only the title and the body.
+- It does not check code comments, files other than Markdown, the text `--fill` takes from the commits, or whether a claim is true.
+
+There is nothing to set.
+
+**Needs:** `git`, and the [GitHub CLI](https://cli.github.com) (`gh`), which `gh pr create` needs anyway.
+
 ### ⚙ mod-settings
 
 One dialog for the settings of every installed mod: pick a mod, change its settings, save.
@@ -606,6 +638,7 @@ claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
 claude plugin install hud@claude-mods
 claude plugin install post-merge-cleanup@claude-mods
+claude plugin install pre-pr-claims-check@claude-mods
 claude plugin install mod-settings@claude-mods
 ```
 
@@ -623,7 +656,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 ## Configure the mods
 
 whats-next, quick-reply, auto-resume, github-panel, turn-chime, env-guard and hud have settings, listed in each mod's section above with the key each one is stored under.
-shelf and sources are set up with their own commands, in the session; outputs, open-file-guard, branch-guard and bash-quoting-rescue have nothing to set.
+shelf and sources are set up with their own commands, in the session; outputs, open-file-guard, branch-guard, bash-quoting-rescue and pre-pr-claims-check have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
 
@@ -695,7 +728,7 @@ The values live in your user settings, `~/.claude/settings.json`, under `pluginC
 
 Every mod here follows the same house rules, written down in [`CONTEXT.md`](CONTEXT.md):
 
-- **Quiet when nobody is watching.** In a headless session (`claude -p`, or an SDK session nobody has opened) a mod draws nothing, polls nothing and starts nothing new. Work already set going, such as a resume after a rate limit, still finishes.
+- **Quiet when nobody is watching.** In a headless session (`claude -p`, or an SDK session nobody has opened) a mod draws nothing, polls nothing and starts nothing new. A guard on Claude's own tool call, such as pre-pr-claims-check, still runs its check. Work already set going, such as a resume after a rate limit, still finishes.
 - **Says what it needs.** A mod that lacks a requirement, such as a skill, a CLI tool or a logged-in account, names it in its own pane and says how to meet it, instead of failing obscurely.
 - **Never grabs the keyboard.** A pane that opens unasked never takes the keyboard. Ask for it with its command and it comes to the front, and Esc hands the keyboard back.
 - **Self-contained.** Each mod imports only from its own folder and from `claude-code`, so installing one mod never depends on another ([ADR-0001](docs/adr/0001-self-contained-mods.md)).

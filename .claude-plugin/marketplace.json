@@ -78,6 +78,11 @@
       "description": "/cleanup after a PR merges: switch to the default branch, pull, and delete the merged branch and its worktree, after one confirmation."
     },
     {
+      "name": "pre-pr-claims-check",
+      "source": "./mods/pre-pr-claims-check",
+      "description": "Refuses gh pr create and gh pr edit while the PR's title, its body or the branch's added Markdown lines hold a file:line citation, a placeholder or a count spelled out in words, listing each one."
+    },
+    {
       "name": "mod-settings",
       "source": "./mods/mod-settings",
       "description": "A gear at the top right of each mod's pane opens one dialog for every claude-mods setting: pick a mod, change its settings, save."
