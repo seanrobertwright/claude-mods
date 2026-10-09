@@ -147,12 +147,15 @@ async function addOutput($: EngineInterface, name: string, lines: Omit<OutputLin
 }
 
 async function flushOutput($: EngineInterface): Promise<void> {
+  await restoreCarried($)
   flushedAt = await $.clock.now()
   const snapshot = memory
   await update($, outputAtom, () => snapshot)
 }
 
 async function setRun($: EngineInterface, name: string, change: (run: ServerRun) => ServerRun): Promise<void> {
+  // The first write after /clear brings back what the old session held, so it is not written over.
+  await restoreCarried($)
   await update($, runsAtom, runs => ({ ...runs, [name]: change(runs[name] ?? newRun()) }))
   await showStatus($)
 }
@@ -307,10 +310,9 @@ async function restoreCarried($: EngineInterface): Promise<void> {
   const held = carried
   if (held === undefined) return
   carried = undefined
-  if (Object.keys(await read($, runsAtom)).length > 0) return
-  await update($, rowsAtom, () => held.rows)
-  await update($, runsAtom, () => held.runs)
-  await update($, viewAtom, () => held.view)
+  await update($, rowsAtom, rows => (rows.defs.length === 0 ? held.rows : rows))
+  await update($, runsAtom, runs => ({ ...held.runs, ...runs }))
+  await update($, viewAtom, view => (view.picked === null && view.anchor === null ? held.view : view))
   await flushOutput($)
 }
 

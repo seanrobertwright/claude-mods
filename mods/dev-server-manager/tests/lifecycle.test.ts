@@ -124,3 +124,28 @@ test('after /clear the servers run on, and the fresh session lists them even if 
   const again = await openPane($)
   expect((await again.find({ key: 'words-dev' }))?.text).toBe('up 0s')
 })
+
+test('a server that dies after /clear, before the fresh session first prompt, leaves the others listed', { options: { restart: false } }, async ($, on) => {
+  const w = world(on, { packageJson: JSON.stringify({ scripts: { dev: 'vite', preview: 'vite preview' } }) })
+  let clearedAt = -1
+  const isUnwritten = (key: string) => clearedAt >= 0 && !w.stateWrites.slice(clearedAt).includes(key)
+  on('state.get', (_$, e, next) => (isUnwritten(e.key) ? ({ value: { value: undefined, version: 0 } } as never) : next(e)))
+  on('prompt.compose', () => ({ sections: [] }) as never)
+  script(w, 'npm run dev', { pieces: [{ text: 'Local: http://localhost:5173/\n' }] })
+  script(w, 'npm run preview', { pieces: [{ text: 'Local: http://localhost:4173/\n' }, { text: 'boom\n', afterMs: 5_000 }], exit: { code: 1, signal: null } })
+  await startSession($)
+  const pane = await openPane($)
+  for (const name of ['dev', 'preview']) {
+    await pane.press({ key: `row-${name}` })
+    await pane.press({ key: 'start' })
+  }
+  await w.clock.settle()
+  await pane.unmount()
+  await $.session.end({ reason: 'clear', sessionId: 'session-a', resume: { id: 'session-a' } } as never)
+  clearedAt = w.stateWrites.length
+  await w.clock.advance(5_000)
+  const composed = await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: ['terminal'], tools: [], outputStyle: null, traits: [] } as never)
+  expect(composed.sections.find(section => section.id === 'dev-server-manager:servers')?.text).toContain('- dev: npm run dev, http://localhost:5173, running')
+  const again = await openPane($)
+  expect((await again.find({ key: 'words-preview' }))?.text).toStartWith('crashed (exit 1)')
+})
