@@ -12,6 +12,7 @@ const BAND = {
 } as const
 
 const NAME = { key: 'name' }
+const DISMISS = { key: 'dismiss' }
 
 /**
  * The engine beneath the mod: a session shown on the terminal (or on no surface
@@ -93,4 +94,37 @@ test('a /clear starts a fresh session: the old suggestion goes and its first pro
   expect(await suggested($)).toBe('Name: wayfinder chart the release work')
   await submit($, 'and the docs too')
   expect(await suggested($)).toBe('Name: wayfinder chart the release work')
+})
+
+test('a press renames the session and takes the button down; nothing is renamed before it', async ($, on) => {
+  const log = desk(on)
+  await submit($, '/gsd:plan-phase 3 for the router rewrite and its tests')
+  await submit($, 'go on')
+  expect(log.filter(line => line.startsWith('/rename'))).toEqual([])
+
+  const band = await $.ui.mount({ plugin: 'session-auto-namer', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await band.press(NAME)
+  expect(log.filter(line => line.startsWith('/rename'))).toEqual(['/rename plan-phase 3 for the router rewrite'])
+  expect(await band.find(NAME)).toBeUndefined()
+  expect(await band.find(DISMISS)).toBeUndefined()
+  await band.unmount()
+})
+
+test('dismiss takes the button down without renaming', async ($, on) => {
+  const log = desk(on)
+  await submit($, 'fix the flaky login test on windows please')
+
+  const band = await $.ui.mount({ plugin: 'session-auto-namer', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await band.press(DISMISS)
+  expect(await band.find(NAME)).toBeUndefined()
+  await band.unmount()
+  expect(await suggested($)).toBeUndefined()
+  expect(log.filter(line => line.startsWith('/rename'))).toEqual([])
+})
+
+test('in a headless session nothing is suggested and gh is not started', async ($, on) => {
+  const log = desk(on, { isHeadless: true, titles: { 'repos/{owner}/{repo}/issues/53': 'Add a drift check' } })
+  await submit($, '/implement #53')
+  expect(await suggested($)).toBeUndefined()
+  expect(log).toEqual([])
 })
