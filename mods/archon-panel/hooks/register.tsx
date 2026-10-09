@@ -1,9 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 
-import type { ArchonData, ArchonView, Detail, Project, Run, Tab } from '../types'
+import type { ArchonData, ArchonView, Detail, GraphNode, Project, Run, Tab } from '../types'
 import { bodyWindow, lastPosition, pinnedRow, SETTINGS } from './chrome'
 import { candidates, findArchon, requirementLine } from './cli'
+import { workflowNodes } from './graph'
+import { drawNodes, graphBody } from './graph-view'
 import { claimKey, collapse, isClaimed, isMine, statusText, toastEvents } from './notify'
 import type { Runner } from './cli'
 import { parseConfig } from './config'
@@ -323,12 +325,106 @@ async function pick($: EngineInterface, run: Run): Promise<void> {
   const byId = new Map(current.runs.map(r => [r.id, r]))
   const need = needsYou(run, byId, current.details)
   if (need === undefined) {
-    await update($, view, (v): ArchonView => ({ ...v, tab: 'graph', run: run.id, node: '' }))
+    await openGraph($, run.id)
     return
   }
   const found = need.attention
   const node = found.kind === 'approval' ? found.gate.nodeId : found.kind === 'action' ? found.wait.nodeId : found.kind === 'stranded' ? found.gate.nodeId : ''
   await update($, view, (v): ArchonView => ({ ...v, tab: 'log', run: need.holder.id, node }))
+}
+
+/** The files under `root` whose name ends `.yaml` or `.yml`, a few folders deep. */
+async function yamlFiles($: EngineInterface, root: string, depth = 0): Promise<string[]> {
+  const entries = await $.fs.list(root).catch(() => [])
+  const found: string[] = []
+  for (const entry of entries) {
+    const path = `${root}/${entry.name}`
+    if (entry.kind === 'dir' && depth < 5) found.push(...(await yamlFiles($, path, depth + 1)))
+    else if (entry.kind === 'file' && /\.ya?ml$/i.test(entry.name)) found.push(path)
+  }
+  return found
+}
+
+/** How a workflow of a frozen source ranks when two share a name: a project's over a global one over a bundled one. */
+function rankOf(path: string): number {
+  return /\/bundled\//.test(path) ? 0 : /\/global\//.test(path) ? 1 : 2
+}
+
+/**
+ * Reads a run's graph once from its frozen workflow source
+ * (`metadata.workflow_source.root`), which never changes: the workflow
+ * `manifest.json` names, and any workflow it includes.
+ */
+async function ensureGraph($: EngineInterface, runId: string): Promise<void> {
+  const current = await read($, data)
+  const run = current.runs.find(r => r.id === runId)
+  if (run === undefined || current.graphs[runId] !== undefined) return
+  let nodes: GraphNode[] | null = null
+  const root = run.sourceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (root !== '') {
+    const manifest = await $.fs.read(`${root}/manifest.json`).then(text => JSON.parse(text) as { workflow_name?: unknown }).catch(() => undefined)
+    const name = typeof manifest?.workflow_name === 'string' ? manifest.workflow_name : run.workflow
+    const files = await yamlFiles($, root)
+    const texts = new Map<string, string>()
+    const textOf = async (path: string) => {
+      if (!texts.has(path)) texts.set(path, await $.fs.read(path).catch(() => ''))
+      return texts.get(path)!
+    }
+    const nameIn = (text: string) => /^name:\s*["']?([^"'\n#]+?)["']?\s*$/m.exec(text)?.[1] ?? ''
+    // A workflow's file is usually named for it; any other file is read only when that misses.
+    const byName = new Map<string, { text: string; rank: number }>()
+    const consider = (path: string, text: string) => {
+      const found = nameIn(text)
+      const known = byName.get(found)
+      if (found !== '' && (known === undefined || rankOf(path) > known.rank)) byName.set(found, { text, rank: rankOf(path) })
+    }
+    const base = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.ya?ml$/i, '')
+    for (const path of files) if (base(path) === name || /^archon-/.test(base(path))) consider(path, await textOf(path))
+    if (!byName.has(name)) for (const path of files) consider(path, await textOf(path))
+    const main = byName.get(name)?.text
+    if (main !== undefined) {
+      const sync = new Map([...byName].map(([key, value]) => [key, value.text]))
+      nodes = workflowNodes(main, wanted => sync.get(wanted))
+    }
+  }
+  await update($, data, (d): ArchonData => ({ ...d, graphs: { ...d.graphs, [runId]: nodes } }))
+}
+
+/** Picks a box in the Graph: a node opens Log cut to it; a block, loop or sub-run box opens what it folds. */
+async function pickNode($: EngineInterface, runId: string, id: string): Promise<void> {
+  const current = await read($, data)
+  const shown = await read($, view)
+  const run = current.runs.find(r => r.id === runId)
+  const nodes = current.graphs[runId]
+  if (run === undefined) return
+  if (id.includes('.')) {
+    await update($, view, (v): ArchonView => ({ ...v, tab: 'log', node: id }))
+    return
+  }
+  const pickOf = nodes === undefined || nodes === null ? undefined : drawNodes(nodes, run, current.runs, current.details, shown).picks.get(id)
+  if (pickOf?.kind === 'block') {
+    const key = `${runId}:${pickOf.id}`
+    await update($, view, (v): ArchonView => ({ ...v, includes: v.includes.includes(key) ? v.includes : [...v.includes, key] }))
+  } else if (pickOf?.kind === 'loop') {
+    const key = `${runId}:${pickOf.id}`
+    await update($, view, (v): ArchonView => ({ ...v, loop: v.loop === key ? '' : key, round: 0 }))
+  } else if (pickOf?.kind === 'workflow' && pickOf.children.length > 0) {
+    const byId = new Map(current.runs.map(r => [r.id, r]))
+    const waiting = pickOf.children.find(child => needsYou(child, byId, current.details) !== undefined)
+    if (waiting !== undefined) await pick($, waiting)
+    else if (pickOf.children.length > 1) {
+      const key = `${runId}:${pickOf.id}`
+      await update($, view, (v): ArchonView => ({ ...v, fanouts: v.fanouts.includes(key) ? v.fanouts.filter(f => f !== key) : [...v.fanouts, key] }))
+    } else await openGraph($, pickOf.children[0]!.id)
+  } else {
+    await update($, view, (v): ArchonView => ({ ...v, tab: 'log', node: id }))
+  }
+}
+
+/** Shows a run's Graph, reading its source the first time. */
+async function openGraph($: EngineInterface, runId: string): Promise<void> {
+  await update($, view, (v): ArchonView => ({ ...v, tab: 'graph', run: runId, node: '' }))
+  await ensureGraph($, runId)
 }
 
 /** Whether mod-settings is installed: the gear shows only then. A command list that cannot be read shows none. */
@@ -443,6 +539,25 @@ export const register: Register = (on, options) => {
         serverLine,
         onPick: run => void pick($, run).catch(report($)),
         onFanout: id => void update($, view, (v): ArchonView => ({ ...v, fanouts: v.fanouts.includes(id) ? v.fanouts.filter(f => f !== id) : [...v.fanouts, id] })).catch(report($)),
+      })
+    } else if (shown.tab === 'graph') {
+      const run = current.runs.find(r => r.id === shown.run)
+      if (run !== undefined && current.graphs[run.id] === undefined) void ensureGraph($, run.id).catch(report($))
+      lines = graphBody({
+        ui,
+        run,
+        runs: current.runs,
+        details: current.details,
+        nodes: run === undefined ? undefined : current.graphs[run.id],
+        view: shown,
+        now: await $.clock.now(),
+        width,
+        link: run !== undefined && current.source === 'server' && e.surface !== 'mobile' ? `http://localhost:${config.port}/console/r/${run.id}` : '',
+        onPick: id => void pickNode($, shown.run, id).catch(report($)),
+        onFold: block => void update($, view, (v): ArchonView => ({ ...v, includes: v.includes.filter(entry => entry !== `${shown.run}:${block}`) })).catch(report($)),
+        onRound: round => void update($, view, (v): ArchonView => ({ ...v, round })).catch(report($)),
+        onParent: parent => void openGraph($, parent.id).catch(report($)),
+        onChild: child => void openGraph($, child.id).catch(report($)),
       })
     } else if (shown.tab === 'archon-log') lines = [<Text dimColor wrap="wrap">No Archon's log at {config.archonLog}. Point Archon's log in the mod settings at the file archon serve writes to.</Text>]
     else lines = [<Text dimColor>Pick a run in Runs.</Text>]
