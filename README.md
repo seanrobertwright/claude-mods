@@ -72,13 +72,13 @@ flowchart LR
     A[Skill answers<br/>what's next] --> B[Steps in the pane]
     B --> C[You read a step's prompt<br/>and send it yourself]
     C --> D[Step glows:<br/>working on it]
-    D --> E{Haiku: is the<br/>step finished?}
+    D --> E{Laya, Jev or Haiku:<br/>is the step finished?}
     E -- not yet --> D
     E -- yes --> F[Step leaves the list]
 ```
 
 - **You stay in charge.** A step's prompt reaches the model only when you read it and send it yourself. Click a step to see its prompt, then paste it, paste it into a fresh session (after your prime command, if you name one), or copy it.
-- **It notices when you are done.** After each answered turn, Haiku is asked whether the step is finished, and a finished step leaves the list. Press `d` to drop it yourself.
+- **It notices when you are done.** After each answered turn, a [System One model](#run-laya-for-these-mods) is asked whether the step is finished, as your System One models setting allows, and Haiku when none answers surely enough. A finished step leaves the list. Press `d` to drop it yourself.
 - **The run that asks is read-only.** By default it gets only read commands of git and gh plus Read, Glob and Grep. `git push`, `git config`, `git -c`, `gh api` and `--output` are always denied.
 
 | Command or key | What it does |
@@ -99,6 +99,9 @@ flowchart LR
 | Tools the headless run may use | `allowedTools` | empty: the read-only set | Comma-separated permission rules for the headless run |
 | Model | `model` | empty: your default | Model for the headless run, as an alias (`haiku`) or a full id |
 | Prime command | `primeCommand` | empty: none | A slash command, with any arguments, run after `/clear` and before the paste (`/lril:prime`); the prompt is filled once the turn it starts ends, finished or not. A value that is not one slash command on one line is never run, and the step view says so |
+| System One models | `modelChoice` | `local only` | Which System One model judges whether a turn finished the active step: `local only` (Laya on this machine, or Haiku as before), `local first` (Laya, and TypeSafe's hosted Jev while Laya is unavailable) or `hosted first` (Jev, and Laya while Jev is unavailable) |
+| Jev API key | `jevApiKey` | empty | Your key for Jev, from console.typesafe.ai, kept in secure storage. Sent only to `https://api.typesafe.ai`, and only while System One models allows Jev |
+| Laya port | `layaPort` | `8000` | The port your `laya-serve` listens on at `127.0.0.1` (1-65535) |
 
 `/ask-sean` is the author's own skill, so point the Skill setting at a skill of yours that answers "what should I do next?" ([how to set it](#configure-the-mods)):
 
@@ -112,7 +115,15 @@ The read-only set, used while Tools is empty, is `Bash(git status:*)`, `Bash(git
 - Each rule is a tool name, optionally followed by `(...)`. One rule that is not, such as one starting with `-`, discards your whole list and the read-only set is used.
 - The run can always call `Skill`, so a skill that calls another still works. MCP servers load only when a rule names an `mcp__` tool.
 
-**Needs:** the `claude` CLI on the PATH, and the skill named in the Skill setting.
+What the judge sends to a System One model, once after each answered turn while a step is active:
+
+- **To Jev,** only while System One models allows it and the folder is not [marked local-only](#run-laya-for-these-mods): the active step's title, reason and prompt and the last 8,000 characters of Claude's answer. Never the contents of a file the mod read itself.
+- **To Laya,** which keeps it on this machine: the same, fitted to Laya's small window. The step's prompt is dropped first, then the start of the answer, so the end of the answer, where Claude says whether the work is done, is kept.
+- **Sure answers only.** "Done" counts at a probability of 0.9 or more and "not done" at 0.1 or less. Anything between, a model that is busy or fails, or no answer within 5 s leaves the step to Haiku, as before.
+- **A key it cannot use is named.** While System One models allows Jev, a missing key, one that is not a key, or one TypeSafe rejects is named on a line in the pane, and the list stays. A rejected key stays off until the mod reloads.
+- **A changed key takes effect once the mod reloads.** Saving it in the settings dialog reloads the mod; a key changed any other way waits for the next start of Claude Code.
+
+**Needs:** the `claude` CLI on the PATH, and the skill named in the Skill setting. Laya and a Jev key are optional: with neither, the judge is Haiku, as before.
 
 ### ⚡ quick-reply
 
@@ -838,6 +849,32 @@ The values live in your user settings, `~/.claude/settings.json`, under `pluginC
 - The settings dialog refuses the same values, with the reason under the setting. Like `claude plugin configure`, it also refuses a text with a line break or over 64 KB. A number setting left blank is refused rather than cleared: delete its key in `settings.json` to put it back to its default.
 - A number outside the range in the mod's table, a fraction in any number setting but Grace after reset and Long turn, or a text setting in a shape the mod does not take, is passed over and the mod uses that setting's default. Nothing tells you, so check the table when a change seems to do nothing. The one exception is env-guard, which names a pattern it passes over in a toast.
 
+## Run Laya for these mods
+
+Laya is a System One model that runs on your own machine, so what a mod sends it stays there.
+A mod that uses one (whats-next today) asks it at `127.0.0.1` on its Laya port setting, and never starts, stops or installs it: you run `laya-serve` yourself.
+
+1. Install Laya with its server extra, as its README says: `pip install "laya[serve]"` in a Python 3.10+ virtual environment. [Running Laya on this Windows machine](docs/research/laya-on-windows.md) has the details.
+2. Bind it to this machine's own address and pick a free port. `laya-serve` takes no flags: it reads `LAYA_HOST` and `LAYA_PORT`, and its default, `0.0.0.0:8000`, is reachable from the network and often taken.
+3. Set no key: leave `LAYA_API_KEY` unset. A mod never sends Laya a key, so a Laya with one answers each ask with `401` and the mod uses Haiku instead.
+4. Enter the same port in the mod's Laya port setting.
+
+```powershell
+$env:LAYA_HOST = "127.0.0.1"
+$env:LAYA_PORT = "8123"
+Remove-Item Env:LAYA_API_KEY -ErrorAction SilentlyContinue
+laya-serve
+```
+
+```sh
+echo '{"layaPort": 8123}' | claude plugin configure whats-next@claude-mods --values-stdin
+```
+
+- **The mod checks it is Laya.** Before its first ask, and again after Laya was unavailable, the mod reads `/openapi.json` on that port and asks only when its title is `laya-serve`. Another program on the port is sent nothing else.
+- **A slow or busy Laya costs nothing.** An ask that outlasts its bound, or finds Laya busy, falls back at once, and a Laya that fails is left alone for 30 s, doubling to 5 min.
+- **Hosted Jev is your choice, per mod.** Each mod's System One models setting starts at local only, so a key alone sends nothing to TypeSafe ([ADR-0003](docs/adr/0003-hosted-model-by-choice-local-model-first.md)).
+- **A local-only folder.** An empty file at `.claude/system-one-local-only` in a folder keeps every mod from sending anything to Jev from that folder or any folder beneath it, whatever its setting. It takes effect for the next thing a mod would send.
+
 ## Good manners, built in
 
 Every mod here follows the same house rules, written down in [`CONTEXT.md`](CONTEXT.md):
@@ -861,6 +898,7 @@ claude-mods/
 │       │   └── parse.ts                 pure logic, kept apart for tests
 │       ├── tests/                       run by `claude plugin test`
 │       └── types/
+├── shared/system-one.ts              the System One client, copied into each mod that uses it
 ├── scripts/check-mods.mjs            the four checks, one mod at a time
 └── docs/                             decisions and research
 ```
@@ -887,6 +925,7 @@ Further reading:
 - [`CONTEXT.md`](CONTEXT.md): the project's vocabulary, from mod and pane to headless run.
 - [ADR-0001](docs/adr/0001-self-contained-mods.md): why shared code is duplicated instead of imported.
 - [ADR-0002](docs/adr/0002-shared-modules-cannot-own-hooks.md): why a shared module cannot own a mod's timer or hooks.
+- [ADR-0004](docs/adr/0004-system-one-client-is-one-shared-file.md): why the System One client is one shared file copied into each mod.
 - [Detecting a headless session](docs/research/headless-and-requirements.md): the research behind the quiet-when-headless rule.
 
 ## Checks
@@ -900,6 +939,9 @@ Further reading:
 
 It stops at the first failure and names the mod and the step.
 
+Before those, it checks that each mod's `hooks/system-one.ts` is byte for byte `shared/system-one.ts`, and that the mods carrying one declare `jevApiKey`, `modelChoice` and `layaPort` alike, descriptions aside.
+After a change to `shared/system-one.ts`, `npm run sync:system-one` refreshes the copies that exist. It never adds one: a mod takes the client by carrying a copy.
+
 A mod's `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes when it loads the mod and which git ignores.
 When that file is missing, as on a fresh clone, the script loads the mod once with a headless `claude -p` run of a local command, which makes no model call.
 The script needs the `claude` CLI on the PATH.
@@ -909,6 +951,7 @@ The script needs the `claude` CLI on the PATH.
 - the personal-data check over tracked files (`npm run check:secrets` runs it by hand)
 - markdownlint on staged Markdown (`npm run lint:md` lints every Markdown file)
 - the same four mod checks, only for the mods with staged changes (`node scripts/check-mods.mjs --staged`). They read the files on disk, so unstaged edits in a staged mod are checked too.
+- the System One copy and field check, on the files as staged, whatever is staged: a change to `shared/system-one.ts` committed without its synced copies fails.
 
 `npm run test:scripts` runs the tests for the check script itself.
 
