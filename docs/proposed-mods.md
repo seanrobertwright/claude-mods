@@ -115,10 +115,6 @@ When a browser tool answers "tab no longer exists", it tells the model to call `
 
 ## Session and environment
 
-### session-auto-namer (rank 13, issue #71)
-
-Suggests a session name from the first prompt, such as "M12 - S4 - Execute" or an issue's number and title, applied with one click.
-
 ### model-effort-presets (rank 14, issue #72)
 
 Band buttons or a command for "plan" and "execute" pairs of model and effort, optionally switched by workflow step.
@@ -148,3 +144,4 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **quick-reply**: rank 3, picked by you.
 - **auto-resume**: rank 5, picked by you.
 - **github-panel**: your own request in `e2d3b04d`, close to rank 18 above.
+- **session-auto-namer**: rank 13 (issue #71). Names are made by rules, with no model call, and applied by a press.

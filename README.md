@@ -3,12 +3,12 @@
 > Small TypeScript mods that live inside Claude Code: a pane that knows your next step, one-click replies, a rate-limit countdown that resumes for you, your repo's pull requests and issues beside the conversation, a shelf of paths you use every day, a chime when a long turn ends, a guard for the Office file you left open, a list of the files this session made, a list of the ones it read, and one dialog for every mod's settings.
 
 ![Claude Code 2.1.289+](https://img.shields.io/badge/Claude_Code-2.1.289%2B-d97757)
-![11 mods](https://img.shields.io/badge/mods-11-6b5bd2)
+![12 mods](https://img.shields.io/badge/mods-12-6b5bd2)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![Checks: tsc, ESLint, validate, test](https://img.shields.io/badge/checks-tsc_%C2%B7_ESLint_%C2%B7_validate_%C2%B7_test-2ea44f)
 
 claude-mods is one developer's personal toolbox of Claude Code mods, shared as a plugin marketplace so anyone can install them.
-The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all eleven, or read the source and write your own.
+The mods are built for the author's own workflow first, and you are a welcome guest: install one, install all twelve, or read the source and write your own.
 
 ## What is a mod?
 
@@ -36,6 +36,7 @@ The mod's own code decides when to act, even when what it does is send the model
 | 🔎 [sources](#-sources) | Pane in the side panel | The files Claude read, grouped by where they came from, with a lock to the project folder |
 | 📊 [hud](#-hud) | Two lines under the prompt | Model, effort, context window, rate limits, turn timer, tool calls, agents, git state, worktree, cost, session length and folder, each named and in colour |
 | ⚙ [mod-settings](#-mod-settings) | Gear on each pane; a dialog | Change and save any mod's settings without leaving the session |
+| 🏷 [session-auto-namer](#-session-auto-namer) | Band above the prompt | Suggests a name for the session from its first prompt; one press renames it |
 
 When more than one mod has a pane open, Claude Code shows them as tabs in the side panel.
 
@@ -450,6 +451,33 @@ There is nothing to set: the dialog reads every mod's settings from Claude Code.
 
 **Needs:** nothing.
 
+### 🏷 session-auto-namer
+
+After the first prompt of a session, one button above the prompt suggests a name for the session, so you can find it again later.
+One press renames the session, as `/rename` would; the small × takes the button down without renaming.
+
+```text
+[Name: #53 Add a drift check for copied guards]  [×]
+```
+
+The name comes from the first prompt, by the first rule that applies:
+
+| The first prompt names | The name | For example |
+| --- | --- | --- |
+| An issue or pull request, as a GitHub link or as `#N` in the session's repo | `#N` and its title, read with `gh` | `/implement https://github.com/owner/repo/issues/53` gives `#53 Add a drift check for copied guards` |
+| A milestone and a step, `M12` and `S4` | The two and the slash command's last word, capitalised | `/gsd:execute-phase M12 S4` gives `M12 - S4 - Execute-phase` |
+| Anything else | The slash command without its plugin, then the first five words of its arguments; or the prompt's first five words | `/gsd:plan-phase 3 for the router rewrite and its tests` gives `plan-phase 3 for the router rewrite` |
+
+- A name longer than 60 characters is cut at a word and ends in "…".
+- Nothing is renamed until you press the button.
+- Only a session's first prompt gets a suggestion. A resumed session gets none; after `/clear`, the fresh session's first prompt gets one.
+- An issue `gh` cannot read, or a machine without `gh`, gets a name from the other rules.
+- A headless session (`claude -p`) gets no suggestion, and `gh` is not run there.
+
+There is nothing to set.
+
+**Needs:** nothing. `gh`, logged in, lets an issue's title into the name.
+
 ## Quick start
 
 The fastest way is to let Claude do it. Paste this prompt into Claude Code:
@@ -482,6 +510,7 @@ claude plugin install outputs@claude-mods
 claude plugin install sources@claude-mods
 claude plugin install hud@claude-mods
 claude plugin install mod-settings@claude-mods
+claude plugin install session-auto-namer@claude-mods
 ```
 
 To try a mod for one session only, with nothing installed:
@@ -498,7 +527,7 @@ Every mod works on its defaults. To change them, see [Configure the mods](#confi
 ## Configure the mods
 
 whats-next, quick-reply, auto-resume, github-panel, turn-chime and hud have settings, listed in each mod's section above with the key each one is stored under.
-shelf and sources are set up with their own commands, in the session; outputs and open-file-guard have nothing to set.
+shelf and sources are set up with their own commands, in the session; outputs, open-file-guard and session-auto-namer have nothing to set.
 
 A mod is named by its id, `<mod>@claude-mods`. Each way below writes to the same place, so use whichever is to hand.
 
