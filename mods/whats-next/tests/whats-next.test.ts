@@ -109,6 +109,19 @@ test('parseConfig never lets a setting reach the claude argv as a flag', () => {
   expect(parseConfig({ model: 'claude-opus-5-5[1m]' }).model).toBe('claude-opus-5-5[1m]')
 })
 
+test('parseConfig takes a prime command as one slash command on one line, and names a value it rejects', () => {
+  expect(parseConfig({}).prime).toEqual({ status: 'none' })
+  expect(parseConfig({ primeCommand: '  ' }).prime).toEqual({ status: 'none' })
+  expect(parseConfig({ primeCommand: ' /lril:prime ' }).prime).toEqual({ status: 'set', text: '/lril:prime', command: 'lril:prime', args: '' })
+  expect(parseConfig({ primeCommand: '/prime  the auth work' }).prime)
+    .toEqual({ status: 'set', text: '/prime  the auth work', command: 'prime', args: 'the auth work' })
+  for (const value of ['lril:prime', '/', '/ prime', '/prime\n/clear', '/prime\r', '/prime;rm']) {
+    const prime = parseConfig({ primeCommand: value }).prime
+    expect(prime.status).toBe('invalid')
+    if (prime.status === 'invalid') expect(prime.message).toContain(JSON.stringify(value))
+  }
+})
+
 test('toolFlags bounds the run to the tools its rules name', () => {
   expect(toolFlags(READ_ONLY_TOOLS)).toEqual(['--tools', 'Bash,Read,Glob,Grep,Skill', '--strict-mcp-config'])
   expect(toolFlags(['Read', 'mcp__github__get_issue'])).toEqual(['--tools', 'Read,Skill'])
@@ -215,10 +228,11 @@ test('refresh lists the steps and a press shows the prompt in the pane', async (
 /**
  * The engine beneath the pane for the tests of a shown prompt: `log` holds, in
  * order, each pane closed and opened (with `+focus` when the open asked for the
- * keyboard), each `/clear` and each prompt the prompt box took. The prompt box
- * refuses while `isBoxTaken`, and `/clear` fails while `isClearBroken`.
+ * keyboard), each command run, each prompt submitted and each prompt the prompt
+ * box took. The prompt box refuses while `isBoxTaken`, the command `broken`
+ * names fails, and `judged` counts the judge's asks.
  */
-type Desk = { log: string[]; copied: string[]; toasts: string[]; isBoxTaken: boolean; isClearBroken: boolean }
+type Desk = { log: string[]; copied: string[]; toasts: string[]; isBoxTaken: boolean; broken: string; judged: number }
 
 function fakeDesk(on: On, desk: Desk): void {
   mock.store(on)
@@ -229,9 +243,18 @@ function fakeDesk(on: On, desk: Desk): void {
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('command.list', () => ({ value: [ASK_SEAN] }))
   on('command.run', (_$, e) => {
-    desk.log.push(`/${e.command}`)
-    if (desk.isClearBroken) throw new Error('clear failed')
+    desk.log.push(e.args === '' ? `/${e.command}` : `/${e.command} ${e.args}`)
+    if (desk.broken === e.command) throw new Error(`${e.command} failed`)
     return {}
+  })
+  on('prompt.submit', (_$, e) => {
+    desk.log.push(`submit ${e.text}`)
+    return { text: e.text }
+  })
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('model.complete', () => {
+    desk.judged += 1
+    return { value: { isAnswered: true, text: 'NOT_DONE', usage: {} as never } }
   })
   on('ui.open', (_$, e) => {
     desk.log.push(e.focus === true ? `open ${e.id}+focus` : `open ${e.id}`)
@@ -264,12 +287,14 @@ const START = { cwd: '/work/repo', surface: 'terminal', isInteractive: true } as
 
 test('/clear + paste clears before it fills, and copy goes back to the list with a toast', async ($, on) => {
   mock.clock(on, { now: 1_000 })
-  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, isClearBroken: false }
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, broken: '', judged: 0 }
   fakeDesk(on, desk)
 
   const pane = await $.ui.mount(MOUNT)
   await pane.press({ key: 'refresh' })
   await pressStep(pane, 2)
+  expect((await pane.find({ key: 'fresh' }))?.text).toBe('/clear + paste')
+  expect(await pane.find({ type: 'Text', text: 'Written for a fresh session: /clear + paste starts one. b goes back.' })).toBeDefined()
   await pane.press({ key: 'fresh' })
   expect(desk.log).toEqual(['close whats-next', '/clear', 'fill /triage', 'open whats-next'])
   expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
@@ -287,7 +312,7 @@ test('/clear + paste clears before it fills, and copy goes back to the list with
 
 test('a paste the prompt box refuses, or one that fails, still opens the pane again on the list', async ($, on) => {
   mock.clock(on, { now: 1_000 })
-  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: true, isClearBroken: false }
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: true, broken: '', judged: 0 }
   fakeDesk(on, desk)
 
   const pane = await $.ui.mount(MOUNT)
@@ -299,7 +324,7 @@ test('a paste the prompt box refuses, or one that fails, still opens the pane ag
   expect((await stepButton(pane, 2))?.text).toContain('Triage incoming bugs')
 
   desk.isBoxTaken = false
-  desk.isClearBroken = true
+  desk.broken = 'clear'
   desk.log.length = 0
   desk.toasts.length = 0
   await pressStep(pane, 2)
@@ -312,9 +337,94 @@ test('a paste the prompt box refuses, or one that fails, still opens the pane ag
   await pane.unmount()
 })
 
+const PRIME = { options: { primeCommand: '/lril:prime the auth work' } } as const
+const PRIMED = ['close whats-next', '/clear', '/lril:prime the auth work'] as const
+const primeTurn = (reason: 'answer' | 'aborted' | 'error') =>
+  ({ answer: 'Primed.', durationMs: 10, isAborted: reason === 'aborted', turnId: 'prime', reason }) as const
+
+test('with a prime command set, the fill waits for the prime turn to end, and that turn is not judged', PRIME, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, broken: '', judged: 0 }
+  fakeDesk(on, desk)
+
+  const pane = await $.ui.mount(MOUNT)
+  await pane.press({ key: 'refresh' })
+  await $.prompt.submit(submit('/triage'))
+  desk.log.length = 0
+  await pressStep(pane, 2)
+  expect((await pane.find({ key: 'fresh' }))?.text).toBe('/clear + prime + paste')
+  expect(await pane.find({ type: 'Text', text: 'Written for a fresh session: /clear + prime + paste starts one. b goes back.' })).toBeDefined()
+
+  await pane.press({ key: 'fresh' })
+  expect(desk.log).toEqual([...PRIMED])
+  await $.turn.complete(primeTurn('answer'))
+  await clock.settle()
+  // Filled, never sent: nothing reaches prompt.submit.
+  expect(desk.log).toEqual([...PRIMED, 'fill /triage', 'open whats-next'])
+  expect(desk.toasts).toEqual([])
+  expect(desk.judged).toBe(0)
+
+  // The turn after it is the step's own again.
+  await $.turn.complete(turn('Labelled two of the three.'))
+  expect(desk.judged).toBe(1)
+  await pane.unmount()
+})
+
+test('a prime turn that ends interrupted or failed, or a prime command that cannot run, still fills the prompt with a toast', PRIME, async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, broken: '', judged: 0 }
+  fakeDesk(on, desk)
+
+  const pane = await $.ui.mount(MOUNT)
+  await pane.press({ key: 'refresh' })
+  for (const reason of ['aborted', 'error'] as const) {
+    desk.log.length = 0
+    desk.toasts.length = 0
+    await pressStep(pane, 2)
+    await pane.press({ key: 'fresh' })
+    await $.turn.complete(primeTurn(reason))
+    await clock.settle()
+    expect(desk.log).toEqual([...PRIMED, 'fill /triage', 'open whats-next'])
+    expect(desk.toasts).toEqual(["What's next: the prime command /lril:prime the auth work did not finish."])
+  }
+
+  desk.broken = 'lril:prime'
+  desk.log.length = 0
+  desk.toasts.length = 0
+  await pressStep(pane, 2)
+  await pane.press({ key: 'fresh' })
+  expect(desk.log).toEqual([...PRIMED, 'fill /triage', 'open whats-next'])
+  // Said once, whatever the engine's words for the failure.
+  expect(desk.toasts.length).toBe(1)
+  expect(desk.toasts[0]).toStartWith("What's next: the prime command /lril:prime the auth work did not run: ")
+
+  // No wait is left behind: the next turn is the step's own and is judged.
+  await $.prompt.submit(submit('/triage'))
+  await $.turn.complete(turn('Labelled two of the three.'))
+  expect(desk.judged).toBe(1)
+  await pane.unmount()
+})
+
+test('an invalid prime command is named in the step view and never run', { options: { primeCommand: 'lril:prime' } }, async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, broken: '', judged: 0 }
+  fakeDesk(on, desk)
+  const prime = parseConfig({ primeCommand: 'lril:prime' }).prime
+  if (prime.status !== 'invalid') throw new Error('lril:prime was taken as a prime command')
+
+  const pane = await $.ui.mount(MOUNT)
+  await pane.press({ key: 'refresh' })
+  await pressStep(pane, 2)
+  expect(await pane.find({ type: 'Text', text: prime.message })).toBeDefined()
+  expect((await pane.find({ key: 'fresh' }))?.text).toBe('/clear + paste')
+  await pane.press({ key: 'fresh' })
+  expect(desk.log).toEqual(['close whats-next', '/clear', 'fill /triage', 'open whats-next'])
+  await pane.unmount()
+})
+
 test('/whats-next and a new session start both go back to the list from a shown prompt', async ($, on) => {
   const clock = mock.clock(on, { now: 1_000 })
-  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, isClearBroken: false }
+  const desk: Desk = { log: [], copied: [], toasts: [], isBoxTaken: false, broken: '', judged: 0 }
   fakeDesk(on, desk)
 
   await $.session.start(START)

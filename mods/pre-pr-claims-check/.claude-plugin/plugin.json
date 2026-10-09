@@ -1,0 +1,5 @@
+{
+  "name": "pre-pr-claims-check",
+  "version": "0.1.0",
+  "description": "Refuses gh pr create and gh pr edit while the PR's title, its body or the branch's added Markdown lines hold a file:line citation, a placeholder or a count spelled out in words, listing each one."
+}
