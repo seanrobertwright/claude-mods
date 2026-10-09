@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { GitHubView, PullRequest } from '../types'
+import type { GitHubView, Pin, PullRequest } from '../types'
 import {
   ago,
   blockerLines,
@@ -9,6 +9,7 @@ import {
   fillsWidth,
   fit,
   fixPrompt,
+  frontier,
   ISSUE_FIELDS,
   issueDetail,
   logTail,
@@ -16,12 +17,15 @@ import {
   NEEDS_GH,
   parseConfig,
   parseIssues,
+  parsePin,
   parsePrs,
+  PIN_QUERY,
+  pinArgument,
   PR_FIELDS,
   prDetail,
   watchChecks,
 } from './parse'
-import type { Config } from './parse'
+import type { Config, Fill } from './parse'
 
 const PANE = 'github'
 const TITLE = 'GitHub'
@@ -31,8 +35,10 @@ const SETTINGS = 'mod-settings'
 const AFTER_TURN_MS = 60_000
 /** The fewest columns an issue's detail line keeps beside the fill buttons; narrower, the buttons take a line of their own. */
 const MIN_DETAIL = 12
+/** The pinned issue's unpin button. */
+const UNPIN = 'unpin'
 
-const EMPTY: GitHubView = { status: 'idle', repo: '', branch: '', prs: [], issues: [], error: '', updatedAt: 0, runId: 0 }
+const EMPTY: GitHubView = { status: 'idle', repo: '', branch: '', prs: [], issues: [], pin: null, error: '', updatedAt: 0, runId: 0 }
 const view = atom({ plugin: 'github-panel', key: 'view' } as const, EMPTY)
 const hasStartedUp = atom({ plugin: 'github-panel', key: 'hasStartedUp' } as const, false)
 const watched = atom({ plugin: 'github-panel', key: 'watched' } as const, null)
@@ -42,6 +48,8 @@ let every: Timer | undefined
 // Counts attaches, so a surfaces check answered before an attach cannot stop
 // the polling that attach kept going.
 let attaches = 0
+// Set when a pin is made, so a load already running when it was made loads once more.
+let isLoadAgain = false
 
 /**
  * Whether any surface shows the session right now. Asked before each action
@@ -135,12 +143,14 @@ async function load($: EngineInterface, config: Config): Promise<void> {
     return { ...current, status: 'loading', error: '', runId }
   })
   if (runId === 0) return
+  // This load reads the store afresh: a pin made before now needs no other.
+  isLoadAgain = false
 
   const finish = (change: (current: GitHubView) => GitHubView) =>
     update($, view, current => (current.runId === runId ? change(current) : current))
 
   const unavailable = (reason: string) =>
-    finish(current => ({ ...current, status: 'unavailable', error: reason, repo: '', branch: '', prs: [], issues: [], updatedAt: 0 }))
+    finish(current => ({ ...current, status: 'unavailable', error: reason, repo: '', branch: '', prs: [], issues: [], pin: null, updatedAt: 0 }))
 
   try {
     let repo
@@ -157,15 +167,18 @@ async function load($: EngineInterface, config: Config): Promise<void> {
       return
     }
     const limit = String(config.limit)
-    const [prs, issues, branch] = await Promise.all([
+    const name = repo.stdout.trim()
+    const pinned = wayfinderOf(config) === undefined ? undefined : await storedPin($, name)
+    const [prs, issues, branch, pin] = await Promise.all([
       gh($, ['pr', 'list', '--state', 'open', '--limit', limit, '--json', PR_FIELDS]),
       gh($, ['issue', 'list', '--state', 'open', '--limit', limit, '--json', ISSUE_FIELDS]),
       currentBranch($),
+      pinned === undefined ? null : readPin($, name, pinned),
     ])
     const failed = [prs, issues].find(run => run.exitCode !== 0)
     if (failed !== undefined) throw new Error(lastLine(failed.stderr) || `gh exited with ${failed.exitCode}`)
     const updatedAt = await $.clock.now()
-    const next = { repo: repo.stdout.trim(), branch, prs: parsePrs(prs.stdout), issues: parseIssues(issues.stdout), updatedAt }
+    const next = { repo: name, branch, prs: parsePrs(prs.stdout), issues: parseIssues(issues.stdout), pin, updatedAt }
     let isCurrent = false
     await finish(current => {
       isCurrent = true
@@ -175,7 +188,85 @@ async function load($: EngineInterface, config: Config): Promise<void> {
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     await finish(current => ({ ...current, status: 'error', error: reason }))
+  } finally {
+    if (isLoadAgain) void load($, config).catch(report($))
   }
+}
+
+/** The wayfinder fill: its command names the skill pinning watches and fills `work next`; none when the setting is empty. */
+function wayfinderOf(config: Config): Fill | undefined {
+  return config.fills.find(fill => fill.key === 'wayfinder')
+}
+
+/** The store key of a repo's pin: one pin per repo, kept across sessions. */
+function pinKey(repo: string): string {
+  return `pin:${repo}`
+}
+
+/** The issue pinned in `repo`, from the store; undefined with none. A store that cannot be read holds none, and the lists still load. */
+async function storedPin($: EngineInterface, repo: string): Promise<number | undefined> {
+  const value = await $.store.get(pinKey(repo)).catch(() => undefined)
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+/** Drops `repo`'s pin of `number`; a pin made since, of another issue, stays. */
+async function dropPin($: EngineInterface, repo: string, number: number): Promise<void> {
+  if ((await storedPin($, repo)) === number) await $.store.delete(pinKey(repo))
+}
+
+/**
+ * Reads the pinned issue and its sub-issues in one `gh api graphql` call. A
+ * closed issue, or one that no longer resolves, drops the pin: null. A pin
+ * dropped or replaced while the read ran is null too. Any other failure throws.
+ */
+async function readPin($: EngineInterface, repo: string, number: number): Promise<Pin | null> {
+  const [owner = '', name = ''] = repo.split('/')
+  const run = await gh($, ['api', 'graphql', '-f', `query=${PIN_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`])
+  let pin: Pin | null | undefined
+  try {
+    pin = parsePin(run.stdout)
+  } catch (error) {
+    if (run.exitCode === 0) throw error
+  }
+  if (pin === undefined || (run.exitCode !== 0 && pin !== null)) {
+    throw new Error(lastLine(run.stderr) || `gh exited with ${run.exitCode}`)
+  }
+  if (pin === null || !pin.isOpen) {
+    await dropPin($, repo, number)
+    return null
+  }
+  return (await storedPin($, repo)) === number ? pin : null
+}
+
+/**
+ * Pins the issue a run of the watched skill works on, when the first word of
+ * its arguments is an issue of the pane's repo; anything else does nothing and
+ * says nothing. The person typed the command, so a shown session opens the
+ * pane with focus and loads the pin at once.
+ */
+async function pinFromSkill($: EngineInterface, config: Config, skillText: string): Promise<void> {
+  let repo = (await read($, view)).repo
+  if (repo === '') {
+    const run = await gh($, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']).catch(() => undefined)
+    repo = run?.exitCode === 0 ? run.stdout.trim() : ''
+  }
+  const number = pinArgument(skillText, repo)
+  if (number === undefined) return
+  await $.store.set(pinKey(repo), number)
+  // Another issue's read no longer stands; the load below draws the new one.
+  await update($, view, current => (current.pin === null || current.pin.number === number ? current : { ...current, pin: null }))
+  if (!(await isShown($))) return
+  await $.ui.open({ id: PANE, title: TITLE, focus: true })
+  isLoadAgain = true
+  await load($, config)
+}
+
+/** Unpins the pinned issue: gone from the store and the pane. */
+async function unpin($: EngineInterface): Promise<void> {
+  const { repo, pin } = await read($, view)
+  if (pin === null) return
+  await dropPin($, repo, pin.number)
+  await update($, view, current => (current.pin?.number === pin.number ? { ...current, pin: null } : current))
 }
 
 /**
@@ -234,6 +325,7 @@ async function isSettingsInstalled($: EngineInterface): Promise<boolean> {
 
 export const register: Register = (on, options) => {
   const config = parseConfig(options)
+  const wayfinder = wayfinderOf(config)
 
   on('session.start', async ($, e, next) => {
     for (const problem of config.problems) $.ui.toast(problem)
@@ -295,6 +387,15 @@ export const register: Register = (on, options) => {
     return { text: 'GitHub pane opened.' }
   })
 
+  // The skill the wayfinder setting names, without its `/`; an empty setting turns pinning off.
+  if (wayfinder !== undefined) {
+    on('skill.prompt', { skill: wayfinder.command.slice(1) }, async ($, e, next) => {
+      const done = await next(e)
+      void pinFromSkill($, config, e.text).catch(report($))
+      return done
+    })
+  }
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const hasSettings = await isSettingsInstalled($)
@@ -306,6 +407,10 @@ export const register: Register = (on, options) => {
     const mine = branchPr(current.prs, current.branch)
     // The fill buttons sit at the right of an issue's detail line, or on a line of their own when that leaves it too little.
     const isFillBeside = 2 + MIN_DETAIL + 1 + fillsWidth(config.fills) <= width
+    const pin = wayfinder === undefined ? null : current.pin
+    const map = pin === null ? undefined : frontier(pin.subIssues)
+    // The next ticket's type takes at most half its row, so the row fits the narrowest pane.
+    const nextType = fit(map?.next?.type ?? '', Math.floor(room / 2))
 
     return (
       <Box flexDirection="column" width={width}>
@@ -321,6 +426,47 @@ export const register: Register = (on, options) => {
           <Text color="red" wrap="wrap">{current.error}</Text>
         )}
         {current.status !== 'loading' && current.updatedAt > 0 && <Text dimColor>updated {ago(now - current.updatedAt)}</Text>}
+
+        {pin !== null && map !== undefined && wayfinder !== undefined && (
+          <Box flexDirection="column" marginTop={1}>
+            <Box flexDirection="row" justifyContent="space-between" columnGap={1}>
+              <Button
+                key="pin-issue"
+                plain
+                label={fit(pin.title, room - UNPIN.length - 1)}
+                onPress={() => void openOnGitHub($, ['issue', 'view', String(pin.number)]).catch(report($))}
+              />
+              <Button key="unpin" plain dimColor label={UNPIN} onPress={() => void unpin($).catch(report($))} />
+            </Box>
+            <Text dimColor wrap="truncate-end">
+              {pin.subIssues.length === 0
+                ? 'no tickets yet'
+                : `${map.done} done · ${map.takeable} takeable · ${map.claimed} claimed · ${map.blocked} blocked`}
+            </Text>
+            {pin.subIssues.length > 0 && (map.next === undefined
+              ? <Text dimColor>nothing takeable</Text>
+              : (
+                <Box flexDirection="row" columnGap={1}>
+                  <Button
+                    key="pin-next"
+                    plain
+                    label={fit(`next: ${map.next.title}`, nextType === '' ? room : room - Array.from(nextType).length - 1)}
+                    onPress={() => void openOnGitHub($, ['issue', 'view', String(map.next?.number)]).catch(report($))}
+                  />
+                  {nextType !== '' && <Text dimColor>{nextType}</Text>}
+                </Box>
+              ))}
+            {(pin.subIssues.length === 0 || map.next !== undefined) && pin.url !== '' && (
+              <Button
+                key="work-next"
+                plain
+                dimColor
+                label="work next"
+                onPress={() => void fillPrompt($, `${wayfinder.command} ${pin.url}`).catch(report($))}
+              />
+            )}
+          </Box>
+        )}
 
         <Box flexDirection="row" justifyContent="space-between" marginTop={1}>
           <Text bold>Pull requests {current.prs.length}{isFull(current.prs.length) ? '+' : ''}</Text>

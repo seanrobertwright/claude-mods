@@ -47,6 +47,31 @@ export type Issue = {
   blockedBy: Blocker[]
 }
 
+/** A sub-issue of the pinned issue: a ticket on a wayfinder map. */
+export type SubIssue = {
+  number: number
+  title: string
+  /** The ticket's page on GitHub; '' when GitHub gives none. */
+  url: string
+  isOpen: boolean
+  /** Whether anyone is assigned: a claimed ticket. */
+  isAssigned: boolean
+  labels: string[]
+  /** Whether any issue it is blocked by is still open. */
+  isBlocked: boolean
+}
+
+/** The issue a /wayfinder run works on, as the last load read it. */
+export type Pin = {
+  number: number
+  title: string
+  /** The issue's page on GitHub; '' when GitHub gives none. */
+  url: string
+  isOpen: boolean
+  /** Its first 100 sub-issues, in the order GitHub keeps them on the issue. */
+  subIssues: SubIssue[]
+}
+
 export type GitHubView = {
   status: 'idle' | 'loading' | 'error' | 'unavailable'
   /** `owner/name` of the repo listed; '' before the first load. */
@@ -55,6 +80,8 @@ export type GitHubView = {
   branch: string
   prs: PullRequest[]
   issues: Issue[]
+  /** The pinned issue of `repo` as the last load read it; null with no pin, or with pinning off. */
+  pin: Pin | null
   /** Why the lists could not load (status `error` or `unavailable`). */
   error: string
   /** Milliseconds since the epoch of the last successful load; 0 before it. */
