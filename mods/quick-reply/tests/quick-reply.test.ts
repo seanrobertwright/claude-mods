@@ -43,6 +43,7 @@ const BAND = {
 test('readAnswer finds the offered choices and the recommendation', () => {
   expect(readAnswer(CHOICE)).toEqual({
     isQuestion: true,
+    asksForVerdict: false,
     hasRecommendation: true,
     options: [
       { marker: 'a', label: 'Postgres' },
@@ -52,11 +53,11 @@ test('readAnswer finds the offered choices and the recommendation', () => {
 })
 
 test('a numbered summary that asks nothing offers no choices', () => {
-  expect(readAnswer(DONE)).toEqual({ isQuestion: false, hasRecommendation: false, options: [] })
+  expect(readAnswer(DONE)).toEqual({ isQuestion: false, asksForVerdict: false, hasRecommendation: false, options: [] })
 })
 
 test('a numbered report before a yes-or-no question offers no choices', () => {
-  expect(readAnswer(DONE_ASKS)).toEqual({ isQuestion: true, hasRecommendation: false, options: [] })
+  expect(readAnswer(DONE_ASKS)).toEqual({ isQuestion: true, asksForVerdict: false, hasRecommendation: false, options: [] })
 })
 
 test('a run is still offered when the question is open, sets alternatives or names a marker', () => {
@@ -97,7 +98,7 @@ test('a yes-or-no question is not about the run, wherever it stands', () => {
 })
 
 test('a ? inside a URL or inline code is not a question', () => {
-  const idle = { isQuestion: false, hasRecommendation: false, options: [] }
+  const idle = { isQuestion: false, asksForVerdict: false, hasRecommendation: false, options: [] }
   expect(readAnswer(URL_QUOTED)).toEqual(idle)
   expect(readAnswer(URL_BARE)).toEqual(idle)
   expect(readAnswer('The check is `value?.length ? 1 : 0` now.')).toEqual(idle)
@@ -122,6 +123,47 @@ test('an answer that recommends against something has no recommendation', () => 
   expect(readAnswer('Since the tests do not pass I recommend reverting.').hasRecommendation).toBe(true)
   expect(readAnswer('I have no objections and recommend merging.').hasRecommendation).toBe(true)
   expect(readAnswer('If that is not possible I recommend option A.').hasRecommendation).toBe(true)
+})
+
+test('an answer that asks for a pass/fail verdict is read as one', () => {
+  expect(readAnswer('Test 3: does the form save? Pass or fail?').asksForVerdict).toBe(true)
+  expect(readAnswer('Open the settings page and save the form. Did it pass?').asksForVerdict).toBe(true)
+  expect(readAnswer('Run the import again. Does test 3 pass for you?').asksForVerdict).toBe(true)
+  // The checkpoint /gsd:verify-work shows for each UAT test.
+  const checkpoint = [
+    '╔══════════════════════════════════════════════════════════════╗',
+    '║  CHECKPOINT: Verification Required                           ║',
+    '╚══════════════════════════════════════════════════════════════╝',
+    '',
+    '**Test 3: Form saves**',
+    '',
+    'Open Settings, change the name and press Save. The new name shows after a reload.',
+    '',
+    '──────────────────────────────────────────────────────────────',
+    "Type `pass` or describe what's wrong.",
+    '──────────────────────────────────────────────────────────────',
+  ].join('\n')
+  expect(readAnswer(checkpoint).asksForVerdict).toBe(true)
+  expect(readAnswer('Reply "pass" or tell me what broke.').asksForVerdict).toBe(true)
+})
+
+test('the numbered steps of a test asked for a verdict are not offered as choices', () => {
+  const steps = ['Test 4: rename a project.', '1. Open Settings', '2. Change the name', '3. Press Save', 'Pass or fail?'].join('\n')
+  expect(readAnswer(steps)).toEqual({ isQuestion: true, asksForVerdict: true, hasRecommendation: false, options: [] })
+})
+
+test('a question that only mentions passing is not a verdict question, and keeps its reading', () => {
+  const notVerdicts = [
+    'All tests pass. Shall I commit?',
+    'Do you want me to run the tests and see if they pass?',
+    'Should I make the tests pass or skip them?',
+    'Shall I pass the flag through to the build?',
+    'Does it need to pass?',
+    'Want me to pass `--force` to the push?',
+    'The CI shows pass or fail for each job.',
+  ]
+  for (const answer of notVerdicts) expect(readAnswer(answer).asksForVerdict).toBe(false)
+  expect(readAnswer('All tests pass. Shall I commit?')).toEqual({ isQuestion: true, asksForVerdict: false, hasRecommendation: false, options: [] })
 })
 
 test('findOptions keeps the last run in sequence and skips code', () => {
@@ -201,6 +243,49 @@ test('the recommendation reply is primary only when the answer recommends someth
     expect((await band.find({ key: 'reply-Go with your recommendation' }))?.props.variant).toBe(variant)
     await band.unmount()
   }
+})
+
+const VERDICT = 'Test 3: does the form save? Pass or fail?'
+
+test('after a verdict question the band offers Pass, Fail… and Skip, and Pass sends "pass"', async ($, on) => {
+  engineBeneath(on)
+  const sent: string[] = []
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('prompt.submit', (_$, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
+  await $.turn.complete({ answer: VERDICT, durationMs: 10, isAborted: false, turnId: 't8', reason: 'answer' })
+
+  const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect((await band.findAll({ type: 'Button' })).map(button => button.text)).toEqual(['Pass', 'Fail…', 'Skip'])
+  await band.press({ key: 'verdict-pass' })
+  expect(sent).toEqual(['pass'])
+  await band.unmount()
+})
+
+test('Fail… fills "Fail: " into the prompt and sends nothing; Skip sends "skip"', async ($, on) => {
+  engineBeneath(on)
+  const sent: string[] = []
+  const filled: string[] = []
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('prompt.submit', (_$, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
+  on('prompt.fill', (_$, e) => {
+    filled.push(e.text)
+    return { isFilled: true }
+  })
+  await $.turn.complete({ answer: VERDICT, durationMs: 10, isAborted: false, turnId: 't9', reason: 'answer' })
+
+  const band = await $.ui.mount({ plugin: 'quick-reply', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await band.press({ key: 'verdict-fail' })
+  expect(filled).toEqual(['Fail: '])
+  expect(sent).toEqual([])
+  await band.press({ key: 'verdict-skip' })
+  expect(sent).toEqual(['skip'])
+  await band.unmount()
 })
 
 test('after a plain answer the band offers the idle replies, and none while working', async ($, on) => {
