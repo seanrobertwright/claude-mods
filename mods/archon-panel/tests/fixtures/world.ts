@@ -80,6 +80,8 @@ export type World = {
   copied: string[]
   /** Whether the prompt box takes a fill, or refuses it as a surface with no composer does. */
   composer: 'ok' | 'no_composer'
+  /** Every file read, by path as asked. */
+  reads: string[]
   /** Where the engine's window was asked to go on each scroll. */
   scrolls: number[]
 }
@@ -115,6 +117,7 @@ export function world(over: Partial<World> = {}): World {
     filled: [],
     copied: [],
     scrolls: [],
+    reads: [],
     composer: 'ok',
     ...over,
   }
@@ -250,6 +253,7 @@ export function fake(on: On, w: World): void {
     return { isFilled: true } as never
   })
   on('fs.read', (_$, e) => {
+    w.reads.push(e.path)
     const text = w.disk[e.path.replace(/\\/g, '/')]
     if (text === undefined) throw new Error(`ENOENT: no such file or directory, open '${e.path}'`)
     return { value: text }

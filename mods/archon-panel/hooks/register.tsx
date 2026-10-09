@@ -15,6 +15,7 @@ import { parseConfig } from './config'
 import type { Config } from './config'
 import { hasEnded, liveCount, needsYou, needsYouCount } from './runs'
 import { runsBody } from './runs-view'
+import { capLines, expandHome, serveLine } from './serve-log'
 import type { Platform } from './scope'
 import { listRuns, readDetail, serverText, signature } from './source'
 import { dollars, duration, firstLine } from './text'
@@ -60,6 +61,7 @@ const view = atom({ plugin: 'archon-panel', key: 'view' } as const, EMPTY_VIEW)
 const hasStartedUp = atom({ plugin: 'archon-panel', key: 'hasStartedUp' } as const, false)
 const startedAt = atom({ plugin: 'archon-panel', key: 'startedAt' } as const, 0)
 const logWindow = atom({ plugin: 'archon-panel', key: 'log' } as const, EMPTY_WINDOW)
+const serveLog = atom({ plugin: 'archon-panel', key: 'serveLog' } as const, { lines: [] as string[], size: 0, isMissing: false })
 
 // Dies with the module on a reload; session.start or the next attach starts it again.
 let timer: Timer | undefined
@@ -575,6 +577,7 @@ async function replay($: EngineInterface, config: Config, run: Run, node = ''): 
 async function syncLog($: EngineInterface, config: Config): Promise<void> {
   const current = await read($, data)
   const shown = await read($, view)
+  if (shown.tab === 'archon-log' && (await isShown($)) && (await isInFront($))) await readServeLog($, config)
   const run = current.runs.find(r => r.id === shown.run)
   const isWanted = run !== undefined && shown.tab === 'log' && current.requirement.state === 'ok' && (await isShown($)) && (await isInFront($))
   if (!isWanted || run === undefined) return stopFollower()
@@ -589,6 +592,15 @@ async function syncLog($: EngineInterface, config: Config): Promise<void> {
   stopFollower()
   const win = await read($, logWindow)
   if (win.runId !== run.id) await replay($, config, run)
+}
+
+/** Reads Archon's log while its sub-tab is in front, keeping the newest lines under 60,000 characters. */
+async function readServeLog($: EngineInterface, config: Config): Promise<void> {
+  const path = expandHome(config.archonLog, await home($))
+  const text = await $.fs.read(path).catch(() => undefined)
+  await update($, serveLog, () => (text === undefined
+    ? { lines: [], size: 0, isMissing: true }
+    : { lines: capLines(text.split(/\r?\n/).filter(line => line !== '')), size: text.length, isMissing: false }))
 }
 
 /** Changes what the person sees, then brings the run log in step. */
@@ -797,7 +809,15 @@ export const register: Register = (on, options) => {
         onParent: parent => void openGraph($, parent.id).catch(report($)),
         onChild: child => void openGraph($, child.id).catch(report($)),
       })
-    } else if (shown.tab === 'archon-log') lines = [<Text dimColor wrap="wrap">No Archon's log at {config.archonLog}. Point Archon's log in the mod settings at the file archon serve writes to.</Text>]
+    } else if (shown.tab === 'archon-log') {
+      const served = await read($, serveLog)
+      lines = served.isMissing
+        ? [<Text dimColor wrap="wrap">{`No Archon's log at ${config.archonLog}. Point Archon's log in the mod settings at the file archon serve is redirected to.`}</Text>]
+        : served.lines.map(text => {
+          const drawn = serveLine(text)
+          return <Text wrap="wrap" {...(drawn.tone === undefined ? {} : { color: drawn.tone })}>{drawn.text}</Text>
+        })
+    }
     else {
       const run = current.runs.find(r => r.id === shown.run)
       lines = logBody({
