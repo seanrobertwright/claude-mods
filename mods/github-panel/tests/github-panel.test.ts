@@ -3,6 +3,7 @@ import type { On } from 'claude-code'
 
 import {
   blockerLines,
+  fillsWidth,
   fit,
   fixPrompt,
   foldChecks,
@@ -33,10 +34,11 @@ const PRS = JSON.stringify([
 ])
 
 const ISSUES = JSON.stringify([
-  { number: 7, title: 'Sidebar flickers', author: { login: 'octocat' }, labels: [{ name: 'bug' }, { name: 'needs-triage' }] },
+  { number: 7, title: 'Sidebar flickers', url: 'https://github.com/octo/widgets/issues/7', author: { login: 'octocat' }, labels: [{ name: 'bug' }, { name: 'needs-triage' }] },
   {
     number: 9,
     title: 'Ship the pane',
+    url: 'https://github.com/octo/widgets/issues/9',
     author: { login: 'hubot' },
     labels: [],
     blockedBy: {
@@ -97,8 +99,8 @@ test('parsePrs and parseIssues read gh JSON and drop malformed rows', () => {
   expect(prDetail(prs[1]!)).toBe('draft · @hubot')
   const issues = parseIssues(ISSUES)
   expect(issues).toEqual([
-    { number: 7, title: 'Sidebar flickers', author: 'octocat', labels: ['bug', 'needs-triage'], blockedBy: [] },
-    { number: 9, title: 'Ship the pane', author: 'hubot', labels: [], blockedBy: [{ number: 7, title: 'Sidebar flickers' }] },
+    { number: 7, title: 'Sidebar flickers', url: 'https://github.com/octo/widgets/issues/7', author: 'octocat', labels: ['bug', 'needs-triage'], blockedBy: [] },
+    { number: 9, title: 'Ship the pane', url: 'https://github.com/octo/widgets/issues/9', author: 'hubot', labels: [], blockedBy: [{ number: 7, title: 'Sidebar flickers' }] },
   ])
   expect(issueDetail(issues[0]!)).toBe('bug, needs-triage · @octocat')
   expect(issueDetail(issues[1]!)).toBe('blocked by #7 · @hubot')
@@ -106,11 +108,34 @@ test('parsePrs and parseIssues read gh JSON and drop malformed rows', () => {
 })
 
 test('parseConfig and fit hold their bounds', () => {
-  expect(parseConfig({ limit: 0, refreshMinutes: -1 })).toEqual({ limit: 30, refreshMs: 300_000 })
-  expect(parseConfig({ limit: 100, refreshMinutes: 0 })).toEqual({ limit: 100, refreshMs: 0 })
+  expect(parseConfig({ limit: 0, refreshMinutes: -1 })).toMatchObject({ limit: 30, refreshMs: 300_000 })
+  expect(parseConfig({ limit: 100, refreshMinutes: 0 })).toMatchObject({ limit: 100, refreshMs: 0 })
   expect(fit('#1 a long title', 8)).toBe('#1 a lo…')
   expect(fit('short', 8)).toBe('short')
   expect(blockerLines([{ number: 7, title: 'Sidebar flickers' }], 12)).toEqual(['Blocked by  ', '#7 Sidebar …'])
+})
+
+test('parseConfig reads the fill commands: a default, a custom one, an empty one hidden, an invalid one replaced', () => {
+  expect(parseConfig({})).toMatchObject({
+    fills: [
+      { key: 'implement', command: '/implement', label: 'implement' },
+      { key: 'wayfinder', command: '/wayfinder', label: 'wayfinder' },
+    ],
+    problems: [],
+  })
+  expect(parseConfig({ implementCommand: ' /build ', wayfinderCommand: '' })).toMatchObject({
+    fills: [{ key: 'implement', command: '/build', label: 'build' }],
+    problems: [],
+  })
+  const invalid = parseConfig({ implementCommand: 'implement', wayfinderCommand: '/way finder' })
+  expect(invalid.fills.map(fill => fill.command)).toEqual(['/implement', '/wayfinder'])
+  expect(invalid.problems).toEqual([
+    'GitHub: implementCommand "implement" is not a slash command, such as /implement; using /implement.',
+    'GitHub: wayfinderCommand "/way finder" is not a slash command, such as /wayfinder; using /wayfinder.',
+  ])
+  expect(parseConfig({ implementCommand: '/' }).problems).toHaveLength(1)
+  expect(fillsWidth(parseConfig({}).fills)).toBe('implement wayfinder'.length)
+  expect(fillsWidth([])).toBe(0)
 })
 
 test('the pane lists open PRs and issues and opens a click on GitHub', async ($, on) => {
@@ -675,4 +700,112 @@ test('when the log cannot be fetched, the fix button fills the failed checks alo
   expect(desk.filled).toEqual(['CI failed on #12: test, lint.\n\nFix it.'])
   expect(desk.sent).toEqual([])
   await pane.unmount()
+})
+
+/** The prompt box beneath the mod: records each fill, and each pane closed or opened. */
+function fakePrompt(on: On, filled: string[], panes: string[]): void {
+  on('prompt.fill', (_$, e) => {
+    filled.push(e.text)
+    return { isFilled: true, text: e.text, cursor: e.text.length }
+  })
+  on('ui.close', (_$, e) => {
+    panes.push(`close ${e.id}`)
+    return { value: undefined }
+  })
+  on('ui.open', (_$, e) => {
+    panes.push(e.focus === true ? `open ${e.id}+focus` : `open ${e.id}`)
+    return { value: { isPlaced: true } }
+  })
+}
+
+test('an issue row keeps its click and its buttons fill <command> <url>, sending nothing; PR rows have none', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  const runs: (readonly string[])[] = []
+  fakeGh(on, runs)
+  const filled: string[] = []
+  const panes: string[] = []
+  fakePrompt(on, filled, panes)
+  const sent: string[] = []
+  on('prompt.submit', (_$, e) => {
+    sent.push(e.text)
+    return { text: e.text }
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    filled.length = 0
+    panes.length = 0
+    const pane = await $.ui.mount({ plugin: 'github-panel', surface, component: 'Pane', requestId: 'github', props: PANE })
+    await pane.press({ key: 'refresh' })
+    expect((await pane.find({ key: 'implement-7' }))?.text).toContain('implement')
+    expect((await pane.find({ key: 'wayfinder-9' }))?.text).toContain('wayfinder')
+    expect(await pane.find({ key: 'implement-12' })).toBeUndefined()
+    expect(await pane.find({ key: 'wayfinder-13' })).toBeUndefined()
+
+    await pane.press({ key: 'implement-7' })
+    await pane.press({ key: 'wayfinder-9' })
+    expect(filled).toEqual(['/implement https://github.com/octo/widgets/issues/7', '/wayfinder https://github.com/octo/widgets/issues/9'])
+    // The pane hands the keyboard back to the prompt box: closed, then opened without focus.
+    expect(panes).toEqual(['close github', 'open github', 'close github', 'open github'])
+
+    await pane.press({ key: 'issue-7' })
+    expect(runs[runs.length - 1]).toEqual(['gh', 'issue', 'view', '7', '--web'])
+    await pane.unmount()
+  }
+  expect(sent).toEqual([])
+})
+
+test('the settings name the commands, and an empty one hides its button', { options: { implementCommand: '/build', wayfinderCommand: '' } }, async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  fakeGh(on, [])
+  const filled: string[] = []
+  fakePrompt(on, filled, [])
+
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  await pane.press({ key: 'refresh' })
+  expect((await pane.find({ key: 'implement-7' }))?.text).toContain('build')
+  expect(await pane.find({ key: 'wayfinder-7' })).toBeUndefined()
+  await pane.press({ key: 'implement-7' })
+  expect(filled).toEqual(['/build https://github.com/octo/widgets/issues/7'])
+  await pane.unmount()
+})
+
+test('an invalid command falls back to its default and says so at start', { options: { wayfinderCommand: 'wayfinder' } }, async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  fakeGh(on, [])
+  fakeSession(on, [], [])
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  const filled: string[] = []
+  on('prompt.fill', (_$, e) => {
+    filled.push(e.text)
+    return { isFilled: true, text: e.text, cursor: e.text.length }
+  })
+  on('ui.close', () => ({ value: undefined }))
+
+  await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+  expect(toasts).toEqual(['GitHub: wayfinderCommand "wayfinder" is not a slash command, such as /wayfinder; using /wayfinder.'])
+  const pane = await $.ui.mount({ plugin: 'github-panel', surface: 'terminal', component: 'Pane', requestId: 'github', props: PANE })
+  await pane.press({ key: 'refresh' })
+  await pane.press({ key: 'wayfinder-7' })
+  expect(filled).toEqual(['/wayfinder https://github.com/octo/widgets/issues/7'])
+  await pane.unmount()
+})
+
+test('at the narrowest pane the fill buttons still show and fit', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  fakeGh(on, [])
+  const filled: string[] = []
+  fakePrompt(on, filled, [])
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const pane = await $.ui.mount({ plugin: 'github-panel', surface, component: 'Pane', requestId: 'github', props: { ...PANE, bodyColumns: 16 } })
+    await pane.press({ key: 'refresh' })
+    expect(Array.from((await pane.find({ key: 'implement-7' }))?.text ?? '').length).toBeLessThanOrEqual(14)
+    await pane.press({ key: 'wayfinder-7' })
+    await pane.unmount()
+  }
+  expect(filled).toEqual(['/wayfinder https://github.com/octo/widgets/issues/7', '/wayfinder https://github.com/octo/widgets/issues/7'])
 })

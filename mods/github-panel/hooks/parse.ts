@@ -2,20 +2,56 @@ import type { Blocker, Checks, FailedCheck, Issue, PullRequest, Watch } from '..
 
 /** The fields asked of `gh pr list` and `gh issue list`; parsePrs and parseIssues read these. */
 export const PR_FIELDS = 'number,title,author,isDraft,reviewDecision,statusCheckRollup,headRefName'
-export const ISSUE_FIELDS = 'number,title,author,labels,blockedBy'
+export const ISSUE_FIELDS = 'number,title,url,author,labels,blockedBy'
 
-export type Config = { limit: number; refreshMs: number }
+/** A button on each issue row that fills `<command> <issue url>` into the prompt. */
+export type Fill = { key: 'implement' | 'wayfinder'; command: string; label: string }
 
-/** Parses the manifest's userConfig values; a value out of range falls back to its default. */
+export type Config = {
+  limit: number
+  refreshMs: number
+  /** The fill buttons, in order; a command set empty has none. */
+  fills: Fill[]
+  /** One line per setting that fell back to its default, to tell the person. */
+  problems: string[]
+}
+
+const FILLS = [
+  { key: 'implement', setting: 'implementCommand', fallback: '/implement' },
+  { key: 'wayfinder', setting: 'wayfinderCommand', fallback: '/wayfinder' },
+] as const
+
+/** A slash command: a `/` and a name, with no whitespace. */
+const COMMAND = /^\/[^\s/]\S*$/
+
+/**
+ * Parses the manifest's userConfig values; a value out of range falls back to
+ * its default. A fill command that is not a slash command falls back to its
+ * default with a problem naming it; an empty one hides its button.
+ */
 export function parseConfig(options: Readonly<Record<string, unknown>>): Config {
   const limit = options.limit
   const minutes = options.refreshMinutes
+  const problems: string[] = []
+  const fills = FILLS.flatMap(({ key, setting, fallback }): Fill[] => {
+    const value = options[setting]
+    let command: string = fallback
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (trimmed === '') return []
+      if (COMMAND.test(trimmed)) command = trimmed
+      else problems.push(`GitHub: ${setting} "${fit(text(trimmed), 40)}" is not a slash command, such as ${fallback}; using ${fallback}.`)
+    }
+    return [{ key, command, label: command.slice(1) }]
+  })
   return {
     limit: typeof limit === 'number' && Number.isInteger(limit) && limit >= 1 && limit <= 100 ? limit : 30,
     refreshMs:
       typeof minutes === 'number' && Number.isInteger(minutes) && minutes >= 0 && minutes <= 120
         ? minutes * 60_000
         : 5 * 60_000,
+    fills,
+    problems,
   }
 }
 
@@ -119,6 +155,7 @@ export function parseIssues(json: string): Issue[] {
     return [{
       number: row.number,
       title: text(row.title),
+      url: text(row.url),
       author: login(row.author),
       labels,
       blockedBy: openBlockers(row.blockedBy),
@@ -208,6 +245,11 @@ export function issueDetail(issue: Issue): string {
 export function fit(line: string, max: number): string {
   const chars = Array.from(line)
   return chars.length <= max ? line : `${chars.slice(0, Math.max(1, max - 1)).join('')}…`
+}
+
+/** The columns the fill buttons take on one line: their labels and the gaps between. */
+export function fillsWidth(fills: readonly Fill[]): number {
+  return fills.reduce((sum, fill) => sum + Array.from(fill.label).length, 0) + Math.max(0, fills.length - 1)
 }
 
 /**
