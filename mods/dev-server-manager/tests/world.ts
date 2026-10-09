@@ -12,12 +12,13 @@ export const PANE_ID = 'dev-servers'
 /** One piece a scripted child writes, after an optional pause on the mocked clock. */
 export type Piece = { text: string; stream?: 'stdout' | 'stderr'; afterMs?: number }
 
-/** A scripted child: its pieces, then its exit (none: it runs until stopped), or a refusal to start. */
+/** A scripted child: its pieces, then its exit (none: it runs until stopped), a failure of its stream after them, or a refusal to start. */
 export type Child = {
   pieces?: Piece[]
   exit?: { code: number | null; signal: string | null }
   exitAfterMs?: number
   cannotStart?: string
+  failsWith?: string
 }
 
 export type World = {
@@ -180,6 +181,7 @@ export function world(on: On, options: WorldOptions = {}): World {
         if (piece.afterMs !== undefined && (await Promise.race([clock.sleep(piece.afterMs), stopped])) === 'stopped') return { value: { code: null, signal: null } }
         yield { stream: piece.stream ?? 'stdout', text: piece.text }
       }
+      if (child.failsWith !== undefined) throw new Error(child.failsWith)
       if (child.exit === undefined) {
         await stopped
         return { value: { code: null, signal: null } }

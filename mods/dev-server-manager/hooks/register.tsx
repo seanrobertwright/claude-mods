@@ -9,7 +9,7 @@ import { endWords, errorLines, errorPrompt, findLocalUrl, hhmm, keep, splitPiece
 import { COMPOSE_ID, composeText, otherSessions, peerKey, peerPrefix, REFRESH_MS } from './peers'
 import { checkPort } from './port'
 import type { PortCheck } from './port'
-import { commandText, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS, statusLine } from './servers'
+import { commandText, isQuiet, isUp, newRun, RESTART_CAP, RESTART_WINDOW_MS, rowWords, statusLine } from './servers'
 import { lineCount, OUTPUT_SPEC, OUTPUT_TOOL, outputText, RESTART_SPEC, RESTART_TOOL, RESTART_WAIT_MS } from './tools'
 import type { ToolServer } from './tools'
 import { moveOf, paneGeometry, renderPane, scrollAnchor } from './view'
@@ -49,8 +49,8 @@ let memory: Record<string, OutputLine[]> = {}
 let seq = 0
 let flushedAt = 0
 let isFlushPending = false
-// The servers whose start is under way (the port check), so a second press starts nothing more.
-const opening = new Set<string>()
+// The servers whose start is under way (the port check), so a second press starts nothing more; a stop calls the start off.
+const opening = new Map<string, { isCancelled: boolean }>()
 // The servers the mod itself stopped, whose port may linger before the next start.
 const stoppedByMod = new Set<string>()
 // Death toasts raised in this tick, shown as one.
@@ -224,15 +224,16 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
       }
     }
   } catch (error) {
-    if (live.get(name) === entry) live.delete(name)
-    if (!entry.isStopping) wake(name)
-    if (entry.isStopping) return
-    await forgetRunning($, name)
-    if (hasStarted) return
-    // A command that cannot start rejects the first pull: its message is the row's words.
-    const message = (error instanceof Error ? error.message : String(error)).replace(/^dev-server-manager: \$\.process\.spawn: /, '')
-    await setRun($, name, run => ({ ...run, status: 'stopped', problem: message }))
-    return
+    // A stream that fails after output is a death like any other, so it goes on to the end below with no exit code.
+    if (!hasStarted && !entry.isStopping) {
+      if (live.get(name) === entry) live.delete(name)
+      wake(name)
+      await forgetRunning($, name)
+      // A command that cannot start rejects the first pull: its message is the row's words.
+      const message = (error instanceof Error ? error.message : String(error)).replace(/^dev-server-manager: \$\.process\.spawn: /, '')
+      await setRun($, name, run => ({ ...run, status: 'stopped', problem: message }))
+      return
+    }
   }
   if (live.get(name) === entry) live.delete(name)
   if (entry.isStopping) return
@@ -244,7 +245,7 @@ async function follow($: EngineInterface, name: string, entry: Live): Promise<vo
   const code = result?.code ?? null
   const signal = result?.signal ?? null
   if (code === 0 && signal === null) {
-    await setRun($, name, run => ({ ...run, status: 'exited', endedAt: at, lastExit: 0, hasNote: false }))
+    await setRun($, name, run => ({ ...run, ...(isQuiet(run, at) ? { crashes: [], restarts: [], isGaveUp: false } : {}), status: 'exited', endedAt: at, lastExit: 0, hasNote: false }))
   } else await die($, name, code, signal, at)
 }
 
@@ -345,7 +346,9 @@ async function die($: EngineInterface, name: string, code: number | null, signal
   const isShowing = await isShown($)
   let restartNumber = 0
   await setRun($, name, run => {
-    const restarts = run.restarts.filter(time => at - time < RESTART_WINDOW_MS)
+    // After 10 quiet minutes the earlier deaths are behind it, and this one counts from 1.
+    const earlier = isQuiet(run, at) ? { crashes: [], restarts: [] } : run
+    const restarts = earlier.restarts.filter(time => at - time < RESTART_WINDOW_MS)
     const canRestart = isShowing && settings.isRestartOn && restarts.length < RESTART_CAP
     restartNumber = canRestart ? restarts.length + 1 : 0
     return {
@@ -354,16 +357,18 @@ async function die($: EngineInterface, name: string, code: number | null, signal
       endedAt: at,
       lastExit: code,
       death,
-      crashes: [...run.crashes, at],
-      restarts: canRestart ? [...restarts, at] : restarts,
+      crashes: [...earlier.crashes, at],
+      restarts,
       isGaveUp: isShowing && settings.isRestartOn && !canRestart,
-      hasNote: canRestart,
+      hasNote: false,
     }
   })
   if (!isShowing) return
   const ended = endWords(death)
-  toastDeath($, restartNumber > 0 ? `✗ ${name} crashed (${ended}), restarting (${restartNumber}/${RESTART_CAP})` : `✗ ${name} crashed (${ended})`)
-  if (restartNumber > 0) await start($, name, { divider: `crashed (${ended}) · restarted` })
+  // The restart is charged and told only once it has spawned: a port taken, say, leaves the row as that and the cap whole.
+  const isRestarted = restartNumber > 0 && (await start($, name, { divider: `crashed (${ended}) · restarted` }))
+  if (isRestarted) await setRun($, name, run => ({ ...run, restarts: [...run.restarts, at], hasNote: true }))
+  toastDeath($, isRestarted ? `✗ ${name} crashed (${ended}), restarting (${restartNumber}/${RESTART_CAP})` : `✗ ${name} crashed (${ended})`)
 }
 
 /** Raises a death's toast; several deaths in one tick are one toast. */
@@ -400,32 +405,35 @@ async function portCheck($: EngineInterface, name: string, port: number): Promis
 /** How a start came about: the divider's words, and whether the person (or Claude) handled the server by hand. */
 type StartReason = { divider: string; isByHand?: boolean; isAfterReload?: boolean }
 
-/** Starts a server: the port check first, then the child, with no shell. One start at a time per server. */
-async function start($: EngineInterface, name: string, reason: StartReason): Promise<void> {
-  if (live.has(name) || opening.has(name)) return
-  opening.add(name)
+/** Starts a server: the port check first, then the child, with no shell. One start at a time per server. True when the child spawned. */
+async function start($: EngineInterface, name: string, reason: StartReason): Promise<boolean> {
+  if (live.has(name) || opening.has(name)) return false
+  const pending = { isCancelled: false }
+  opening.set(name, pending)
   try {
-    await open($, name, reason)
+    return await open($, name, reason, pending)
   } finally {
-    opening.delete(name)
+    if (opening.get(name) === pending) opening.delete(name)
   }
 }
 
-async function open($: EngineInterface, name: string, reason: StartReason): Promise<void> {
-  if (!(await isShown($))) return
+async function open($: EngineInterface, name: string, reason: StartReason, pending: { isCancelled: boolean }): Promise<boolean> {
+  if (!(await isShown($))) return false
   const def = await defOf($, name)
-  if (def === undefined || def.blocked !== '') return
+  if (def === undefined || def.blocked !== '') return false
   let problem = ''
   if (def.port > 0) {
     const check = await portCheck($, name, def.port)
+    if (pending.isCancelled) return false
     if (check.status === 'taken') {
       await setRun($, name, run => ({ ...run, status: 'port taken', holder: check.words, problem: '' }))
-      return
+      return false
     }
     if (check.status === 'unchecked') problem = 'port not checked'
   }
   const root = await $.session.root()
   const now = await $.clock.now()
+  if (pending.isCancelled) return false
   await addOutput($, name, [{ stream: 'divider', text: `── ${reason.divider} ${hhmm(now)} ──`, at: now }])
   const handled = reason.isByHand === true ? { crashes: [], restarts: [], isGaveUp: false, hasNote: false } : {}
   await setRun($, name, run => ({
@@ -440,6 +448,7 @@ async function open($: EngineInterface, name: string, reason: StartReason): Prom
     problem,
     holder: '',
   }))
+  if (pending.isCancelled) return false
   const entry: Live = {
     stream: $.process.spawn({ argv: def.argv, cwd: join(root, def.cwd), env: { PYTHONUNBUFFERED: '1' } }),
     isStopping: false,
@@ -448,6 +457,7 @@ async function open($: EngineInterface, name: string, reason: StartReason): Prom
   void follow($, name, entry).catch(report($))
   await recordRunning($, name)
   await offerTools($, name)
+  return true
 }
 
 /**
@@ -477,15 +487,25 @@ function wake(name: string): void {
   for (const resolve of waiting) resolve()
 }
 
-/** Stops a server the mod runs: closing its stream kills the whole tree, and reads no exit code. */
+/**
+ * Stops a server the mod runs: closing its stream kills the whole tree, and
+ * reads no exit code. A start still under way is called off, and nothing spawns.
+ */
 async function stop($: EngineInterface, name: string): Promise<void> {
+  const pending = opening.get(name)
+  if (pending !== undefined) {
+    pending.isCancelled = true
+    opening.delete(name)
+  }
   const entry = live.get(name)
-  if (entry === undefined) return
-  entry.isStopping = true
-  live.delete(name)
-  stoppedByMod.add(name)
-  await entry.stream.return(undefined as never).catch(() => undefined)
-  await forgetRunning($, name)
+  if (entry === undefined && pending === undefined) return
+  if (entry !== undefined) {
+    entry.isStopping = true
+    live.delete(name)
+    stoppedByMod.add(name)
+    await entry.stream.return(undefined as never).catch(() => undefined)
+    await forgetRunning($, name)
+  }
   const now = await $.clock.now()
   await setRun($, name, run => ({ ...run, status: 'stopped', endedAt: now, hasNote: false, crashes: [], restarts: [], isGaveUp: false }))
 }
@@ -650,7 +670,12 @@ async function restartByClaude($: EngineInterface, server: unknown): Promise<Too
     return { deny: `${name} ${status === 'exited' ? 'exited' : `is ${status}`}: start it from the dev-servers pane.` }
   }
   await stop($, name)
-  await start($, name, { divider: 'restarted by Claude', isByHand: true })
+  if (!(await start($, name, { divider: 'restarted by Claude', isByHand: true }))) {
+    // It did not spawn (the port is taken, say): the row's state and words say why.
+    const run = (await read($, runsAtom))[name]
+    const words = rowWords({ def, run, peer: undefined }, await $.clock.now()).text
+    return { deny: `${name} did not restart (${run?.status ?? 'stopped'}): ${words}` }
+  }
   $.ui.toast(`${name} restarted by Claude`, { timeoutMs: CLAUDE_TOAST_MS })
   if (live.has(name)) await Promise.race([untilUp(name), $.clock.sleep(RESTART_WAIT_MS)])
   return { result: outputText(await toolServer($, def), lineCount(undefined)) }
@@ -681,7 +706,7 @@ export const register: Register = (on, options) => {
   on('session.attach', async ($, e, next) => {
     const attached = await next(e)
     await restoreCarried($)
-    startTicker($)
+    if (await isShown($)) startTicker($)
     return attached
   })
 
@@ -701,7 +726,9 @@ export const register: Register = (on, options) => {
     const ended = await next(e)
     // After /clear the process goes on under a new session, and so do its servers.
     if (e.reason !== 'clear') {
-      for (const name of [...live.keys()]) await stop($, name).catch(report($))
+      ticker?.cancel()
+      ticker = undefined
+      for (const name of new Set([...live.keys(), ...opening.keys()])) await stop($, name).catch(report($))
     }
     return ended
   })

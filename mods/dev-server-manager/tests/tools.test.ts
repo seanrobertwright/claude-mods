@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { openPane, script, startSession, world } from './world'
+import { openPane, ROOT, script, startSession, world } from './world'
 
 const OUTPUT = 'mcp__dev-server-manager__output'
 const RESTART = 'mcp__dev-server-manager__restart'
@@ -172,4 +172,20 @@ test('restart by Claude resets the automatic restart count', async ($, on) => {
   await answer
   await w.clock.advance(1_000)
   expect(w.toasts.map(toast => toast.text).slice(-1)).toEqual(['✗ dev crashed (exit 3), restarting (1/3)'])
+})
+
+test('restart by Claude that cannot spawn answers the row state and words, with no toast', async ($, on) => {
+  const w = world(on, { store: { [`ports:${ROOT}`]: { dev: 5173 } } })
+  allow(on)
+  w.runs.set('netstat -ano', [{ stdout: '' }, { stdout: '  TCP    0.0.0.0:5173    0.0.0.0:0    LISTENING    5100\n' }])
+  w.runs.set('tasklist /FI PID eq 5100 /FO CSV /NH', { stdout: '"python.exe","5100","Console","1","9,000 K"\r\n' })
+  script(w, 'npm run dev', { pieces: [URL_LINE] }, { pieces: [URL_LINE] })
+  await startSession($)
+  await startRow($, 'dev')
+  await w.clock.settle()
+  const answer = call($, RESTART, { server: 'dev' })
+  await w.clock.advance(3_500)
+  expect((await answer).deny).toBe('dev did not restart (port taken): :5173 taken by python.exe 5100')
+  expect(w.toasts).toEqual([])
+  expect(w.spawned).toHaveLength(1)
 })

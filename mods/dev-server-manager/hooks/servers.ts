@@ -83,6 +83,11 @@ export function showsNote(run: ServerRun | undefined, now: number): boolean {
   return run !== undefined && run.hasNote && run.status === 'running' && run.death !== null && now - run.startedAt < NOTE_MS
 }
 
+/** Whether a run has gone 10 minutes without dying by `at`: its deaths are then behind it, and the next one counts from 1. */
+export function isQuiet(run: ServerRun, at: number): boolean {
+  return at - run.startedAt >= NOTE_MS
+}
+
 /** The crash count and first time since the person last handled the server: `14:02` or `3× since 14:02`. */
 function crashWords(run: ServerRun): string {
   const first = run.crashes[0] ?? run.death?.at ?? 0

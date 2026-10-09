@@ -135,3 +135,20 @@ test('a second start pressed while the port check runs starts nothing more', asy
   await w.clock.settle()
   expect(spawnedCount(w)).toBe(1)
 })
+
+test('ending the session while a restart waits for the listener spawns nothing after it', async ($, on) => {
+  const w = world(on, KNOWN)
+  w.runs.set('netstat -ano', [{ stdout: '' }, { stdout: LISTENING('0.0.0.0:5173', 5100) }])
+  script(w, 'npm run dev', { pieces: [{ text: 'Local: http://localhost:5173/\n' }] }, { pieces: [{ text: 'Local: http://localhost:5173/\n' }] })
+  await startSession($)
+  const pane = await pressStart($)
+  await w.clock.settle()
+  await pane.press({ key: 'restart' })
+  await w.clock.advance(500)
+  await $.session.end({ reason: 'logout', sessionId: 'session-a', resume: { id: 'session-a' } } as never)
+  // The listener lets go, which would let the pending start spawn.
+  w.runs.set('netstat -ano', { stdout: '' })
+  await w.clock.advance(3_500)
+  expect(spawnedCount(w)).toBe(1)
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe('stopped')
+})

@@ -105,3 +105,32 @@ test('after /clear gives the session another id, its own servers are still its o
   expect(w.store.has(KEY)).toBe(false)
   expect((await pane.find({ key: 'words-dev' }))?.text).toBe('stopped')
 })
+
+const PEER_WORDS = 'running in another session · :5173'
+
+test('a headless attach starts no ticker, and a shown one does', async ($, on) => {
+  const w = world(on, { surfaces: [] })
+  await startSession($)
+  await $.session.attach({ surface: 'terminal', clientId: 'terminal:default' } as never)
+  // Another session's fresh entry: only a tick of the 30 s refresh makes the pane read it.
+  w.store.set(KEY, peerEntry(NOW))
+  await w.clock.advance(30_000)
+  w.surfaces.push('terminal')
+  const pane = await openPane($)
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe('stopped')
+  await $.session.attach({ surface: 'terminal', clientId: 'terminal:other' } as never)
+  await w.clock.advance(30_000)
+  await pane.redraw()
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe(PEER_WORDS)
+})
+
+for (const [reason, words] of [['logout', 'stopped'], ['clear', PEER_WORDS]] as const) {
+  test(`a session end for ${reason} ${reason === 'clear' ? 'keeps' : 'cancels'} the ticker`, async ($, on) => {
+    const w = world(on)
+    await startSession($)
+    await $.session.end({ reason, sessionId: 'session-a', resume: { id: 'session-a' } } as never)
+    w.store.set(KEY, peerEntry(NOW))
+    await w.clock.advance(30_000)
+    expect((await (await openPane($)).find({ key: 'words-dev' }))?.text).toBe(words)
+  })
+}

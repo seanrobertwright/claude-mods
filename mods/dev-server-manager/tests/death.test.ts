@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { openPane, script, startSession, world } from './world'
+import { openPane, ROOT, script, startSession, world } from './world'
 import type { Child, World } from './world'
 
 const URL_LINE = { text: '  ➜  Local:   http://localhost:5173/\n' }
@@ -163,4 +163,61 @@ test('a fresh module after a reload starts each server the old one ran, restarte
   expect((await pane.find({ key: 'words-dev' }))?.text).toBe('up 0s · restarted after reload')
   await pane.press({ key: 'row-dev' })
   expect((await pane.findAll({ type: 'Text' })).map(found => found.text)).toContain('── restarted after reload 14:00 ──')
+})
+
+test('a stream that fails after its first output is a death: toast, restart policy and all', async ($, on) => {
+  const w = world(on)
+  script(w, 'npm run dev', { pieces: [URL_LINE, { ...STACK, afterMs: 5_000 }], failsWith: 'the pipe broke' }, { pieces: [URL_LINE] })
+  await startSession($)
+  const pane = await startDev($)
+  await w.clock.advance(5_000)
+  expect(toastTexts(w)).toEqual(['✗ dev crashed (exit ?), restarting (1/3) [8000]'])
+  expect(w.spawned).toHaveLength(2)
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe('crashed 14:00, restarted (1/3)')
+})
+
+test('a stream that fails after output with restart off leaves the row crashed', { options: { restart: false } }, async ($, on) => {
+  const w = world(on)
+  script(w, 'npm run dev', { pieces: [URL_LINE, { ...STACK, afterMs: 5_000 }], failsWith: 'the pipe broke' })
+  await startSession($)
+  const pane = await startDev($)
+  await w.clock.advance(5_000)
+  expect(toastTexts(w)).toEqual(['✗ dev crashed (exit ?) [8000]'])
+  expect(w.spawned).toHaveLength(1)
+  expect((await pane.find({ key: 'words-dev' }))?.text).toStartWith('crashed (exit ?)')
+})
+
+test('after 10 quiet minutes the next death counts from 1, with no old count or time in its words', async ($, on) => {
+  const w = world(on)
+  script(w, 'npm run dev', crashing(5_000), { pieces: [URL_LINE, { ...STACK, afterMs: 700_000 }], exit: { code: 3, signal: null } }, { pieces: [URL_LINE] })
+  await startSession($)
+  const pane = await startDev($)
+  await w.clock.advance(5_000)
+  await w.clock.advance(700_000)
+  expect(toastTexts(w)).toEqual(['✗ dev crashed (exit 3), restarting (1/3) [8000]', '✗ dev crashed (exit 3), restarting (1/3) [8000]'])
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe('crashed 14:11, restarted (1/3)')
+})
+
+test('a clean exit after 10 quiet minutes is a plain exited row that forgets the old crashes', async ($, on) => {
+  const w = world(on)
+  script(w, 'npm run dev', crashing(5_000), { pieces: [URL_LINE], exit: { code: 0, signal: null }, exitAfterMs: 700_000 })
+  await startSession($)
+  const pane = await startDev($)
+  await w.clock.advance(5_000)
+  await w.clock.advance(700_000)
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe('exited 14:11')
+  expect(await pane.find({ key: 'error' })).toBeUndefined()
+})
+
+test('a crash restart that finds its port taken says so: no restarting toast, nothing charged', async ($, on) => {
+  const w = world(on, { store: { [`ports:${ROOT}`]: { dev: 5173 } } })
+  w.runs.set('netstat -ano', [{ stdout: '' }, { stdout: '  TCP    0.0.0.0:5173    0.0.0.0:0    LISTENING    5100\n' }])
+  w.runs.set('tasklist /FI PID eq 5100 /FO CSV /NH', { stdout: '"python.exe","5100","Console","1","9,000 K"\r\n' })
+  script(w, 'npm run dev', crashing(5_000))
+  await startSession($)
+  const pane = await startDev($)
+  await w.clock.advance(5_000)
+  expect(toastTexts(w)).toEqual(['✗ dev crashed (exit 3) [8000]'])
+  expect(w.spawned).toHaveLength(1)
+  expect((await pane.find({ key: 'words-dev' }))?.text).toBe(':5173 taken by python.exe 5100')
 })
