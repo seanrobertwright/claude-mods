@@ -33,6 +33,11 @@
       "description": "Named folders and files above the prompt: click one to drop its path into what you are typing."
     },
     {
+      "name": "model-effort-presets",
+      "source": "./mods/model-effort-presets",
+      "description": "One press above the prompt switches the model and the effort together: a plan preset, an execute preset, or your own, also by /preset <name> or when you send a mapped command."
+    },
+    {
       "name": "turn-chime",
       "source": "./mods/turn-chime",
       "description": "Plays a sound and shows a toast when a long turn ends or Claude stops to ask you something."

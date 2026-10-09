@@ -119,10 +119,6 @@ When a browser tool answers "tab no longer exists", it tells the model to call `
 
 Suggests a session name from the first prompt, such as "M12 - S4 - Execute" or an issue's number and title, applied with one click.
 
-### model-effort-presets (rank 14, issue #72)
-
-Band buttons or a command for "plan" and "execute" pairs of model and effort, optionally switched by workflow step.
-
 ### typo-fixer (rank 15, issue #73)
 
 Rewrites the prompt before it is sent: fixes typos you often make ("Fiz", "contine", "delete the brand") and expands your shorthands ("c&p", "mwg").
@@ -148,3 +144,4 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **quick-reply**: rank 3, picked by you.
 - **auto-resume**: rank 5, picked by you.
 - **github-panel**: your own request in `e2d3b04d`, close to rank 18 above.
+- **model-effort-presets**: rank 14 (issue #72). Switching by workflow step became a setting that maps commands to presets.
