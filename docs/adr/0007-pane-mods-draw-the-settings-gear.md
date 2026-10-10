@@ -5,7 +5,7 @@ So whats-next, github-panel, outputs, sources and dev-server-manager each draw a
 The label is U+2699 followed by U+FE0F, the emoji presentation form: the layout measures that as the two cells the terminal draws, whereas the bare glyph measured one cell and its second column was clipped under the frame.
 mod-settings hooks `ui.press` for the element `mod-settings`, opens the dialog and takes the press, so the dialog opens as the person's own act: placed at any width, in front, with the keyboard. The gear's own `onPress` runs `/mod-settings`, and runs only when nothing took the press.
 
-The key `mod-settings` is a convention the six mods keep at run time (the five that draw the gear, and mod-settings that takes its press), not an import, so each mod stays self-contained under ADR-0001.
+The key `mod-settings` is a convention the seven mods keep at run time (the six that draw the gear, and mod-settings that takes its press), not an import, so each mod stays self-contained under ADR-0001.
 
 ## Considered Options
 

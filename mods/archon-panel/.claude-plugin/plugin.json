@@ -1,0 +1,39 @@
+{
+  "name": "archon-panel",
+  "version": "0.2.0",
+  "description": "An Archon pane in the side panel: this project's workflow runs, their graphs and logs, and the approvals that wait on you.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "archonPath": {
+      "type": "string",
+      "title": "Archon command",
+      "description": "The Archon CLI to run. Empty finds it on your PATH or in ~/.archon/bin.",
+      "default": ""
+    },
+    "archonPort": {
+      "type": "number",
+      "title": "Archon server port",
+      "description": "Where archon serve answers on this machine (1-65535). Runs come from the CLI when nothing answers.",
+      "default": 3090
+    },
+    "archonLog": {
+      "type": "string",
+      "title": "Archon's log file",
+      "description": "The file archon serve writes to, shown in the Archon's log sub-tab.",
+      "default": "~/.archon/logs/serve.log"
+    },
+    "toasts": {
+      "type": "string",
+      "title": "Toasts",
+      "description": "Which run events raise a toast: all of them, only runs that need you, or none.",
+      "options": ["all", "needs you", "off"],
+      "default": "all"
+    },
+    "statusLine": {
+      "type": "boolean",
+      "title": "Status line",
+      "description": "Show live runs and runs that need you under the prompt.",
+      "default": true
+    }
+  }
+}
