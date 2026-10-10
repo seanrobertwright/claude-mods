@@ -1,7 +1,12 @@
 # Proposed mods
 
-Mod ideas raised in past Claude Code sessions on this computer and not yet built, gathered on 2026-10-05.
+Mod ideas raised in past Claude Code sessions on this computer, gathered on 2026-10-05.
 Mods built from a proposal, or that cover part of one, are listed at the end.
+
+**Nothing is proposed now (2026-10-10).**
+Every idea below has since been built, folded into another mod, or closed; see [Where each proposal ended up](#where-each-proposal-ended-up).
+The sections below are kept as the record of what was raised.
+A new mod needs a candidate you can name from work you did by hand, and its own grilling.
 
 ## Where the ideas come from
 
@@ -110,9 +115,9 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 ## Partly covered by a built mod
 
 - **Issue and PR board, rank 18 (issue #76).** Open issues and PRs with their CI state; a click fills `/wayfinder <url>` or `/implement <url>`.
-  github-panel lists the issues and PRs, with each PR's checks; a click opens them in the browser.
+  github-panel lists the issues and PRs, with each PR's checks, and an issue row now fills `/implement` or `/wayfinder` (#174).
 - **Usage meter, rank 24 (issue #77).** A warning before you hit the rate limit.
-  hud shows the rate limits; only the warning is missing.
+  hud shows the rate limits and toasts when one reaches the red level (#97).
 
 ## Built from a proposal
 
@@ -126,3 +131,21 @@ A pane showing the health of plugins, skills and MCP servers, with buttons to re
 - **lint-test-gate**: rank 21 (issue #66). It runs the checks on a band button and before the model's `git commit`, and fills the failures into the prompt rather than sending them.
 - **session-auto-namer**: rank 13 (issue #71). Names are made by rules, with no model call, and applied by a press.
 - **model-effort-presets**: rank 14 (issue #72). Switching by workflow step became a setting that maps commands to presets.
+
+## Where each proposal ended up
+
+As of 2026-10-10.
+
+- **Built inside an existing mod:**
+  - ci-watcher (issue #56): github-panel toasts when the branch's PR checks turn, and offers a fix on red (#175). Auto-merge and branch deletion after green were left out; the issue's open question on whether they are in scope was never answered.
+  - workflow-auto-advance (issue #57): quick-reply offers the next wayfinder ticket after one closes (#163). The one command chain in your prompts was `/wayfinder` → `/clear` → `/wayfinder`, so a general chain engine was not needed.
+  - wayfinder-autopilot (issue #58): github-panel pins the issue a `/wayfinder` run works on and offers its next sub-issue (#185).
+  - reset-and-reprime (issue #60): whats-next runs the project's prime command between `/clear` and the paste (#184).
+  - uat-pass-fail-pad (issue #67): quick-reply offers Pass, Fail and Skip when the model asks for a verdict.
+  - Usage meter (issue #77): hud toasts when a rate limit reaches the red level (#97).
+- **Built as a mod:** post-merge-cleanup (issue #59, #173) and dev-server-manager (issue #74, #199).
+- **Merged into another idea:** error-capture (issue #68) became dev-server-manager's button that fills a crashed server's error into the prompt. The clipboard half was dropped, since the plugin API can write the clipboard but not read it.
+- **Not built:**
+  - ship-pipeline (issue #55): closed as not planned; typing `/ship:post-execute` covers it. Two parts moved to the `ship` plugin (claude-ship#1).
+  - morning-standup-band (issue #61): out of scope, see `.out-of-scope/cross-repo-dashboard.md`.
+  - ui-fix-check (issue #69), typo-fixer (issue #73) and plugin-admin-pane (issue #75): out of scope, each with a note in `.out-of-scope/`.
