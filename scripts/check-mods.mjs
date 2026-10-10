@@ -55,8 +55,8 @@ function step(mod, name, command, args) {
  * command loads it without a model call. No surface shows that session, so
  * every mod stays quiet in it: whats-next starts no headless /ask-sean run.
  *
- * Claude Code 2.1.295 loads the mod but writes no types (2.1.293 and 2.1.294
- * do; issue #176). CHECK_MODS_CLAUDE names the binary for this one load, such
+ * Claude Code 2.1.295 and later load the mod but write no types (2.1.293 and
+ * 2.1.294 do; issue #176, upstream anthropics/claude-code#100837). CHECK_MODS_CLAUDE names the binary for this one load, such
  * as ~/.local/share/claude/versions/2.1.294; the other checks keep `claude`.
  */
 function ensureTypes(mod) {
@@ -79,7 +79,7 @@ function ensureTypes(mod) {
     fail(
       mod,
       'generating types',
-      `${claude} did not write ${generated}. Claude Code 2.1.295 writes no types (issue #176): ` +
+      `${claude} did not write ${generated}. Claude Code 2.1.295 and later write no types (issue #176): ` +
         'set CHECK_MODS_CLAUDE to a 2.1.293 or 2.1.294 binary, or copy .claude-plugin/types/ from another checkout.',
     )
   }
