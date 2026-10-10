@@ -124,7 +124,7 @@ What the judge sends to a System One model, once after each answered turn while 
 - **To Laya,** which keeps it on this machine: the same, fitted to Laya's small window. The step's prompt is dropped first, then the start of the answer, so the end of the answer, where Claude says whether the work is done, is kept.
 - **Sure answers only.** "Done" counts at a probability of 0.9 or more and "not done" at 0.1 or less. Anything between, a model that is busy or fails, or no answer within 5 s leaves the step to Haiku, as before.
 - **A key it cannot use is named.** While System One models allows Jev, a missing key, one that is not a key, or one TypeSafe rejects is named on a line in the pane, and the list stays. A rejected key stays off until the mod reloads.
-- **A changed key takes effect once the mod reloads.** Saving it in the settings dialog reloads the mod; a key changed any other way waits for the next start of Claude Code.
+- **A changed key takes effect once the mod reloads.** The settings dialog does not list the key, so set it with `/plugin configure whats-next@claude-mods`. That saves it without reloading the mod: run `/reload-plugins`, or wait for the next start of Claude Code.
 
 **Needs:** the `claude` CLI on the PATH, and the skill named in the Skill setting. Laya and a Jev key are optional: with neither, the judge is Haiku, as before.
 
