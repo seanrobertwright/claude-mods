@@ -6,7 +6,7 @@ import type { Runner } from './cli'
 import { parseRun, parseRuns } from './runs'
 import { belongs, projectFromCodebases, projectFromRows } from './scope'
 import type { Platform } from './scope'
-import { lastLine } from './text'
+import { lastLine, msOf } from './text'
 
 /** What reading needs from the engine. */
 export type Io = {
@@ -144,11 +144,10 @@ export function parseEvents(value: unknown): RunEvent[] {
     if (!KEPT.test(type)) return []
     const data = isObject(entry.data) ? entry.data : {}
     const node = isObject(data.node) ? data.node : {}
-    const at = Date.parse(str(entry.created_at))
     return [{
       type,
       step: str(entry.step_name) || str(node.id),
-      at: Number.isNaN(at) ? 0 : at,
+      at: msOf(entry.created_at),
       output: str(data.node_output ?? data.output).slice(0, MOST_OUTPUT),
       error: str(data.error).slice(0, MOST_OUTPUT),
       iteration: num(data.iteration),
@@ -167,8 +166,7 @@ export function parseFiles(value: unknown): RunFile[] {
   const files = value.flatMap((entry): RunFile[] => {
     if (typeof entry === 'string') return entry === '' || entry.startsWith('.archon/') ? [] : [{ path: entry, size: 0, modifiedAt: 0 }]
     if (!isObject(entry) || str(entry.path) === '' || str(entry.path).startsWith('.archon/')) return []
-    const at = Date.parse(str(entry.modifiedAt))
-    return [{ path: str(entry.path), size: num(entry.size), modifiedAt: Number.isNaN(at) ? num(entry.modifiedAt) : at }]
+    return [{ path: str(entry.path), size: num(entry.size), modifiedAt: msOf(entry.modifiedAt) }]
   })
   return files.sort((a, b) => b.modifiedAt - a.modifiedAt)
 }

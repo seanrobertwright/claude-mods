@@ -285,7 +285,16 @@ const CORNERS: Record<string, string> = {
   ul: '┘', ur: '└', dl: '┐', dr: '┌', u: '│', d: '│', l: '─', r: '─', '': ' ',
 }
 
-function graphLines({ layers, edges, notes }: Plan): Seg[][] {
+/** A box's border: a gate's in bold `warning`; a running node's flashes `success`, heavy and bold on one beat, light and dim on the next. */
+function borderOf(node: DrawNode, pulse: boolean): { chars: string[]; seg: Seg; isHeavy: boolean } {
+  const heavy = ['━', '┃', '┏', '┓', '┗', '┛']
+  const light = ['─', '│', '┌', '┐', '└', '┘']
+  if (node.isGate) return { chars: heavy, seg: { text: '', tone: 'warning', bold: true }, isHeavy: true }
+  if (node.look === 'running') return pulse ? { chars: heavy, seg: { text: '', tone: 'success', bold: true }, isHeavy: true } : { chars: light, seg: { text: '', tone: 'success', dim: true }, isHeavy: false }
+  return { chars: light, seg: { text: '' }, isHeavy: false }
+}
+
+function graphLines({ layers, edges, notes }: Plan, pulse: boolean): Seg[][] {
   const total = Math.max(...layers.map(layerWidth))
   const centre = new Map<string, number>()
   const out: Seg[][] = []
@@ -364,15 +373,15 @@ function graphLines({ layers, edges, notes }: Plan): Seg[][] {
         }
         const node = item.node
         const mid = Math.floor(w / 2)
-        const [h, v, tl, tr, bl, br] = node.isGate ? ['━', '┃', '┏', '┓', '┗', '┛'] : ['─', '│', '┌', '┐', '└', '┘']
-        const border: Seg = { text: '', ...(node.isGate ? { tone: 'warning', bold: true } : {}) }
+        const { chars, seg: border, isHeavy } = borderOf(node, pulse)
+        const [h, v, tl, tr, bl, br] = chars as [string, string, string, string, string, string]
         if (r === 0) {
           const top = [...`${tl}${h.repeat(w - 2)}${tr}`]
-          if (hasIn.has(item.id)) top[mid] = node.isGate ? '┻' : '┴'
+          if (hasIn.has(item.id)) top[mid] = isHeavy ? '┻' : '┴'
           segs.push({ ...border, text: top.join('') })
         } else if (r === 2) {
           const bottom = [...`${bl}${h.repeat(w - 2)}${br}`]
-          if (hasOut.has(item.id)) bottom[mid] = node.isGate ? '┳' : '┬'
+          if (hasOut.has(item.id)) bottom[mid] = isHeavy ? '┳' : '┬'
           segs.push({ ...border, text: bottom.join('') })
         } else {
           const name = item.name + ' '.repeat(Math.max(0, w - 6 - width(item.name)))
@@ -391,16 +400,18 @@ function graphLines({ layers, edges, notes }: Plan): Seg[][] {
   return out
 }
 
-function listLines({ layers, notes }: Plan): Seg[][] {
+function listLines({ layers, notes }: Plan, pulse: boolean): Seg[][] {
   const out: Seg[][] = []
   layers.forEach((items, l) => {
     const nodes = items.flatMap(item => (item.kind === 'node' ? [item.node] : []))
     nodes.forEach((node, i) => {
       const mark = nodes.length === 1 ? '' : i === nodes.length - 1 ? '└ ' : '├ '
       const tone = toneOf(node.look)
+      // A running node's mark flashes as its box would: bold on one beat, dim on the next.
+      const flash = node.look === 'running' && !node.isGate ? (pulse ? { bold: true } : { dim: true }) : {}
       out.push([
         { text: `${mark}` },
-        { text: glyph(node.look), ...(tone === undefined ? {} : { tone }), ...(node.isGate ? { bold: true } : {}) },
+        { text: glyph(node.look), ...(tone === undefined ? {} : { tone }), ...(node.isGate ? { bold: true } : {}), ...flash },
         { text: ` ${nameAt(node, 2)}`, pick: node.id },
       ].filter(seg => seg.text !== ''))
     })
@@ -414,13 +425,15 @@ function listLines({ layers, notes }: Plan): Seg[][] {
  * the widest layer is wider than `columns`: whole names, names without their
  * include prefix, names cut to 10 characters, skip edges as notes instead of
  * lanes, then the whole run as a list. A wide layer is never stacked into one
- * box, and a skip edge is never dropped.
+ * box, and a skip edge is never dropped. `pulse` is the flash's beat: a running
+ * node is drawn heavy and bold while it is on, light and dim while it is off.
+ * With no flash running it stays on.
  */
-export function layout(nodes: readonly DrawNode[], columns: number): Drawn {
+export function layout(nodes: readonly DrawNode[], columns: number, pulse = true): Drawn {
   if (nodes.length === 0) return { lines: [], step: 1 }
   for (const step of [1, 2, 3, 4] as const) {
     const planned = plan(nodes, step)
-    if (Math.max(...planned.layers.map(layerWidth)) <= columns) return { lines: graphLines(planned), step }
+    if (Math.max(...planned.layers.map(layerWidth)) <= columns) return { lines: graphLines(planned, pulse), step }
   }
-  return { lines: listLines(plan(nodes, 4)), step: 5 }
+  return { lines: listLines(plan(nodes, 4), pulse), step: 5 }
 }

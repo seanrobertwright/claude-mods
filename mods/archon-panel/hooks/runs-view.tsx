@@ -7,7 +7,7 @@ import { hasEnded, needsYou, sortRuns, standing, subRunsOf, topRuns } from './ru
 import type { Standing } from './runs'
 import { isPinned } from './scope'
 import type { Platform } from './scope'
-import { clockTime, colour, duration, firstLine, fit, glyph } from './text'
+import { clockTime, colour, duration, firstLine, fit, glyph, msOf } from './text'
 import type { Look } from './text'
 
 export type RunsProps = {
@@ -47,7 +47,7 @@ function wordOf(run: Run, found: Standing, isHeldBelow: boolean): string {
     case 'unreadable': return "gate Archon can't read"
     case 'blocked': return isHeldBelow ? 'approval in sub-run' : 'waiting on a sub-run'
     case 'resuming': return 'resuming…'
-    case 'waiting': return found.wait.until !== '' ? `waits until ${clockTime(Date.parse(found.wait.until))}` : `waits for ${found.wait.event || 'an event'}`
+    case 'waiting': return found.wait.until !== '' ? `waits until ${clockTime(msOf(found.wait.until))}` : `waits for ${found.wait.event || 'an event'}`
     default: return run.status
   }
 }

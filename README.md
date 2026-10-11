@@ -318,6 +318,7 @@ A run that needs you comes first, and the pane answers its approval, or resumes 
   In a linked worktree, the runs working in it are pinned first, under its branch.
   Picking a run that needs you opens Log on its gate; any other run opens its Graph.
 - **2: Graph** draws the run's nodes from the workflow it froze when it started, coloured by state.
+  While a live run's Graph is in front, its run log is followed: a node turns running the moment Archon writes its start, its box flashes green, and a line under the header names what runs, for how long, and its newest tool call or model text.
   An include block, a loop group and a sub-run each fold to one box; pick one to open it.
   A graph wider than the pane gives way a step at a time: shorter names, then waits that skip a layer as notes, then a list. Pick a node to open Log on it.
 - **3: Log** is the run's log: its model text, tool calls, node markers and each node's output, cut to the picked node, `a` for all of them.
@@ -329,7 +330,7 @@ A run that needs you comes first, and the pane answers its approval, or resumes 
   Every action asks you to confirm it first, and is sent where the run lives: the Archon CLI for a run started from the CLI, Archon's server for one started from its web UI or a chat.
   Nothing else is ever done to a run.
 - A toast says when this project's runs need you, fail or finish, once across all your open sessions; the status line counts what runs and what needs you.
-- The runs refresh every 2 to 60 seconds, faster while the pane is in front and a run is live, from Archon's server when it answers and the CLI when it doesn't. A headless session reads nothing.
+- The runs refresh every 2 to 60 seconds, faster while the pane is in front and a run is live, from Archon's server when it answers and the CLI when it doesn't. A live run's Graph and Log follow its run log as it is written, between refreshes. A headless session reads nothing.
 
 | Command or key | What it does |
 | --- | --- |

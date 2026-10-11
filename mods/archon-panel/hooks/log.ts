@@ -2,7 +2,8 @@
 // of the newest 60,000 drawn characters the pane keeps.
 
 import type { LogRow, LogWindow, RunEvent } from '../types'
-import { dollars, duration, fit, size } from './text'
+import { dollars, duration, firstLine, fit, msOf, size } from './text'
+import type { Look } from './text'
 
 /** The most drawn characters the window keeps, and a file's read view shows. */
 export const WINDOW_CHARS = 60_000
@@ -59,7 +60,8 @@ function tail(text: string, count: number): string[] {
 /**
  * The rows one transcript line makes. Transcript rows do not name their node:
  * a tool row is counted so the events can name it, and any other row belongs
- * to the nodes open when it was written.
+ * to the nodes open when it was written. A node marker names its node by its
+ * path (`fix-cycle.fix` for a loop's body node), as the run's events do.
  */
 export function rowsOf(text: string, lineNo: number, window: LogWindow): { rows: LogRow[]; window: LogWindow } {
   let entry: unknown
@@ -69,10 +71,11 @@ export function rowsOf(text: string, lineNo: number, window: LogWindow): { rows:
     return { rows: [], window }
   }
   if (!isObject(entry)) return { rows: [], window }
-  const execution = isObject(entry.execution) && isObject(entry.execution.node) ? entry.execution.node : {}
-  const node = str(entry.step) || str(execution.id)
+  const execution = isObject(entry.execution) ? entry.execution : {}
+  const node = str(execution.path) || str(entry.step) || (isObject(execution.node) ? str(execution.node.id) : '')
   const key = `l${lineNo}`
-  const at = (row: Omit<LogRow, 'key' | 'nodes' | 'tool' | 'full'> & Partial<LogRow>): LogRow => ({ key, nodes: window.open, tool: -1, full: '', ...row })
+  const written = msOf(entry.ts)
+  const at = (row: Omit<LogRow, 'key' | 'nodes' | 'tool' | 'full' | 'at'> & Partial<LogRow>): LogRow => ({ key, nodes: window.open, tool: -1, full: '', at: written, ...row })
   switch (entry.type) {
     case 'node_start':
       return { rows: [at({ kind: 'start', text: `▶ ${node}`, nodes: [node] })], window: { ...window, open: window.open.includes(node) ? window.open : [...window.open, node] } }
@@ -149,4 +152,37 @@ export function nodesOf(row: LogRow, steps: readonly string[]): string[] {
 /** Whether a row shows under `node`: all rows with no node picked. */
 export function isUnder(row: LogRow, node: string, steps: readonly string[]): boolean {
   return node === '' || nodesOf(row, steps).includes(node)
+}
+
+/** What a followed run log says now, read from its window. */
+export type Live = {
+  /** Each node the window names, by its last marker row; nodes open at its newest line are running. */
+  looks: ReadonlyMap<string, Look>
+  /**
+   * The nodes open at the newest line, innermost only (a loop's body, not the
+   * loop too), with when each started; 0 when its start row dropped off the window.
+   */
+  running: readonly { node: string; since: number }[]
+  /** The newest tool call or model text and when it was written; undefined before any. */
+  latest: { text: string; at: number } | undefined
+}
+
+export function liveOf(window: LogWindow): Live {
+  const looks = new Map<string, Look>()
+  const started = new Map<string, number>()
+  let latest: Live['latest']
+  for (const row of window.rows) {
+    const node = row.nodes[0] ?? ''
+    if (row.kind === 'start') {
+      looks.set(node, 'running')
+      started.set(node, row.at || 0)
+    } else if (row.kind === 'end') looks.set(node, 'completed')
+    else if (row.kind === 'error') looks.set(node, 'failed')
+    else if (row.kind === 'skip') looks.set(node, 'skipped')
+    // A tool row's ▸ opens its fold in Log; here it opens nothing.
+    else if (row.kind === 'tool' || row.kind === 'text') latest = { text: firstLine(row.text).replace(/ ▸$/, ''), at: row.at || 0 }
+  }
+  for (const node of window.open) looks.set(node, 'running')
+  const innermost = window.open.filter(node => !window.open.some(other => other.startsWith(`${node}.`)))
+  return { looks, running: innermost.map(node => ({ node, since: started.get(node) ?? 0 })), latest }
 }

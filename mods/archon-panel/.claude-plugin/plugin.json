@@ -1,6 +1,6 @@
 {
   "name": "archon-panel",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "An Archon pane in the side panel: this project's workflow runs, their graphs and logs, and the approvals that wait on you.",
   "types": "./types/index.d.ts",
   "userConfig": {

@@ -5,7 +5,8 @@ import type { On } from 'claude-code'
 import { approval, event, iso, MINUTE, OUTPUT_ROOT, row, T0 } from './fixtures/runs'
 import type { Row } from './fixtures/runs'
 import { DELIVER, SHIP } from './fixtures/workflows'
-import { COLD, fake, IN_FRONT, paneProps, world } from './fixtures/world'
+import { COLD, end, fake, feed, IN_FRONT, paneProps, send, world } from './fixtures/world'
+import { line } from './fixtures/transcripts'
 import type { World } from './fixtures/world'
 
 const START = { cwd: 'D:/repos/widgets', surface: 'terminal', isInteractive: true } as const
@@ -128,8 +129,10 @@ test('a sub-run on an approval gives its workflow box the warning border, and pi
   await clock.settle()
   await pane.press({ key: 'graph-parent' })
   await clock.settle()
-  const border = (await pane.findAll({ type: 'Text' })).find(t => t.text.includes('┏'))
-  expect(border?.props.color).toBe('warning')
+  // Heavy borders are the gate's, in warning, and the running nodes', in success.
+  const heavy = (await pane.findAll({ type: 'Text' })).filter(t => t.text.includes('┏')).map(t => t.props.color)
+  expect(heavy).toContain('warning')
+  expect(heavy.filter(color => color !== 'warning' && color !== 'success')).toEqual([])
   await pane.press({ key: 'node-child' })
   expect((await pane.find({ key: 'tab-log' }))?.props.dimColor).toBe(false)
   await pane.unmount()
@@ -187,5 +190,56 @@ test("a pack entry point's Graph is read from the file its pack maps it to, with
 test('a pack entry point that leaves its pack folder is not followed', COLD, async ($, on) => {
   const { pane } = await graph($, on, [PACK_ROW], { disk: PACK_SOURCE('../../bundled/workflows/archon-ship.yaml') }, 'terminal', 'pack-1')
   expect(await shown(pane)).toContain("This run's workflow source can't be read.")
+  await pane.unmount()
+})
+
+test('a live run\'s Graph follows its run log: a node runs the moment its start is written, its box flashing, until its end is', COLD, async ($, on) => {
+  const f = feed()
+  const { clock, w, pane } = await graph($, on, [SHIP_ROW], { feeds: { 'ship-1': f } })
+  expect(w.spawned.map(argv => argv.slice(1).join(' '))).toEqual(['workflow logs ship-1 --follow'])
+  expect(await shown(pane)).toContain('○ review-gate')
+
+  // The transcript's times are seconds after T0; the clock reads 20 minutes after it.
+  send(f, `${[
+    line('node_start', { step: 'review-gate', execution: { path: 'review-gate' } }, 18 * 60),
+    line('tool', { tool_name: 'Read', tool_input: { file_path: 'docs/review.md' } }, 19 * 60 + 50),
+  ].join('\n')}\n`)
+  await clock.settle()
+  expect(await shown(pane)).toContain('● review-gate')
+  expect(await shown(pane)).toContain('review-gate 2m · Read docs/review.md · 10s ago')
+
+  const running = async () => (await pane.findAll({ type: 'Text' })).filter(t => t.props.color === 'success' && /[┌┏]/.test(t.text))
+  const beat = async () => (await running()).map(t => `${t.text[0]}${t.props.bold === true ? 'b' : ''}${t.props.dimColor === true ? 'd' : ''}`)
+  const on1 = await beat()
+  expect(on1.length).toBeGreaterThan(0)
+  expect(new Set(on1)).toEqual(new Set(['┏b']))
+  await clock.advance(500)
+  expect(new Set(await beat())).toEqual(new Set(['┌d']))
+  await clock.advance(500)
+  expect(new Set(await beat())).toEqual(new Set(['┏b']))
+
+  send(f, `${line('node_complete', { step: 'review-gate', execution: { path: 'review-gate' } }, 19 * 60 + 55)}\n`)
+  await clock.settle()
+  expect(await shown(pane)).toContain('✓ review-gate')
+  expect(await shown(pane)).not.toContain('Read docs/review.md')
+
+  // Leaving the Graph kills the follower, and the flash stops with it.
+  await pane.press({ key: 'tab-runs' })
+  await clock.settle()
+  expect(w.killed).toHaveLength(1)
+  await pane.press({ key: 'tab-graph' })
+  await clock.settle()
+  expect(w.spawned).toHaveLength(2)
+  end(f, 0)
+  await pane.unmount()
+})
+
+test('a finished run\'s Graph neither follows nor flashes; it reads its events', COLD, async ($, on) => {
+  const doneRow = row('ship-1', { workflow_name: 'archon-ship', status: 'completed', started_at: iso(at(0)), completed_at: iso(at(9)) })
+  const { clock, w, pane } = await graph($, on, [doneRow])
+  expect(w.spawned).toEqual([])
+  const before = await shown(pane)
+  await clock.advance(1500)
+  expect(await shown(pane)).toBe(before)
   await pane.unmount()
 })
