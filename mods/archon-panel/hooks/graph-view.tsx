@@ -6,6 +6,7 @@ import type { Elements, RenderElement } from 'claude-code'
 import type { ArchonView, Detail, GraphNode, Run, RunEvent } from '../types'
 import { layout } from './graph'
 import type { DrawNode, Seg } from './graph'
+import type { Live } from './log'
 import { hasEnded, needsYou, standing, subRunsOf, waitNode } from './runs'
 import type { Look } from './text'
 import { duration, fit } from './text'
@@ -55,8 +56,22 @@ export type Graphed = {
   picks: Map<string, { kind: 'node' | 'block' | 'loop' | 'workflow'; id: string; subRuns: Run[] }>
 }
 
-/** The boxes of a run's graph: node states from its events, gates in `warning`, blocks and loops folded unless opened. */
-export function drawNodes(nodes: readonly GraphNode[], run: Run, runs: readonly Run[], details: Readonly<Record<string, Detail>>, view: ArchonView): Graphed {
+/**
+ * A node's look from the followed run log, where it names the node: a loop
+ * group runs while any of its body runs. Undefined where the log is silent.
+ */
+function liveLook(live: ReadonlyMap<string, Look> | undefined, node: GraphNode): Look | undefined {
+  if (live === undefined) return undefined
+  if (node.kind === 'loop_group' && [...live].some(([id, look]) => id.startsWith(`${node.id}.`) && look === 'running')) return 'running'
+  return live.get(node.id)
+}
+
+/**
+ * The boxes of a run's graph: node states from its events, or from `live`, its
+ * followed run log, where that names them; gates in `warning`, blocks and loops
+ * folded unless opened. A gate's look wins over both.
+ */
+export function drawNodes(nodes: readonly GraphNode[], run: Run, runs: readonly Run[], details: Readonly<Record<string, Detail>>, view: ArchonView, live?: ReadonlyMap<string, Look>): Graphed {
   const events = details[run.id]?.events ?? []
   const found = standing(run, runs, details[run.id])
   const gateNode = waitNode(found)
@@ -67,8 +82,8 @@ export function drawNodes(nodes: readonly GraphNode[], run: Run, runs: readonly 
     let look = lookFrom(events, node.id)
     let label = node.id
     let isGate = node.id === gateNode
-    if (isGate) look = found.kind === 'approval' ? 'approval' : 'action'
     picks.set(node.id, { kind: 'node', id: node.id, subRuns: [] })
+    let isFromSubRuns = false
     if (node.kind === 'loop_group') {
       const round = roundsOf(events, node.id)
       if (round > 0) look = foldLook(node.body.map(body => lookFrom(events, `${node.id}.${body.id}`, round)))
@@ -82,13 +97,18 @@ export function drawNodes(nodes: readonly GraphNode[], run: Run, runs: readonly 
         look = shown.look
         isGate = isGate || shown.isGate
         label = `↳ ${subRuns[0]!.workflow}`
+        isFromSubRuns = true
       } else if (subRuns.length > 1) {
         const subLooks = subRuns.map(subRun => subRunLook(subRun, runs, details))
         look = foldLook(subLooks.map(s => s.look))
         isGate = isGate || subLooks.some(s => s.isGate)
         label = `↳ ${subRuns.filter(subRun => hasEnded(subRun)).length}/${subRuns.length}`
+        isFromSubRuns = true
       } else label = `↳ ${node.workflow || node.id}`
     }
+    // A sub-run's own status says more than the parent's log about its node.
+    if (!isFromSubRuns) look = liveLook(live, node) ?? look
+    if (node.id === gateNode) look = found.kind === 'approval' ? 'approval' : 'action'
     looks.set(node.id, { id: node.id, label, look, deps: node.deps, isGate, block: node.block })
   }
 
@@ -131,9 +151,33 @@ export function drawNodes(nodes: readonly GraphNode[], run: Run, runs: readonly 
   }
 }
 
-/** A loop group's body as one round drew it: the current one, or an earlier one picked with ‹ ›. */
-export function roundNodes(group: GraphNode, events: readonly RunEvent[], round: number): DrawNode[] {
-  return group.body.map(body => ({ id: `${group.id}.${body.id}`, label: body.id, look: lookFrom(events, `${group.id}.${body.id}`, round), deps: body.deps.map(dep => `${group.id}.${dep}`), isGate: false, block: '' }))
+/** A loop group's body as one round drew it: the current one, or an earlier one picked with ‹ ›. `live` speaks only for the current round. */
+export function roundNodes(group: GraphNode, events: readonly RunEvent[], round: number, live?: ReadonlyMap<string, Look>): DrawNode[] {
+  return group.body.map(body => {
+    const id = `${group.id}.${body.id}`
+    return { id, label: body.id, look: live?.get(id) ?? lookFrom(events, id, round), deps: body.deps.map(dep => `${group.id}.${dep}`), isGate: false, block: '' }
+  })
+}
+
+/** When a node's current run started, from its events: the last `node_started` naming it; 0 when none does. */
+function startedAt(events: readonly RunEvent[], step: string): number {
+  return [...events].reverse().find(e => e.type === 'node_started' && e.step === step)?.at ?? 0
+}
+
+/**
+ * The line under a live run's header saying what runs now: the running nodes,
+ * how long the longest has run, and the newest tool call or model text, once
+ * it was written after the newest of them started. Undefined when nothing runs.
+ */
+export function activityLine(live: Live | undefined, events: readonly RunEvent[], now: number): string | undefined {
+  if (live === undefined || live.running.length === 0) return undefined
+  const starts = live.running.map(({ node, since }) => since || startedAt(events, node))
+  const known = starts.filter(at => at > 0)
+  const longest = known.length === 0 ? '' : ` ${duration(now - Math.min(...known))}`
+  const newestStart = Math.max(0, ...known)
+  const latest = live.latest !== undefined && live.latest.text !== '' && live.latest.at >= newestStart ? live.latest : undefined
+  const doing = latest === undefined ? '' : ` · ${latest.text}${latest.at > 0 ? ` · ${duration(now - latest.at)} ago` : ''}`
+  return `${live.running.map(({ node }) => node).join(', ')}${longest}${doing}`
 }
 
 export type GraphProps = {
@@ -143,6 +187,10 @@ export type GraphProps = {
   details: Readonly<Record<string, Detail>>
   nodes: GraphNode[] | null | undefined
   view: ArchonView
+  /** The run's followed run log, while the follower is on this run; undefined otherwise. */
+  live: Live | undefined
+  /** The flash's beat: on for heavy, bold borders on running nodes, off for light, dim ones. */
+  pulse: boolean
   now: number
   width: number
   /** The run's page in Archon's web UI, or '' when it is not linked. */
@@ -180,19 +228,28 @@ export function graphBody(props: GraphProps): RenderElement[] {
       {props.link !== '' && <Link key="archon-link" href={props.link} label="↗ Archon" />}
     </Box>,
   )
+  const events = props.details[run.id]?.events ?? []
+  const doing = hasEnded(run) ? undefined : activityLine(props.live, events, props.now)
+  if (doing !== undefined) {
+    lines.push(
+      <Box flexDirection="row">
+        <Text color="success" {...(props.pulse ? { bold: true } : { dimColor: true })}>●</Text>
+        <Text wrap="truncate-end">{` ${fit(doing, Math.max(8, width - 2))}`}</Text>
+      </Box>,
+    )
+  }
   if (props.nodes === undefined) return [...lines, <Text dimColor>Reading the run's workflow…</Text>]
   if (props.nodes === null || props.nodes.length === 0) return [...lines, <Text dimColor>This run's workflow source can't be read.</Text>]
 
-  const graphed = drawNodes(props.nodes, run, props.runs, props.details, view)
+  const graphed = drawNodes(props.nodes, run, props.runs, props.details, view, props.live?.looks)
   for (const block of view.includes.filter(entry => entry.startsWith(`${run.id}:`)).map(entry => entry.slice(run.id.length + 1))) {
     lines.push(<Button key={`fold-${block}`} plain dimColor label={`▾ ${block}`} onPress={() => props.onFold(block)} />)
   }
-  lines.push(...segLines(ui, layout(graphed.draw, width).lines, props.onPick))
+  lines.push(...segLines(ui, layout(graphed.draw, width, props.pulse).lines, props.onPick))
 
   // A picked loop group: its round's body as a small graph, stepping through earlier rounds.
   const group = view.loop.startsWith(`${run.id}:`) ? props.nodes.find(node => node.id === view.loop.slice(run.id.length + 1)) : undefined
   if (group !== undefined) {
-    const events = props.details[run.id]?.events ?? []
     const current = roundsOf(events, group.id)
     const round = view.round > 0 && view.round <= current ? view.round : current
     lines.push(
@@ -203,7 +260,7 @@ export function graphBody(props: GraphProps): RenderElement[] {
         <Button key="round-on" plain label="›" onPress={() => props.onRound(Math.min(current, round + 1))} />
       </Box>,
     )
-    lines.push(...segLines(ui, layout(roundNodes(group, events, round), width).lines, props.onPick, 'body'))
+    lines.push(...segLines(ui, layout(roundNodes(group, events, round, round === current ? props.live?.looks : undefined), width, props.pulse).lines, props.onPick, 'body'))
   }
 
   // A fan-out's sub-runs, listed once its box is picked.

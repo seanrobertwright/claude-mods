@@ -1,7 +1,7 @@
 // Reading Archon's run rows at the boundary, and what state each run is in.
 
 import type { Decision, Detail, Gate, Run, Status, Wait } from '../types'
-import { oneLine } from './text'
+import { msOf, oneLine } from './text'
 
 const STATUSES: readonly Status[] = ['pending', 'running', 'paused', 'completed', 'failed', 'cancelled']
 const CHAT_PLATFORMS = ['slack', 'telegram', 'github', 'discord']
@@ -12,12 +12,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : ''
-}
-
-function time(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  const parsed = typeof value === 'string' ? Date.parse(value) : NaN
-  return Number.isNaN(parsed) ? 0 : parsed
 }
 
 function label(id: string): string {
@@ -48,7 +42,7 @@ function gate(value: unknown): Gate | null {
     hasRework: value.onReject !== undefined || value.on_reject !== undefined,
     isRoundDone: value.roundDone === true || value.isComplete === true || value.complete === true,
     isReadable: nodeId !== '' && type !== '',
-    since: time(value.waitingSince ?? value.requestedAt ?? value.since),
+    since: msOf(value.waitingSince ?? value.requestedAt ?? value.since),
   }
 }
 
@@ -60,7 +54,7 @@ function wait(value: unknown): Wait | null {
     message: text(value.message),
     until: text(value.until),
     event: text(value.event),
-    since: time(value.waitingSince ?? value.since),
+    since: msOf(value.waitingSince ?? value.since),
   }
 }
 
@@ -79,9 +73,9 @@ export function parseRun(value: unknown): Run | undefined {
     workflow: text(value.workflow_name) || 'workflow',
     status,
     message: oneLine(text(value.user_message)),
-    startedAt: time(value.started_at),
-    completedAt: time(value.completed_at),
-    lastActivityAt: time(value.last_activity_at) || time(value.started_at),
+    startedAt: msOf(value.started_at),
+    completedAt: msOf(value.completed_at),
+    lastActivityAt: msOf(value.last_activity_at) || msOf(value.started_at),
     codebaseId: text(value.codebase_id),
     workingPath: text(value.working_path),
     outputRoot: text(value.output_root),

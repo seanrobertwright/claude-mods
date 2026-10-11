@@ -198,6 +198,8 @@ export type LogRow = {
   text: string
   /** What a fold behind `▸` holds; '' for none. */
   full: string
+  /** When the line was written, in milliseconds since the epoch; 0 when it does not say. */
+  at: number
 }
 
 /** The run log in front: the newest 60,000 drawn characters of one run. */
@@ -265,6 +267,8 @@ declare module 'claude-code' {
       hasStartedUp: boolean
       /** When this session started; finishes and failures before it never toast. */
       startedAt: number
+      /** Counts the Graph's flash ticks while a followed live run's Graph is in front; each tick redraws it. */
+      pulse: number
     }
   }
 }

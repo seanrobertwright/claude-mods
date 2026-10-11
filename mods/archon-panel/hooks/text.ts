@@ -42,6 +42,20 @@ export function duration(ms: number): string {
   return rest === 0 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 60)}h ${rest}m`
 }
 
+/**
+ * Milliseconds since the epoch for a time Archon wrote: a number as it is, an
+ * ISO string with its zone, or SQLite's `2026-10-11 15:09:34`, which carries no
+ * zone and is UTC. 0 for anything else. Every time the mod reads goes through it.
+ */
+export function msOf(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (typeof value !== 'string') return 0
+  const trimmed = value.trim()
+  const zoneless = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(trimmed)
+  const parsed = Date.parse(zoneless ? `${trimmed.replace(' ', 'T')}Z` : trimmed)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
 /** The time of day `ms` falls on, `14:05`, in the machine's own time. */
 export function clockTime(ms: number): string {
   const at = new Date(ms)

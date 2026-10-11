@@ -185,3 +185,34 @@ test('archon-ship, folded and expanded, fits at every width or turns into the li
     if (expanded.step >= 4) expect(text(expanded.lines)).toContain('  ↑ outcome also waits on triage__route')
   }
 })
+
+test('a running node flashes: heavy and bold in success on the beat, light and dim off it; a gate stays heavy in warning', () => {
+  const nodes: DrawNode[] = [
+    { ...box('build'), look: 'running' },
+    { ...box('ask', ['build']), look: 'approval', isGate: true },
+    box('done', ['ask']),
+  ]
+  const borders = (pulse: boolean, id: string) => {
+    const lines = layout(nodes, 80, pulse).lines
+    const at = lines.findIndex(line => line.some(seg => seg.pick === id))
+    // The row above a box's name is its top border; its segment is the first with a corner.
+    return lines[at - 1]!.find(seg => /[┌┏]/.test(seg.text))!
+  }
+  expect(borders(true, 'build')).toMatchObject({ tone: 'success', bold: true })
+  expect(borders(true, 'build').text).toMatch(/^┏━+┓$/)
+  expect(borders(false, 'build')).toMatchObject({ tone: 'success', dim: true })
+  expect(borders(false, 'build').text).toMatch(/^┌─+┐$/)
+  expect(borders(false, 'ask')).toMatchObject({ tone: 'warning', bold: true })
+  expect(borders(false, 'ask').text).toMatch(/^┏━+┻━+┓$/)
+  expect(borders(true, 'done').tone).toBeUndefined()
+  // With no flash running, a running node is drawn as on the beat.
+  expect(layout(nodes, 80).lines).toEqual(layout(nodes, 80, true).lines)
+})
+
+test('in the list, a running node\'s mark flashes the same way', () => {
+  const nodes = [{ ...box('build'), look: 'running' as const }, box('done', ['build'])]
+  const mark = (pulse: boolean) => layout(nodes, 4, pulse).lines.flat().find(seg => seg.text === '●')!
+  expect(layout(nodes, 4).step).toBe(5)
+  expect(mark(true)).toMatchObject({ tone: 'success', bold: true })
+  expect(mark(false)).toMatchObject({ tone: 'success', dim: true })
+})

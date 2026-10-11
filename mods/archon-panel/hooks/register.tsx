@@ -8,7 +8,7 @@ import { bodyWindow, lastPosition, pinnedRow, SETTINGS } from './chrome'
 import { candidates, findArchon, requirementLine } from './cli'
 import { readWorkflow } from './graph'
 import { drawNodes, graphBody } from './graph-view'
-import { EMPTY_WINDOW, isUnder, splitChunk, take, toolSteps } from './log'
+import { EMPTY_WINDOW, isUnder, liveOf, splitChunk, take, toolSteps } from './log'
 import { logBody } from './log-view'
 import type { OpenedFile } from './log-view'
 import { claimKey, collapse, isClaimed, isMine, statusText, toastEvents } from './notify'
@@ -27,6 +27,8 @@ const PANE = 'archon'
 const TITLE = 'Archon'
 /** After a main-thread turn, load only when the runs are older than this. */
 const AFTER_TURN_MS = 10_000
+/** How long each beat of a running node's flash lasts in the Graph. */
+const PULSE_MS = 500
 
 const EMPTY_DATA: ArchonData = {
   status: 'idle',
@@ -66,14 +68,17 @@ const logWindow = atom({ plugin: 'archon-panel', key: 'log' } as const, EMPTY_WI
 const EMPTY_ACTIONS: ArchonActions = { pending: null, text: {}, sending: '', notices: {}, records: {}, checks: {} }
 const actions = atom({ plugin: 'archon-panel', key: 'actions' } as const, EMPTY_ACTIONS)
 const serveLog = atom({ plugin: 'archon-panel', key: 'serveLog' } as const, { lines: [] as string[], size: 0, isMissing: false })
+const pulse = atom({ plugin: 'archon-panel', key: 'pulse' } as const, 0)
 
 // Dies with the module on a reload; session.start or the next attach starts it again.
 let timer: Timer | undefined
 // Counts attaches, so a surfaces check answered before an attach cannot stop
 // the polling that attach kept going.
 let attaches = 0
-// The run log follower: one spawned `archon workflow logs <id> --follow`, for the one live run whose log is in front.
+// The run log follower: one spawned `archon workflow logs <id> --follow`, for the one live run whose Graph or Log is in front.
 let follower: { runId: string; stream: AsyncGenerator<unknown, unknown> } | undefined
+// The Graph's flash: ticks while the followed run's Graph is in front, each redrawing it on the next beat.
+let flash: Timer | undefined
 // The file open in Log's read view, fetched only when opened.
 let opened: OpenedFile | undefined
 // A line the read view shows under its buttons, such as the prompt box refusing.
@@ -369,7 +374,7 @@ async function pick($: EngineInterface, config: Config, run: Run): Promise<void>
   const current = await read($, data)
   const need = needsYou(run, current.runs, current.details)
   if (need === undefined) {
-    await openGraph($, run.id)
+    await openGraph($, config, run.id)
     return
   }
   await changeView($, config, (v): ArchonView => ({ ...v, tab: 'log', run: need.holder.id, node: waitNode(need.standing), file: '' }))
@@ -408,7 +413,7 @@ async function pickNode($: EngineInterface, config: Config, runId: string, id: s
     else if (pickOf.subRuns.length > 1) {
       const key = `${runId}:${pickOf.id}`
       await update($, view, (v): ArchonView => ({ ...v, fanouts: v.fanouts.includes(key) ? v.fanouts.filter(f => f !== key) : [...v.fanouts, key] }))
-    } else await openGraph($, pickOf.subRuns[0]!.id)
+    } else await openGraph($, config, pickOf.subRuns[0]!.id)
   } else {
     await openNode($, config, run, id)
   }
@@ -442,9 +447,11 @@ async function showAll($: EngineInterface, config: Config): Promise<void> {
 }
 
 /** Shows a run's Graph, reading its source the first time. */
-async function openGraph($: EngineInterface, runId: string): Promise<void> {
+/** Opens a run's Graph, and follows its run log at once while it is live. */
+async function openGraph($: EngineInterface, config: Config, runId: string): Promise<void> {
   await update($, view, (v): ArchonView => ({ ...v, tab: 'graph', run: runId, node: '' }))
   await ensureGraph($, runId)
+  await syncLog($, config)
 }
 
 /** Reads one run again by id, keeping its row and detail: before an action, and when its follower ends. */
@@ -476,7 +483,33 @@ function endLine(run: Run, detail: Detail | undefined): string {
 function stopFollower(): void {
   const own = follower
   follower = undefined
+  stopFlash()
   void own?.stream.return(undefined).catch(() => {})
+}
+
+function stopFlash(): void {
+  flash?.cancel()
+  flash = undefined
+}
+
+/**
+ * Flashes the running nodes of the followed run's Graph: one tick per beat
+ * redraws it, until a tick finds the Graph of that run no longer in front.
+ */
+function startFlash($: EngineInterface): void {
+  if (flash !== undefined) return
+  const own = $.clock.every(PULSE_MS, () => {
+    void (async () => {
+      const shown = await read($, view)
+      if (flash !== own) return
+      if (shown.tab !== 'graph' || follower?.runId !== shown.run || !(await isInFront($))) {
+        if (flash === own) stopFlash()
+        return
+      }
+      await update($, pulse, beat => beat + 1)
+    })().catch(report($))
+  })
+  flash = own
 }
 
 /**
@@ -542,25 +575,29 @@ async function replay($: EngineInterface, config: Config, run: Run, node = ''): 
 
 /**
  * Keeps the run log in step with what the person sees: the follower runs only
- * while a live run's log is in front, one run at a time; a finished run is
- * replayed once, and its window kept until another run is picked.
+ * while a live run's Graph or Log is in front, one run at a time, and the Graph
+ * flashes while it runs; a finished run's log is replayed once, and its window
+ * kept until another run is picked.
  */
 async function syncLog($: EngineInterface, config: Config): Promise<void> {
   const current = await read($, data)
   const shown = await read($, view)
   if (shown.tab === 'archon-log' && (await isShown($)) && (await isInFront($))) await readServeLog($, config)
   const run = current.runs.find(r => r.id === shown.run)
-  const isWanted = run !== undefined && shown.tab === 'log' && current.requirement.state === 'ok' && (await isShown($)) && (await isInFront($))
+  const isWanted = run !== undefined && (shown.tab === 'log' || shown.tab === 'graph') && current.requirement.state === 'ok' && (await isShown($)) && (await isInFront($))
   if (!isWanted || run === undefined) return stopFollower()
   if (!hasEnded(run)) {
     if (follower?.runId !== run.id) {
       stopFollower()
       void follow($, config, run.id).catch(report($))
     }
+    if (shown.tab === 'graph') startFlash($)
+    else stopFlash()
     return
   }
   if (follower?.runId === run.id) return
   stopFollower()
+  if (shown.tab !== 'log') return
   const win = await read($, logWindow)
   if (win.runId !== run.id) await replay($, config, run)
 }
@@ -799,7 +836,7 @@ export const register: Register = (on, options) => {
       loadId: current.loadId + 1,
     }))
     stopPolling()
-    // The follower died with the old module; the load below starts it again from line 1 if a live run's log is in front.
+    // The follower died with the old module; the load below starts it again from line 1 if a live run's Graph or Log is in front.
     stopFollower()
     for (const tab of Object.keys(furthest) as Tab[]) furthest[tab] = 0
     // A headless session does nothing until a surface attaches (session.attach).
@@ -898,6 +935,8 @@ export const register: Register = (on, options) => {
     } else if (shown.tab === 'graph') {
       const run = current.runs.find(r => r.id === shown.run)
       if (run !== undefined && current.graphs[run.id] === undefined) void ensureGraph($, run.id).catch(report($))
+      const win = await read($, logWindow)
+      const isFollowed = run !== undefined && follower?.runId === run.id && win.runId === run.id && win.node === ''
       lines = graphBody({
         ui,
         run,
@@ -905,14 +944,16 @@ export const register: Register = (on, options) => {
         details: current.details,
         nodes: run === undefined ? undefined : current.graphs[run.id],
         view: shown,
+        live: isFollowed ? liveOf(win) : undefined,
+        pulse: flash === undefined || (await read($, pulse)) % 2 === 0,
         now: await $.clock.now(),
         width,
         link: run !== undefined && current.source === 'server' && e.surface !== 'mobile' ? `http://localhost:${config.port}/console/r/${run.id}` : '',
         onPick: id => void pickNode($, config, shown.run, id).catch(report($)),
         onFold: block => void update($, view, (v): ArchonView => ({ ...v, includes: v.includes.filter(entry => entry !== `${shown.run}:${block}`) })).catch(report($)),
         onRound: round => void update($, view, (v): ArchonView => ({ ...v, round })).catch(report($)),
-        onParent: parent => void openGraph($, parent.id).catch(report($)),
-        onSubRun: subRun => void openGraph($, subRun.id).catch(report($)),
+        onParent: parent => void openGraph($, config, parent.id).catch(report($)),
+        onSubRun: subRun => void openGraph($, config, subRun.id).catch(report($)),
       })
     } else if (shown.tab === 'archon-log') {
       const served = await read($, serveLog)
