@@ -89,11 +89,39 @@ function rankOf(path: string): number {
   return /\/bundled\//.test(path) ? 0 : /\/global\//.test(path) ? 1 : 2
 }
 
+/** `owner/pack:entry`: how Archon names a run of an installed workflow pack's entry point. */
+const PACK_ENTRY = /^([^/\s:]+)\/([^/\s:]+):([^/\s:]+)$/
+
+/**
+ * The file of an installed pack's entry point in a frozen source. Archon freezes
+ * the pack under `installed/<owner>.<pack>/`, and its `archon-plugin.json` maps
+ * each entry point to a workflow file whose own `name:` differs from the run's
+ * workflow name. Undefined for any other name, or when the pack or the entry
+ * point can't be read.
+ */
+async function packEntryFile(io: SourceIo, root: string, workflow: string): Promise<string | undefined> {
+  const match = PACK_ENTRY.exec(workflow)
+  if (match === null) return undefined
+  const dir = `${root}/installed/${match[1]}.${match[2]}`
+  const pack = await io.read(`${dir}/archon-plugin.json`).then(text => JSON.parse(text) as unknown).catch(() => undefined)
+  const entries = isObject(pack) && isObject(pack.entrypoints) ? pack.entrypoints : {}
+  const file = Object.hasOwn(entries, match[3]!) ? entries[match[3]!] : undefined
+  if (typeof file !== 'string') return undefined
+  const relative = file.replace(/\\/g, '/').replace(/^\.\//, '')
+  return relative === '' || relative.startsWith('/') || relative.split('/').includes('..') ? undefined : `${dir}/${relative}`
+}
+
+/** The workflow names a workflow's plain `include:` nodes refer to. */
+function includesOf(yaml: string): string[] {
+  return [...yaml.matchAll(/^\s*(?:-\s+)?include:\s*["']?([^"'\s#]+)/gm)].map(match => match[1]!)
+}
+
 /**
  * A run's nodes, read from its frozen workflow source
  * (`metadata.workflow_source.root`), which never changes: the workflow
- * `manifest.json` names (else `workflow`), and any workflow it includes.
- * Null when the source has no such workflow or can't be read.
+ * `manifest.json` names (else `workflow`), and any workflow it includes. A
+ * pack's entry point (`owner/pack:entry`) is read from the file its pack maps
+ * it to. Null when the source has no such workflow or can't be read.
  */
 export async function readWorkflow(io: SourceIo, sourceRoot: string, workflow: string): Promise<GraphNode[] | null> {
   const root = sourceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
@@ -115,10 +143,25 @@ export async function readWorkflow(io: SourceIo, sourceRoot: string, workflow: s
     if (found !== '' && (known === undefined || rankOf(path) > known.rank)) byName.set(found, { text, rank: rankOf(path) })
   }
   const base = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.ya?ml$/i, '')
-  for (const path of files) if (base(path) === name || /^archon-/.test(base(path))) consider(path, await textOf(path))
-  if (!byName.has(name)) for (const path of files) consider(path, await textOf(path))
-  const main = byName.get(name)?.text
+  const entry = await packEntryFile(io, root, name)
+  let main: string | undefined
+  if (entry !== undefined) {
+    const text = await textOf(entry)
+    main = text === '' ? undefined : text
+  } else {
+    for (const path of files) if (base(path) === name || /^archon-/.test(base(path))) consider(path, await textOf(path))
+    if (!byName.has(name)) for (const path of files) consider(path, await textOf(path))
+    main = byName.get(name)?.text
+  }
   if (main === undefined) return null
+  // Included workflows the files read so far don't name: first a file named for each, then every file.
+  let pending = includesOf(main)
+  for (let depth = 0; depth < 3 && pending.length > 0; depth++) {
+    const missing = pending.filter(wanted => !byName.has(wanted))
+    for (const path of files) if (missing.includes(base(path))) consider(path, await textOf(path))
+    if (missing.some(wanted => !byName.has(wanted))) for (const path of files) consider(path, await textOf(path))
+    pending = pending.flatMap(wanted => includesOf(byName.get(wanted)?.text ?? ''))
+  }
   const sync = new Map([...byName].map(([key, value]) => [key, value.text]))
   return workflowNodes(main, wanted => sync.get(wanted))
 }

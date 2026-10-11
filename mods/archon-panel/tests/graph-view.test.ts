@@ -34,7 +34,7 @@ const SHIP_EVENTS = [
   event('node_started', 'fix-cycle.fix', { iteration: 2 }, at(6)),
 ]
 
-async function graph($: Engine, on: On, rows: Row[], over: Partial<World> = {}, surface: 'terminal' | 'mobile' = 'terminal') {
+async function graph($: Engine, on: On, rows: Row[], over: Partial<World> = {}, surface: 'terminal' | 'mobile' = 'terminal', pick = 'ship-1') {
   const clock = mock.clock(on, { now: at(20) })
   mock.store(on)
   const w = world({ rows, panes: IN_FRONT(), disk: { ...SOURCE }, events: { 'ship-1': SHIP_EVENTS }, ...over })
@@ -42,7 +42,7 @@ async function graph($: Engine, on: On, rows: Row[], over: Partial<World> = {}, 
   await $.session.start(START)
   await clock.settle()
   const pane = await $.ui.mount({ plugin: 'archon-panel', surface, component: 'Pane', requestId: 'archon', props: paneProps(120, 60) })
-  await pane.press({ key: 'pick-ship-1' })
+  await pane.press({ key: `pick-${pick}` })
   await clock.settle()
   return { clock, w, pane }
 }
@@ -157,5 +157,35 @@ test('no ↗ Archon link while the CLI answers', COLD, async ($, on) => {
 test('no ↗ Archon link on the phone, where localhost is the phone', COLD, async ($, on) => {
   const { pane } = await graph($, on, [SHIP_ROW], {}, 'mobile')
   expect(await pane.find({ type: 'Link' })).toBeUndefined()
+  await pane.unmount()
+})
+
+/** A run of an installed pack's entry point: Archon names it `owner/pack:entry`, and the pack maps the entry to a file whose own name differs. */
+const PACK_ROOT = `${OUTPUT_ROOT}/workflow-source/runs/pack-1`
+const PACK_DIR = `${PACK_ROOT}/installed/acme.kit`
+const PACK_SOURCE = (entry: string) => ({
+  [`${PACK_ROOT}/manifest.json`]: JSON.stringify({ workflow_name: 'acme/kit:build', scopes: ['installed', 'bundled'] }),
+  [`${PACK_DIR}/archon-plugin.json`]: JSON.stringify({ schemaVersion: 1, kind: 'workflow-pack', name: 'kit', entrypoints: { build: entry } }),
+  [`${PACK_DIR}/build/kit-build.yaml`]: 'name: kit-build\nnodes:\n  - id: compile\n    script: compile\n  - id: review\n    include: kit-review\n    depends_on: [compile]\n',
+  [`${PACK_DIR}/review/kit-review.yaml`]: 'name: kit-review\nnodes:\n  - id: read\n    command: read\n  - id: judge\n    command: judge\n    depends_on: [read]\n',
+  [`${PACK_ROOT}/bundled/workflows/archon-ship.yaml`]: SHIP,
+})
+const PACK_ROW = row('pack-1', { workflow_name: 'acme/kit:build', started_at: iso(at(0)), last_activity_at: iso(at(1)) })
+
+test("a pack entry point's Graph is read from the file its pack maps it to, with the pack workflow it includes", COLD, async ($, on) => {
+  const { pane } = await graph($, on, [PACK_ROW], { disk: PACK_SOURCE('build/kit-build.yaml') }, 'terminal', 'pack-1')
+  const all = await shown(pane)
+  expect(all).not.toContain("can't be read")
+  expect(all).toContain('compile')
+  await pane.press({ key: 'node-block:review' })
+  const open = await shown(pane)
+  expect(open).toContain('read')
+  expect(open).toContain('judge')
+  await pane.unmount()
+})
+
+test('a pack entry point that leaves its pack folder is not followed', COLD, async ($, on) => {
+  const { pane } = await graph($, on, [PACK_ROW], { disk: PACK_SOURCE('../../bundled/workflows/archon-ship.yaml') }, 'terminal', 'pack-1')
+  expect(await shown(pane)).toContain("This run's workflow source can't be read.")
   await pane.unmount()
 })
