@@ -42,8 +42,27 @@ test('with nothing needing you the ⏸ count is left out', COLD, async ($, on) =
   await pane.unmount()
 })
 
-test('below about 40 columns the labels shorten', COLD, async ($, on) => {
+test('when the full row does not fit beside the reload button, the labels shorten', COLD, async ($, on) => {
   const { pane } = await open($, on, [row('a')], 36)
+  expect(await tabs(pane)).toEqual(['1: Runs 1', '2: Graph', '3: Log', '4: Arch'])
+  await pane.unmount()
+})
+
+// "1: Runs 1  2: Graph  3: Log  4: Archon's log" is 44 columns; a separating column and "r: ↻" make 49.
+test('the full labels stay while the whole row fits', COLD, async ($, on) => {
+  const wide = await open($, on, [row('a')], 49)
+  expect(await tabs(wide.pane)).toEqual(['1: Runs 1', '2: Graph', '3: Log', "4: Archon's log"])
+  await wide.pane.unmount()
+})
+
+test('a column short of the whole row, the labels shorten rather than run into r: ↻', COLD, async ($, on) => {
+  const { pane } = await open($, on, [row('a')], 48)
+  expect(await tabs(pane)).toEqual(['1: Runs 1', '2: Graph', '3: Log', '4: Arch'])
+  await pane.unmount()
+})
+
+test('the settings gear counts toward the width the full labels need', COLD, async ($, on) => {
+  const { pane } = await open($, on, [row('a')], 49, 40, { commands: ['mod-settings'] })
   expect(await tabs(pane)).toEqual(['1: Runs 1', '2: Graph', '3: Log', '4: Arch'])
   await pane.unmount()
 })

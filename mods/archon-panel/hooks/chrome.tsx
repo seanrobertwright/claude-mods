@@ -7,8 +7,9 @@ import type { Tab } from '../types'
 
 /** The settings dialog's command and its gear's key (ADR-0007). mod-settings takes the press; the gear's onPress is the fallback. */
 export const SETTINGS = 'mod-settings'
-/** Below about this many columns the sub-tab labels shorten. */
-const NARROW = 40
+/** Columns between sub-tabs at full width, and when shortened. */
+const GAP = 2
+const NARROW_GAP = 1
 
 export const TABS: readonly { tab: Tab; hotkey: string; label: string; short: string }[] = [
   { tab: 'runs', hotkey: '1', label: 'Runs', short: 'Runs' },
@@ -32,26 +33,36 @@ export type ChromeProps = {
   onSettings: () => void
 }
 
-/** The pinned row: exactly one line, drawn truncated, the gear at its right end. */
+/** The columns a button takes: its `k: ` hotkey prefix and its label, wide characters counting two. */
+function buttonWidth(label: string, hotkey: string | undefined): number {
+  const cells = [...label].reduce((sum, char) => sum + (/\p{Extended_Pictographic}/u.test(char) ? 2 : /️/u.test(char) ? 0 : 1), 0)
+  return (hotkey === undefined ? 0 : hotkey.length + 2) + cells
+}
+
+/**
+ * The pinned row: exactly one line, the reload and gear at its right end. The
+ * sub-tab labels shorten when the full row would not fit beside them, and a
+ * column always separates the two, so a cut label never runs into `r: ↻`.
+ */
 export function pinnedRow(props: ChromeProps): RenderElement {
   const { Box, Button } = props.ui
-  const isNarrow = props.width < NARROW
+  const counted = (tab: Tab) => (tab === 'runs' ? `${props.live > 0 ? ` ${props.live}` : ''}${props.needsYou > 0 ? ` ⏸${props.needsYou}` : ''}` : '')
+  const tabsWidth = TABS.reduce((sum, { tab, hotkey, label }) => sum + buttonWidth(`${label}${counted(tab)}`, hotkey), 0) + GAP * (TABS.length - 1)
+  const actionsWidth = buttonWidth('↻', props.isReloadKey ? 'r' : undefined) + (props.hasSettings ? 1 + buttonWidth('⚙️', undefined) : 0)
+  const isNarrow = props.width < tabsWidth + 1 + actionsWidth
   return (
-    <Box key="pinned" flexDirection="row" justifyContent="space-between" height={1} overflow="hidden">
-      <Box flexDirection="row" columnGap={isNarrow ? 1 : 2} flexShrink={1} overflow="hidden">
-        {TABS.map(({ tab, hotkey, label, short }) => {
-          const counted = tab === 'runs' ? `${props.live > 0 ? ` ${props.live}` : ''}${props.needsYou > 0 ? ` ⏸${props.needsYou}` : ''}` : ''
-          return (
-            <Button
-              key={`tab-${tab}`}
-              plain
-              hotkey={hotkey}
-              dimColor={tab !== props.shown}
-              label={`${isNarrow ? short : label}${counted}`}
-              onPress={() => props.onTab(tab)}
-            />
-          )
-        })}
+    <Box key="pinned" flexDirection="row" justifyContent="space-between" columnGap={1} height={1} overflow="hidden">
+      <Box flexDirection="row" columnGap={isNarrow ? NARROW_GAP : GAP} flexShrink={1} overflow="hidden">
+        {TABS.map(({ tab, hotkey, label, short }) => (
+          <Button
+            key={`tab-${tab}`}
+            plain
+            hotkey={hotkey}
+            dimColor={tab !== props.shown}
+            label={`${isNarrow ? short : label}${counted(tab)}`}
+            onPress={() => props.onTab(tab)}
+          />
+        ))}
       </Box>
       <Box flexDirection="row" columnGap={1} flexShrink={0}>
         <Button key="reload" plain dimColor {...(props.isReloadKey ? { hotkey: 'r' } : {})} label="↻" onPress={props.onReload} />
