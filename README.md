@@ -306,7 +306,7 @@ A run that needs you comes first, and the pane answers its approval, or resumes 
 +2 live in other projects
 ⏸ archon-interactive-prd  needs your approval  4m
   Draft the PRD for the widget pane
-● archon-deliver  running  37m
+● archon-deliver  ▶ fix-cycle.fix  37m
   Ship the widget pane · continues archon-plan 1a2b3c4
    ↳ 3 sub-runs · 1 running · 2 done
 ✓ archon-plan  completed  12m
@@ -314,6 +314,7 @@ A run that needs you comes first, and the pane answers its approval, or resumes 
 ```
 
 - **1: Runs** lists this project's runs, the ones that need you first: an approval (`⏸`), action needed or a run its sub-run left paused (`!`), and a gate Archon can't read (`?`). Then the rest, newest activity first.
+  A running run names the node it is on, `▶ fix-cycle.fix` for a loop's body node, with `+1` for each node running beside it.
   Sub-runs nest under the run that started them; a fan-out folds to its counts until you pick it.
   In a linked worktree, the runs working in it are pinned first, under its branch.
   Picking a run that needs you opens Log on its gate; any other run opens its Graph.

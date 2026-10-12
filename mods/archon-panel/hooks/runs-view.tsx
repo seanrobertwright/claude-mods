@@ -3,7 +3,7 @@
 import type { Elements, RenderElement } from 'claude-code'
 
 import type { ArchonData, ArchonView, Run } from '../types'
-import { hasEnded, needsYou, sortRuns, standing, subRunsOf, topRuns } from './runs'
+import { hasEnded, innermost, needsYou, sortRuns, standing, subRunsOf, topRuns } from './runs'
 import type { Standing } from './runs'
 import { isPinned } from './scope'
 import type { Platform } from './scope'
@@ -48,7 +48,11 @@ function wordOf(run: Run, found: Standing, isHeldBelow: boolean): string {
     case 'blocked': return isHeldBelow ? 'approval in sub-run' : 'waiting on a sub-run'
     case 'resuming': return 'resuming…'
     case 'waiting': return found.wait.until !== '' ? `waits until ${clockTime(msOf(found.wait.until))}` : `waits for ${found.wait.event || 'an event'}`
-    default: return run.status
+    default: {
+      // A running run names the node it is on, and counts any running beside it.
+      const on = run.status === 'running' ? innermost(run.activeNodes) : []
+      return on.length === 0 ? run.status : `▶ ${on[0]}${on.length > 1 ? ` +${on.length - 1}` : ''}`
+    }
   }
 }
 

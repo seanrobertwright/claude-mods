@@ -2,6 +2,7 @@
 // of the newest 60,000 drawn characters the pane keeps.
 
 import type { LogRow, LogWindow, RunEvent } from '../types'
+import { innermost } from './runs'
 import { dollars, duration, firstLine, fit, msOf, size } from './text'
 import type { Look } from './text'
 
@@ -183,6 +184,5 @@ export function liveOf(window: LogWindow): Live {
     else if (row.kind === 'tool' || row.kind === 'text') latest = { text: firstLine(row.text).replace(/ ▸$/, ''), at: row.at || 0 }
   }
   for (const node of window.open) looks.set(node, 'running')
-  const innermost = window.open.filter(node => !window.open.some(other => other.startsWith(`${node}.`)))
-  return { looks, running: innermost.map(node => ({ node, since: started.get(node) ?? 0 })), latest }
+  return { looks, running: innermost(window.open).map(node => ({ node, since: started.get(node) ?? 0 })), latest }
 }

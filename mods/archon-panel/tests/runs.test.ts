@@ -96,6 +96,27 @@ test('each row reads glyph, workflow, status word and time, with a dim detail li
   await pane.unmount()
 })
 
+test('a running run names the node it is on, a loop by its body node, and counts the nodes running beside it', COLD, async ($, on) => {
+  const { pane } = await runsPane($, on, [
+    row('a', { workflow_name: 'archon-build', active_nodes: ['implement', 'implement.build'] }),
+    row('b', { workflow_name: 'archon-review', active_nodes: ['review__standards', 'review__spec-axis', 'review__tests'] }),
+    row('c', { workflow_name: 'archon-ask', status: 'paused', active_nodes: ['ask'], metadata: { approval: approval({ nodeId: 'ask' }) } }),
+    row('d', { workflow_name: 'archon-plain' }),
+  ])
+  const shown = await labels(pane)
+  expect(shown).toContain('● archon-build  ▶ implement.build  20m')
+  expect(shown).toContain('● archon-review  ▶ review__standards +2  20m')
+  expect(shown).toContain('⏸ archon-ask  needs your approval  20m')
+  expect(shown).toContain('● archon-plain  running  20m')
+  await pane.unmount()
+})
+
+test('active nodes are read at the boundary: only non-empty strings', () => {
+  expect(parse(row('a', { active_nodes: ['plan', '', 7, null, 'plan.fix'] })).activeNodes).toEqual(['plan', 'plan.fix'])
+  expect(parse(row('a', { active_nodes: 'plan' })).activeNodes).toEqual([])
+  expect(parse(row('a')).activeNodes).toEqual([])
+})
+
 test('a gate Archon cannot read links its run in Archon while the server answers', COLD, async ($, on) => {
   const { pane } = await runsPane($, on, [row('odd', { workflow_name: 'archon-odd', status: 'paused', metadata: {} })])
   expect((await pane.find({ type: 'Link' }))?.props.href).toBe('http://localhost:3090/console/r/odd')

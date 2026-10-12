@@ -90,7 +90,13 @@ export function parseRun(value: unknown): Run | undefined {
     approval: status === 'paused' ? gate(metadata.approval) : null,
     wait: status === 'paused' ? wait(metadata.wait) : null,
     costUsd: typeof metadata.total_cost_usd === 'number' ? metadata.total_cost_usd : 0,
+    activeNodes: Array.isArray(value.active_nodes) ? value.active_nodes.filter((node): node is string => typeof node === 'string' && node !== '') : [],
   }
+}
+
+/** The running nodes worth naming: a loop's body node, not the loop it runs in as well. */
+export function innermost(nodes: readonly string[]): string[] {
+  return nodes.filter(node => !nodes.some(other => other.startsWith(`${node}.`)))
 }
 
 /** The rows of a runs list, either source's body; throws when it is not one. */

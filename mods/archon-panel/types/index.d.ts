@@ -70,6 +70,8 @@ export type Run = {
   approval: Gate | null
   wait: Wait | null
   costUsd: number
+  /** The nodes Archon's runs list says have started and not ended (`active_nodes`), by path; empty where a row does not say. */
+  activeNodes: string[]
 }
 
 /** A run event the pane keeps: node markers, gates, and each tool call's node. */

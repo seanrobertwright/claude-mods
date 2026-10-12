@@ -185,3 +185,19 @@ test('a sub-run whose parent is not among the rows brings the parent in by id, o
   expect(await pane.find({ type: 'Button', text: /archon-ship/ })).toBeDefined()
   await pane.unmount()
 })
+
+test('a run whose node changed has its detail read again, though Archon moved nothing else in its row', COLD, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const w = world({ rows: [row('a', { active_nodes: ['plan'] })], panes: IN_FRONT() })
+  fake(on, w)
+  await $.session.start(START)
+  await clock.settle()
+  expect(details(w, 'a')).toBe(1)
+  await clock.advance(2_000)
+  expect(details(w, 'a')).toBe(1)
+  // A script node's start moves no heartbeat; the row's active nodes are what change.
+  w.rows = [row('a', { active_nodes: ['gate'] })]
+  await clock.advance(2_000)
+  expect(details(w, 'a')).toBe(2)
+})

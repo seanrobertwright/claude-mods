@@ -234,7 +234,12 @@ async function isThere(io: DiskIo, run: Run | undefined): Promise<boolean> {
   return io.exists(run.workingPath).catch(() => false)
 }
 
-/** What a row looked like, to tell a changed one: status, last activity and its gate. */
+/**
+ * What a row looked like, to tell a changed one: status, last activity, its gate,
+ * and the nodes it is on. Archon moves last activity only on a heartbeat at most
+ * once a minute, and never while a script node runs, so a node starting or
+ * ending shows in the row only through its active nodes.
+ */
 export function signature(run: Run): string {
-  return JSON.stringify([run.status, run.lastActivityAt, run.approval, run.wait])
+  return JSON.stringify([run.status, run.lastActivityAt, run.approval, run.wait, run.activeNodes])
 }
