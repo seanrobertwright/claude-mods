@@ -15,16 +15,17 @@ function markdownDiff(path: string, lines: readonly string[]): string {
 }
 
 /** The repo beneath the mod: what git and gh answer, the files it can read, and every call made. */
-type Repo = { base: string; diff: string; isDiffFailing: boolean; files: Record<string, string>; runs: string[]; ran: string[] }
+type Repo = { base: string; diff: string; isDiffFailing: boolean; vendorMarkers: string[]; isListFailing: boolean; files: Record<string, string>; runs: string[]; ran: string[] }
 
 function repoOn(on: On, change: Partial<Repo> = {}): Repo {
-  const repo: Repo = { base: 'main', diff: '', isDiffFailing: false, files: {}, runs: [], ran: [], ...change }
+  const repo: Repo = { base: 'main', diff: '', isDiffFailing: false, vendorMarkers: [], isListFailing: false, files: {}, runs: [], ran: [], ...change }
   const answer = (exitCode: number, stdout: string, stderr = '') =>
     ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
   on('process.run', (_$, e) => {
     const argv = e.argv.join(' ')
     repo.runs.push(argv)
     if (argv.startsWith('gh repo view')) return answer(0, `${repo.base}\n`)
+    if (argv.startsWith('git ls-files')) return repo.isListFailing ? answer(128, '', 'fatal: not a git repository') : answer(0, repo.vendorMarkers.map(marker => `${marker}\0`).join(''))
     if (argv.startsWith('git diff')) return repo.isDiffFailing ? answer(128, '', "fatal: bad revision 'origin/main...HEAD'") : answer(0, repo.diff)
     return answer(1, '', 'unexpected command')
   })
@@ -160,6 +161,31 @@ test('lines the branch did not add are not checked', async ($, on) => {
   const command = bashCreate('Adds a line.')
   expect((await $.tool.call({ tool: 'Bash', command })).deny).toBeUndefined()
   expect(repo.ran).toEqual([command])
+})
+
+test('a folder with a .vendor.json is not checked; a sibling, and a folder whose name only starts the same, still are', async ($, on) => {
+  const vendored = markdownDiff('skills/logo/principles.md', ['+The twelve principles.'])
+  const repo = repoOn(on, { vendorMarkers: ['skills/logo/.vendor.json'], diff: vendored })
+  const command = bashCreate('Adds a skill.')
+  expect((await $.tool.call({ tool: 'Bash', command })).deny).toBeUndefined()
+  expect(repo.ran).toEqual([command])
+  repo.diff = vendored + markdownDiff('skills/logo-two/notes.md', ['+The twelve principles.'])
+  expect((await $.tool.call({ tool: 'Bash', command })).deny).toContain('skills/logo-two/notes.md, line 1')
+})
+
+test('a .vendor.json at the repo root exempts nothing', async ($, on) => {
+  repoOn(on, { vendorMarkers: ['.vendor.json'], diff: markdownDiff('README.md', ['+Twelve principles.']) })
+  expect((await $.tool.call({ tool: 'Bash', command: bashCreate('Adds a line.') })).deny).toContain('README.md, line 1')
+})
+
+test('when git cannot list the markers, every file is still checked', async ($, on) => {
+  repoOn(on, { isListFailing: true, diff: markdownDiff('skills/logo/principles.md', ['+The twelve principles.']) })
+  expect((await $.tool.call({ tool: 'Bash', command: bashCreate('Adds a skill.') })).deny).toContain('skills/logo/principles.md, line 1')
+})
+
+test('the body is checked however the branch is vendored', async ($, on) => {
+  repoOn(on, { vendorMarkers: ['skills/logo/.vendor.json'] })
+  expect((await $.tool.call({ tool: 'Bash', command: bashCreate('See paths.ts:42.') })).deny).toContain('PR body')
 })
 
 test('--base sets what the branch is compared with, and gh is not asked for the default branch', async ($, on) => {

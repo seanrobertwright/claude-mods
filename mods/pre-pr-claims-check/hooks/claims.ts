@@ -115,11 +115,24 @@ function changedFiles(diff: string): ChangedFile[] {
   return files
 }
 
-/** The findings on the lines a whole-file diff of Markdown files adds, each placed by file and line. */
-export function findingsInDiff(diff: string): Finding[] {
-  return changedFiles(diff).flatMap(file =>
-    findingsIn(file.lines, index => (file.isAdded[index] ? `${file.path}, line ${index + 1}` : undefined)),
-  )
+/**
+ * The folders a list of `.vendor.json` paths marks as mirrored from another repo, each ending in `/`.
+ * A marker at the repo root names no folder, so it exempts nothing.
+ */
+export function vendoredFolders(markers: readonly string[]): string[] {
+  return markers.filter(marker => marker.endsWith('/.vendor.json')).map(marker => marker.slice(0, -'.vendor.json'.length))
+}
+
+/**
+ * The findings on the lines a whole-file diff of Markdown files adds, each placed by file and line.
+ * Files under `exempt` folders are skipped: their text is another repo's, and a sync would restore any rewording.
+ */
+export function findingsInDiff(diff: string, exempt: readonly string[] = []): Finding[] {
+  return changedFiles(diff)
+    .filter(file => !exempt.some(folder => file.path.startsWith(folder)))
+    .flatMap(file =>
+      findingsIn(file.lines, index => (file.isAdded[index] ? `${file.path}, line ${index + 1}` : undefined)),
+    )
 }
 
 /** Why a gh call is refused: each finding, where it is and what it matched. */

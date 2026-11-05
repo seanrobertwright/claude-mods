@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { findingsInDiff, findingsInText, refusal } from './claims'
+import { findingsInDiff, findingsInText, refusal, vendoredFolders } from './claims'
 import type { Finding } from './claims'
 import { prCalls } from './command'
 import type { Body, PrCall } from './command'
@@ -23,7 +23,17 @@ async function defaultBranch($: EngineInterface): Promise<string> {
   return (await output($, ['gh', 'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'])).trim()
 }
 
-/** The findings on the lines the branch adds to Markdown files since it left `base`. */
+/** The folders exempt from the branch check. A list git cannot give exempts nothing, so every file is still checked. */
+async function exemptFolders($: EngineInterface): Promise<string[]> {
+  try {
+    return vendoredFolders((await output($, ['git', 'ls-files', '-z', '--', ':(glob)**/.vendor.json'])).split('\0'))
+  } catch (error) {
+    logQuietly($, 'listing vendored folders', error)
+    return []
+  }
+}
+
+/** The findings on the lines the branch adds to Markdown files since it left `base`, outside vendored folders. */
 async function findingsOnBranch($: EngineInterface, base: string): Promise<Finding[]> {
   const diff = await output($, [
     'git',
@@ -38,7 +48,7 @@ async function findingsOnBranch($: EngineInterface, base: string): Promise<Findi
     ':(icase)*.md',
     ':(icase)*.markdown',
   ])
-  return findingsInDiff(diff)
+  return findingsInDiff(diff, await exemptFolders($))
 }
 
 async function findingsInBody($: EngineInterface, body: Body | undefined): Promise<Finding[]> {
