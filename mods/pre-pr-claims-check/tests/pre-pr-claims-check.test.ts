@@ -15,20 +15,23 @@ function markdownDiff(path: string, lines: readonly string[]): string {
 }
 
 /** The repo beneath the mod: what git and gh answer, the files it can read, and every call made. */
-type Repo = { base: string; diff: string; isDiffFailing: boolean; vendorMarkers: string[]; isListFailing: boolean; files: Record<string, string>; runs: string[]; ran: string[] }
+type Repo = { name: string; base: string; diff: string; isDiffFailing: boolean; vendorMarkers: string[]; isListFailing: boolean; sessionDir: string; files: Record<string, string>; runs: string[]; dirs: (string | undefined)[]; ran: string[] }
 
 function repoOn(on: On, change: Partial<Repo> = {}): Repo {
-  const repo: Repo = { base: 'main', diff: '', isDiffFailing: false, vendorMarkers: [], isListFailing: false, files: {}, runs: [], ran: [], ...change }
+  const repo: Repo = { name: 'acme/widget', base: 'main', diff: '', isDiffFailing: false, vendorMarkers: [], isListFailing: false, sessionDir: '/work/session', files: {}, runs: [], dirs: [], ran: [], ...change }
   const answer = (exitCode: number, stdout: string, stderr = '') =>
     ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
   on('process.run', (_$, e) => {
     const argv = e.argv.join(' ')
     repo.runs.push(argv)
+    repo.dirs.push(e.init?.cwd)
+    if (argv.startsWith('gh repo view') && argv.includes('nameWithOwner')) return answer(0, `${repo.name}\n`)
     if (argv.startsWith('gh repo view')) return answer(0, `${repo.base}\n`)
     if (argv.startsWith('git ls-files')) return repo.isListFailing ? answer(128, '', 'fatal: not a git repository') : answer(0, repo.vendorMarkers.map(marker => `${marker}\0`).join(''))
     if (argv.startsWith('git diff')) return repo.isDiffFailing ? answer(128, '', "fatal: bad revision 'origin/main...HEAD'") : answer(0, repo.diff)
     return answer(1, '', 'unexpected command')
   })
+  on('session.cwd', () => ({ value: repo.sessionDir }))
   // The engine hands the hook the path made absolute under the session's folder.
   on('fs.read', (_$, e) => {
     const name = Object.keys(repo.files).find(file => e.path.replaceAll('\\', '/').endsWith(`/${file}`))
@@ -62,7 +65,7 @@ test('prCalls reads the title, the body and the base, however the command passes
   expect(prCalls('gh pr create --title=One --body-file - <<EOF\nThe body\nEOF', 'bash')).toEqual([
     { title: 'One', body: { text: 'The body' } },
   ])
-  expect(prCalls('cd repo && gh pr edit 12 --body-file notes.md', 'bash')).toEqual([{ body: { file: 'notes.md' } }])
+  expect(prCalls('cd repo && gh pr edit 12 --body-file notes.md', 'bash')).toEqual([{ dir: 'repo', body: { file: 'notes.md' } }])
   expect(prCalls("gh pr create --title \"It`\"s\" --body @'\nLine one\nLine two\n'@", 'powershell')).toEqual([
     { title: 'It"s', body: { text: 'Line one\nLine two' } },
   ])
@@ -186,6 +189,68 @@ test('when git cannot list the markers, every file is still checked', async ($, 
 test('the body is checked however the branch is vendored', async ($, on) => {
   repoOn(on, { vendorMarkers: ['skills/logo/.vendor.json'] })
   expect((await $.tool.call({ tool: 'Bash', command: bashCreate('See paths.ts:42.') })).deny).toContain('PR body')
+})
+
+test('prCalls reads the folder a cd leaves the command in, and the repo -R names', () => {
+  expect(prCalls('cd /work/other && gh pr create -t One -b Two', 'bash')).toEqual([{ title: 'One', body: { text: 'Two' }, dir: '/work/other' }])
+  expect(prCalls('cd /work && cd other && gh pr edit -b Two', 'bash')).toEqual([{ body: { text: 'Two' }, dir: '/work/other' }])
+  expect(prCalls("Set-Location -Path 'C:\\work\\other'; gh pr edit -b Two", 'powershell')).toEqual([{ body: { text: 'Two' }, dir: 'C:\\work\\other' }])
+  expect(prCalls('gh pr create -b Two -R acme/widget', 'bash')).toEqual([{ body: { text: 'Two' }, repo: 'acme/widget' }])
+  expect(prCalls('cd "$(git rev-parse --show-toplevel)" && gh pr edit -b Two', 'bash')).toEqual([{ body: { text: 'Two' }, isDirUnknown: true }])
+  expect(prCalls('gh pr edit -b One && cd /work/other', 'bash')).toEqual([{ body: { text: 'One' } }])
+})
+
+test('a cd before the call runs git and gh in that folder', async ($, on) => {
+  const repo = repoOn(on, { diff: markdownDiff('README.md', ['+Twelve principles.']) })
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'cd /work/other && gh pr create -t One -b Two' })
+  expect(deny).toContain('README.md, line 1')
+  expect(new Set(repo.dirs)).toEqual(new Set(['/work/other']))
+})
+
+test('without a cd, git and gh run in the session folder', async ($, on) => {
+  const repo = repoOn(on)
+  await $.tool.call({ tool: 'Bash', command: bashCreate('Adds a line.') })
+  expect(new Set(repo.dirs)).toEqual(new Set([undefined]))
+})
+
+test('a Git Bash path becomes a drive path on Windows, and stays as it is elsewhere', async ($, on) => {
+  const repo = repoOn(on, { sessionDir: 'E:\\work\\session' })
+  await $.tool.call({ tool: 'Bash', command: 'cd /e/work/other && gh pr edit -b Two' })
+  expect(new Set(repo.dirs)).toEqual(new Set(['E:/work/other']))
+  repo.dirs.length = 0
+  repo.sessionDir = '/work/session'
+  await $.tool.call({ tool: 'Bash', command: 'cd /e/work/other && gh pr edit -b Two' })
+  expect(new Set(repo.dirs)).toEqual(new Set(['/e/work/other']))
+})
+
+test('a folder the hook cannot resolve leaves the branch unchecked, and the body is still checked', async ($, on) => {
+  const repo = repoOn(on, { diff: markdownDiff('README.md', ['+Twelve principles.']) })
+  const unknown = 'cd "$HOME/other" && gh pr edit -b Two'
+  expect((await $.tool.call({ tool: 'Bash', command: unknown })).deny).toBeUndefined()
+  expect(repo.runs).toEqual([])
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'cd "$HOME/other" && gh pr edit -b "See paths.ts:42."' })
+  expect(deny).toContain('PR body')
+})
+
+test('-R naming another repo leaves the local branch unchecked, and the body is still checked', async ($, on) => {
+  const repo = repoOn(on, { diff: markdownDiff('README.md', ['+Twelve principles.']) })
+  expect((await $.tool.call({ tool: 'Bash', command: 'gh pr create -R acme/other -t One -b Two' })).deny).toBeUndefined()
+  expect(repo.runs.some(run => run.startsWith('git diff'))).toBe(false)
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'gh pr create -R acme/other -t One -b "See paths.ts:42."' })
+  expect(deny).toContain('PR body')
+})
+
+test('-R naming the local repo checks the branch, whatever its form', async ($, on) => {
+  repoOn(on, { diff: markdownDiff('README.md', ['+Twelve principles.']) })
+  for (const named of ['acme/widget', 'ACME/Widget', 'github.com/acme/widget', 'https://github.com/acme/widget.git']) {
+    expect((await $.tool.call({ tool: 'Bash', command: `gh pr create -R ${named} -t One -b Two` })).deny).toContain('README.md, line 1')
+  }
+})
+
+test('a relative --body-file is read from the folder the cd left the command in', async ($, on) => {
+  repoOn(on, { files: { 'other/notes.md': 'Moves twelve tests.\n' } })
+  const { deny } = await $.tool.call({ tool: 'Bash', command: 'cd /work/other && gh pr edit --body-file notes.md' })
+  expect(deny).toContain('PR body: count in words "twelve tests"')
 })
 
 test('--base sets what the branch is compared with, and gh is not asked for the default branch', async ($, on) => {

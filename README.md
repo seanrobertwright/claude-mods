@@ -661,6 +661,7 @@ forty-four entries                      a count spelled out from eleven up, befo
 - **Any finding refuses the call.** No finding lets it through.
 - **It checks in a headless session too.** It asks no one, and agents working on their own open many of the pull requests it is for. It runs `git diff`, and `gh` when there is no `--base`, but starts no prompt and no headless run.
 - When git cannot compare the branch with the base on `origin`, for instance before the base is fetched, it checks only the title and the body.
+- **It checks the branch the command is about.** A `cd` earlier in the same command moves the check to that folder. When `-R` names a repo other than that folder's, or a `cd` uses a path only the shell can expand, the branch is not there to read, so it checks only the title and the body. A `cd` in an earlier command is not seen.
 - **It skips vendored folders.** A folder holding a tracked `.vendor.json` is mirrored from another repo, so its Markdown is not checked: the text is not this repo's to reword, and the next sync would restore it. The title and the body are always checked. When git cannot list the markers, every file is checked.
 - It does not check code comments, files other than Markdown, the text `--fill` takes from the commits, or whether a claim is true.
 

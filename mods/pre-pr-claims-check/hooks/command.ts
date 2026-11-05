@@ -3,8 +3,11 @@ export type Shell = 'bash' | 'powershell'
 /** Where a PR's body comes from: its text as the command gives it, or a file to read. */
 export type Body = { text: string } | { file: string }
 
-/** One `gh pr create` or `gh pr edit` in a shell command, with what it sets. */
-export type PrCall = { title?: string; body?: Body; base?: string }
+/** Where a call runs: the folder a `cd` before it left the command in, or that a `cd` went somewhere the hook cannot tell. */
+type Place = { dir?: string; isDirUnknown?: boolean }
+
+/** One `gh pr create` or `gh pr edit` in a shell command, with what it sets and where it runs. */
+export type PrCall = Place & { title?: string; body?: Body; base?: string; repo?: string }
 
 /**
  * Stands in for a heredoc or a here-string taken out of the command, so a word
@@ -24,9 +27,14 @@ const FLAGS: Readonly<Record<string, keyof Flags>> = {
   '-F': 'bodyFile',
   '--base': 'base',
   '-B': 'base',
+  '--repo': 'repo',
+  '-R': 'repo',
 }
+const CHANGES_DIR = /^(?:cd|chdir|pushd|sl|set-location)$/i
+// A path holding one of these is only known once the shell has expanded it.
+const EXPANDS = new RegExp(`[$\`~%${MARK}]`)
 
-type Flags = { title?: string; body?: string; bodyFile?: string; base?: string }
+type Flags = { title?: string; body?: string; bodyFile?: string; base?: string; repo?: string }
 type Inline = { command: string; texts: string[] }
 
 function mark(index: number): string {
@@ -157,18 +165,47 @@ function bodyOf(flags: Flags, texts: readonly string[]): Body | undefined {
   return { file: flags.bodyFile }
 }
 
+export function isAbsolute(path: string): boolean {
+  return /^(?:[A-Za-z]:)?[\\/]/.test(path)
+}
+
+/** A Git Bash path as a Windows process needs it, when the session is on Windows; `dir` as it is otherwise. */
+export function nativeDir(dir: string, sessionDir: string): string {
+  if (!/^[A-Za-z]:/.test(sessionDir)) return dir
+  return dir.replace(/^\/([A-Za-z])(?=\/|$)/, (_all, drive: string) => `${drive.toUpperCase()}:`)
+}
+
+/** Whether two ways of naming a repo (`owner/repo`, `host/owner/repo`, a URL) name the same one. */
+export function isSameRepo(one: string, other: string): boolean {
+  const ownerAndName = (repo: string) => repo.trim().replace(/\/+$/, '').replace(/\.git$/i, '').split('/').slice(-2).join('/').toLowerCase()
+  return ownerAndName(one) === ownerAndName(other)
+}
+
+/** Where a command is after a `cd` with these arguments. A flag such as `-Path` is passed over; its value is the target. */
+function afterCd(place: Place, args: readonly string[]): Place {
+  const target = args.find(arg => !arg.startsWith('-'))
+  if (target === undefined || EXPANDS.test(target) || place.isDirUnknown === true) return { isDirUnknown: true }
+  return { dir: place.dir === undefined || isAbsolute(target) ? target : `${place.dir}/${target}` }
+}
+
 /** Each `gh pr create` and `gh pr edit` the command runs, in order; none for any other command. */
 export function prCalls(command: string, shell: Shell): PrCall[] {
   if (!/\bgh(?:\.exe)?\s+pr\s+(?:create|edit)\b/.test(command)) return []
   const inline = shell === 'bash' ? takeHeredocs(command) : takeHereStrings(command)
   const calls: PrCall[] = []
+  let place: Place = {}
   for (const words of simpleCommands(inline.command, shell)) {
+    if (CHANGES_DIR.test(words[0]!)) {
+      place = afterCd(place, words.slice(1))
+      continue
+    }
     const at = words.findIndex(
       (word, index) => /^(?:.*[\\/])?gh(?:\.exe)?$/i.test(word) && words[index + 1] === 'pr' && /^(?:create|edit)$/.test(words[index + 2] ?? ''),
     )
     if (at < 0) continue
     const flags = readFlags(words.slice(at + 3))
-    const call: PrCall = {}
+    const call: PrCall = { ...place }
+    if (flags.repo !== undefined) call.repo = flags.repo
     if (flags.title !== undefined) call.title = inlineIn(flags.title, inline.texts) ?? flags.title
     const body = bodyOf(flags, inline.texts)
     if (body !== undefined) call.body = body
