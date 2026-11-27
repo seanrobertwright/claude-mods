@@ -23,7 +23,11 @@ async function defaultBranch($: EngineInterface): Promise<string> {
   return (await output($, ['gh', 'repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'])).trim()
 }
 
-/** The findings on the lines the branch adds to Markdown files since it left `base`. */
+/**
+ * The findings on the lines the branch adds to Markdown files since it left `base`.
+ * The practice files core-values vendors into `.agents/practices` at the repo's root are left out:
+ * they quote the banned forms as examples, and the project did not write them.
+ */
 async function findingsOnBranch($: EngineInterface, base: string): Promise<Finding[]> {
   const diff = await output($, [
     'git',
@@ -37,6 +41,7 @@ async function findingsOnBranch($: EngineInterface, base: string): Promise<Findi
     '--',
     ':(icase)*.md',
     ':(icase)*.markdown',
+    ':(exclude,top).agents/practices',
   ])
   return findingsInDiff(diff)
 }

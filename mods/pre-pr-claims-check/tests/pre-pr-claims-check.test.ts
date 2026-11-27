@@ -127,7 +127,7 @@ test('an added Markdown line holding a placeholder refuses, naming the file', as
   const refused = await $.tool.call({ tool: 'Bash', command: bashCreate('Adds the guide.') })
   expect(refused.deny).toContain('docs/guide.md, line 2: placeholder "(PR #NN)"')
   expect(refused.deny).toContain('docs/guide.md, line 3: placeholder "TODO fill in"')
-  expect(repo.runs).toContain(`git diff --no-color --no-ext-diff --no-prefix --find-renames --unified=1000000 origin/main...HEAD -- :(icase)*.md :(icase)*.markdown`)
+  expect(repo.runs).toContain(`git diff --no-color --no-ext-diff --no-prefix --find-renames --unified=1000000 origin/main...HEAD -- :(icase)*.md :(icase)*.markdown :(exclude,top).agents/practices`)
 })
 
 test('a count in words refuses; one in digits, one under eleven, or a citation in a fence does not', async ($, on) => {
