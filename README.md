@@ -662,6 +662,7 @@ forty-four entries                      a count spelled out from eleven up, befo
 - **It checks in a headless session too.** It asks no one, and agents working on their own open many of the pull requests it is for. It runs `git diff`, and `gh` when there is no `--base`, but starts no prompt and no headless run.
 - When git cannot compare the branch with the base on `origin`, for instance before the base is fetched, it checks only the title and the body.
 - It does not check code comments, files other than Markdown, the text `--fill` takes from the commits, or whether a claim is true.
+- It does not read Markdown under `.agents/practices/` at the repo's root, where the core-values installer vendors its practice files. They quote the banned forms as examples, and editing them would stop the installer updating them. Anything else a project keeps in that folder is skipped too.
 
 There is nothing to set.
 
